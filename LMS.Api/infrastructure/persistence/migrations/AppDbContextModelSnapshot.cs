@@ -8,7 +8,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace LMS.Api.infrastructure.Persistence.Migration
+namespace LMS.Api.infrastructure.persistence.migrations
 {
     [DbContext(typeof(AppDbContext))]
     partial class AppDbContextModelSnapshot : ModelSnapshot
@@ -33,6 +33,9 @@ namespace LMS.Api.infrastructure.Persistence.Migration
                         .HasColumnType("character varying(500)")
                         .HasColumnName("avatar_url");
 
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedOn")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_on");
@@ -48,6 +51,9 @@ namespace LMS.Api.infrastructure.Persistence.Migration
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("fullname");
+
+                    b.Property<Guid?>("ModifiedById")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTime>("ModifiedOn")
                         .HasColumnType("timestamp with time zone")
@@ -76,10 +82,31 @@ namespace LMS.Api.infrastructure.Persistence.Migration
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CreatedById");
+
                     b.HasIndex("Email")
                         .IsUnique();
 
+                    b.HasIndex("ModifiedById");
+
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("LMS.Api.domain.Entities.Users", b =>
+                {
+                    b.HasOne("LMS.Api.domain.Entities.Users", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LMS.Api.domain.Entities.Users", "ModifiedBy")
+                        .WithMany()
+                        .HasForeignKey("ModifiedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("ModifiedBy");
                 });
 #pragma warning restore 612, 618
         }

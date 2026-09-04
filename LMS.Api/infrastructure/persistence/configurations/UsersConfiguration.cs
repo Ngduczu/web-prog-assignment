@@ -58,5 +58,15 @@ public class UsersConfiguration : IEntityTypeConfiguration<Users>
         builder.Property(x => x.ModifiedOn)
             .HasColumnName("modified_on")
             .IsRequired();
+        
+        builder.HasOne(x => x.CreatedBy)
+            .WithMany()
+            .HasForeignKey(x => x.CreatedById)
+            .OnDelete(DeleteBehavior.Restrict);
+        
+        builder.HasOne(x => x.ModifiedBy)
+            .WithMany()
+            .HasForeignKey(x => x.ModifiedById)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

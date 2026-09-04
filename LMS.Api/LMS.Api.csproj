@@ -14,22 +14,13 @@
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="application\Features\" />
-      <Folder Include="application\Interfaces\" />
-      <Folder Include="domain\Exceptions\" />
-      <Folder Include="domain\Repositories\" />
-      <Folder Include="infrastructure\Authentication\JWT\" />
-      <Folder Include="infrastructure\Authentication\OAuth\" />
-      <Folder Include="infrastructure\Caching\" />
-      <Folder Include="infrastructure\Mail\" />
-      <Folder Include="infrastructure\Persistence\Migrations\" />
-      <Folder Include="infrastructure\Repositories\" />
-      <Folder Include="infrastructure\Storage\S3\" />
-      <Folder Include="presentation\Controllers\" />
-      <Folder Include="presentation\Middleware\" />
+      <Folder Include="application\features\auth\" />
+      <Folder Include="infrastructure\persistence\migrations\" />
+      <Folder Include="infrastructure\persistence\repositories\" />
     </ItemGroup>
 
 </Project>
