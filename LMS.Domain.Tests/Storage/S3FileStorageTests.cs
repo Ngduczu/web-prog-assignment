@@ -2,7 +2,11 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using LMS.Api.application.abstractions.storage;
 using LMS.Api.domain.exceptions;
+using LMS.Api.infrastructure;
+using LMS.Api.infrastructure.storage.Local;
 using LMS.Api.infrastructure.storage.S3;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Moq;
 
@@ -69,8 +73,43 @@ public sealed class S3FileStorageTests
             It.IsAny<DeleteObjectRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public void DisabledS3RegistersLocalStorage()
+    {
+        var services = new ServiceCollection();
+
+        services.AddInfrastructure(CreateConfiguration(s3Enabled: false));
+
+        var registration = services.Single(service => service.ServiceType == typeof(IFileStorage));
+        Assert.Equal(typeof(LocalFileStorage), registration.ImplementationType);
+    }
+
+    [Fact]
+    public void EnabledS3RegistersS3Storage()
+    {
+        var services = new ServiceCollection();
+
+        services.AddInfrastructure(CreateConfiguration(s3Enabled: true));
+
+        var registration = services.Single(service => service.ServiceType == typeof(IFileStorage));
+        Assert.Equal(typeof(S3FileStorage), registration.ImplementationType);
+    }
+
     private static S3FileStorage CreateStorage(IAmazonS3 client) =>
         new(
             Options.Create(new S3StorageOptions { BucketName = "test-bucket" }),
             client);
+
+    private static IConfiguration CreateConfiguration(bool s3Enabled) =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=test",
+                ["ConnectionStrings:Redis"] = "localhost:6379",
+                ["Jwt:Issuer"] = "LMS.Api",
+                ["Jwt:Audience"] = "LMS.Client",
+                ["Jwt:SigningKey"] = "integration-test-signing-key-that-is-at-least-32-bytes",
+                ["S3Storage:Enabled"] = s3Enabled.ToString()
+            })
+            .Build();
 }
