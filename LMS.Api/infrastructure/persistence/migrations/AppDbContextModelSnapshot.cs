@@ -22,7 +22,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("LMS.Api.domain.Entities.User", b =>
+            modelBuilder.Entity("LMS.Api.domain.Entities.Users.User", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -92,14 +92,14 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("LMS.Api.domain.Entities.User", b =>
+            modelBuilder.Entity("LMS.Api.domain.Entities.Users.User", b =>
                 {
-                    b.HasOne("LMS.Api.domain.Entities.User", "CreatedBy")
+                    b.HasOne("LMS.Api.domain.Entities.Users.User", "CreatedBy")
                         .WithMany()
                         .HasForeignKey("CreatedById")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("LMS.Api.domain.Entities.User", "ModifiedBy")
+                    b.HasOne("LMS.Api.domain.Entities.Users.User", "ModifiedBy")
                         .WithMany()
                         .HasForeignKey("ModifiedById")
                         .OnDelete(DeleteBehavior.Restrict);

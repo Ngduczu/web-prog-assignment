@@ -1,4 +1,4 @@
-using LMS.Api.domain.Entities;
+using LMS.Api.domain.Entities.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 

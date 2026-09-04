@@ -1,4 +1,4 @@
-using LMS.Api.domain.Entities;
+using LMS.Api.domain.Entities.Users;
 using Microsoft.EntityFrameworkCore;
 
 namespace LMS.Api.infrastructure.Persistence;
