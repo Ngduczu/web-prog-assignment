@@ -1,6 +1,7 @@
 using LMS.Api.application.features.coursecontents;
 using LMS.Api.application.features.courses;
 using LMS.Api.application.features.enrollments;
+using LMS.Api.application.features.questions;
 
 namespace LMS.Api.application;
 
@@ -15,6 +16,7 @@ public static class DependencyInjection
         services.AddScoped<ILessonService, LessonService>();
         services.AddScoped<IExerciseService, ExerciseService>();
         services.AddScoped<ISubmissionService, SubmissionService>();
+        services.AddScoped<IQuestionService, QuestionService>();
         return services;
     }
 }

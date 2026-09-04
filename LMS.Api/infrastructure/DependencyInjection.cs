@@ -20,12 +20,16 @@ public static class DependencyInjection
         );
         services.AddScoped<IUnitOfWork>(serviceProvider =>
             serviceProvider.GetRequiredService<AppDbContext>());
+        services.AddScoped<ITransactionManager>(serviceProvider =>
+            serviceProvider.GetRequiredService<AppDbContext>());
         services.AddScoped<ICourseRepository, CourseRepository>();
         services.AddScoped<IEnrollmentRepository, EnrollmentRepository>();
         services.AddScoped<ILessonRepository, LessonRepository>();
         services.AddScoped<IMaterialRepository, MaterialRepository>();
         services.AddScoped<IExerciseRepository, ExerciseRepository>();
         services.AddScoped<ISubmissionRepository, SubmissionRepository>();
+        services.AddScoped<IQuestionBankRepository, QuestionBankRepository>();
+        services.AddScoped<IQuestionRepository, QuestionRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));
         services.AddSingleton<IFileStorage, LocalFileStorage>();

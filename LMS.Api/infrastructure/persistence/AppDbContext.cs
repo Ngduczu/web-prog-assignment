@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LMS.Api.infrastructure.Persistence;
 
-public class AppDbContext : DbContext, IUnitOfWork
+public class AppDbContext : DbContext, IUnitOfWork, ITransactionManager
 {
     public  AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {}
@@ -48,5 +48,18 @@ public class AppDbContext : DbContext, IUnitOfWork
         );
 
         base.OnModelCreating(modelBuilder);
+    }
+
+    public async Task ExecuteAsync(
+        Func<CancellationToken, Task> action,
+        CancellationToken cancellationToken = default)
+    {
+        var executionStrategy = Database.CreateExecutionStrategy();
+        await executionStrategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+            await action(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
     }
 }

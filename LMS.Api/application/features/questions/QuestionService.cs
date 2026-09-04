@@ -1,0 +1,304 @@
+using LMS.Api.application.abstractions.auth;
+using LMS.Api.application.abstractions.persistence;
+using LMS.Api.domain.Entities.Questions;
+using LMS.Api.domain.Enums.Questions;
+using LMS.Api.domain.Enums.Users;
+using LMS.Api.domain.exceptions;
+using LMS.Api.domain.repositories;
+
+namespace LMS.Api.application.features.questions;
+
+public sealed class QuestionService : IQuestionService
+{
+    private readonly IQuestionBankRepository _questionBanks;
+    private readonly IQuestionRepository _questions;
+    private readonly IUserRepository _users;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly ITransactionManager _transactionManager;
+    private readonly ICurrentUser _currentUser;
+
+    public QuestionService(
+        IQuestionBankRepository questionBanks,
+        IQuestionRepository questions,
+        IUserRepository users,
+        IUnitOfWork unitOfWork,
+        ITransactionManager transactionManager,
+        ICurrentUser currentUser)
+    {
+        _questionBanks = questionBanks;
+        _questions = questions;
+        _users = users;
+        _unitOfWork = unitOfWork;
+        _transactionManager = transactionManager;
+        _currentUser = currentUser;
+    }
+
+    public async Task<QuestionBankDto> CreateQuestionBankAsync(
+        CreateQuestionBankRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(request.TeacherId, "Teacher id");
+        ValidateQuestionBank(request.Name, request.Description);
+        var actorId = _currentUser.GetRequiredUserId();
+        var actorRole = _currentUser.GetRequiredRole();
+
+        if (actorRole != Role.Admin && (actorRole != Role.Teacher || actorId != request.TeacherId))
+        {
+            throw new ForbiddenException("Teachers can only create question banks assigned to themselves.");
+        }
+
+        var teacher = await _users.GetByIdAsync(request.TeacherId, cancellationToken)
+            ?? throw new NotFoundException("Teacher was not found.");
+        if (teacher.Role != Role.Teacher || teacher.Status != AccountStatus.Active)
+        {
+            throw new BadRequestException("Question bank owner must be an active teacher account.");
+        }
+
+        var questionBank = new QuestionBank(
+            teacher.Id,
+            request.Name.Trim(),
+            NormalizeOptional(request.Description),
+            actorId);
+        _questionBanks.Add(questionBank);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(questionBank);
+    }
+
+    public async Task<QuestionBankDto> UpdateQuestionBankAsync(
+        Guid questionBankId,
+        UpdateQuestionBankRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(questionBankId, "Question bank id");
+        ValidateQuestionBank(request.Name, request.Description);
+        var questionBank = await GetManagedQuestionBankAsync(questionBankId, cancellationToken);
+        questionBank.SetName(request.Name.Trim());
+        questionBank.SetDescription(NormalizeOptional(request.Description));
+        questionBank.SetModifiedBy(_currentUser.GetRequiredUserId());
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(questionBank);
+    }
+
+    public async Task<IReadOnlyList<QuestionBankDto>> ListQuestionBanksAsync(
+        Guid? teacherId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var actorId = _currentUser.GetRequiredUserId();
+        var actorRole = _currentUser.GetRequiredRole();
+        var ownerId = teacherId ?? actorId;
+
+        if (actorRole != Role.Admin && (actorRole != Role.Teacher || ownerId != actorId))
+        {
+            throw new ForbiddenException("Teachers can only view their own question banks.");
+        }
+
+        var questionBanks = await _questionBanks.ListByTeacherAsync(ownerId, cancellationToken);
+        return questionBanks.Select(Map).ToArray();
+    }
+
+    public async Task<QuestionDto> CreateMultipleChoiceAsync(
+        Guid questionBankId,
+        CreateMultipleChoiceQuestionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(questionBankId, "Question bank id");
+        ValidateQuestion(request.Content, request.Difficulty);
+        ValidateMultipleChoiceOptions(request.Options);
+        _ = await GetManagedQuestionBankAsync(questionBankId, cancellationToken);
+        var actorId = _currentUser.GetRequiredUserId();
+        var question = new Question(
+            questionBankId,
+            request.Content.Trim(),
+            QuestionType.MultipleChoice,
+            request.Difficulty,
+            request.ShuffleOptions,
+            actorId);
+        MultipleChoiceOption? correctOption = null;
+
+        for (var index = 0; index < request.Options.Count; index++)
+        {
+            var input = request.Options[index];
+            var option = new MultipleChoiceOption(question.Id, input.Content.Trim(), index);
+            question.MultipleChoiceOptions.Add(option);
+            if (input.IsCorrect)
+            {
+                correctOption = option;
+            }
+        }
+
+        await _transactionManager.ExecuteAsync(async transactionCancellationToken =>
+        {
+            _questions.Add(question);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            question.SetCorrectOption(correctOption!.Id);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
+
+        return Map(question);
+    }
+
+    public async Task<QuestionDto> CreateFillInBlankAsync(
+        Guid questionBankId,
+        CreateFillInBlankQuestionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(questionBankId, "Question bank id");
+        ValidateQuestion(request.Content, request.Difficulty);
+        ValidateFillInBlankAnswers(request.Answers);
+        _ = await GetManagedQuestionBankAsync(questionBankId, cancellationToken);
+        var actorId = _currentUser.GetRequiredUserId();
+        var question = new Question(
+            questionBankId,
+            request.Content.Trim(),
+            QuestionType.FillInBlank,
+            request.Difficulty,
+            false,
+            actorId);
+
+        foreach (var answer in request.Answers)
+        {
+            question.FillInBlankAnswerKeys.Add(new FillInBlankAnswerKey(
+                question.Id,
+                answer.BlankOrder,
+                answer.ExpectedAnswer.Trim()));
+        }
+
+        _questions.Add(question);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(question);
+    }
+
+    public async Task<IReadOnlyList<QuestionDto>> ListQuestionsAsync(
+        Guid questionBankId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(questionBankId, "Question bank id");
+        _ = await GetManagedQuestionBankAsync(questionBankId, cancellationToken);
+        var questions = await _questions.ListByQuestionBankAsync(questionBankId, cancellationToken);
+        return questions.Select(Map).ToArray();
+    }
+
+    private async Task<QuestionBank> GetManagedQuestionBankAsync(
+        Guid questionBankId,
+        CancellationToken cancellationToken)
+    {
+        var questionBank = await _questionBanks.GetByIdAsync(questionBankId, cancellationToken)
+            ?? throw new NotFoundException("Question bank was not found.");
+        var actorId = _currentUser.GetRequiredUserId();
+        var actorRole = _currentUser.GetRequiredRole();
+
+        if (actorRole != Role.Admin && (actorRole != Role.Teacher || questionBank.TeacherId != actorId))
+        {
+            throw new ForbiddenException("Only the question bank owner or an administrator can manage it.");
+        }
+
+        return questionBank;
+    }
+
+    private static void ValidateQuestionBank(string name, string? description)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 200)
+        {
+            throw new BadRequestException("Question bank name must contain between 1 and 200 characters.");
+        }
+
+        if (description?.Trim().Length > 2000)
+        {
+            throw new BadRequestException("Question bank description cannot exceed 2000 characters.");
+        }
+    }
+
+    private static void ValidateQuestion(string content, QuestionDifficulty difficulty)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            throw new BadRequestException("Question content is required.");
+        }
+
+        if (!Enum.IsDefined(difficulty))
+        {
+            throw new BadRequestException("Question difficulty is invalid.");
+        }
+    }
+
+    private static void ValidateMultipleChoiceOptions(IReadOnlyList<MultipleChoiceOptionInput> options)
+    {
+        if (options.Count < 2)
+        {
+            throw new BadRequestException("A multiple-choice question requires at least two options.");
+        }
+
+        if (options.Count(option => option.IsCorrect) != 1)
+        {
+            throw new BadRequestException("A multiple-choice question requires exactly one correct option.");
+        }
+
+        if (options.Any(option => string.IsNullOrWhiteSpace(option.Content)))
+        {
+            throw new BadRequestException("Multiple-choice option content is required.");
+        }
+    }
+
+    private static void ValidateFillInBlankAnswers(IReadOnlyList<FillInBlankAnswerInput> answers)
+    {
+        if (answers.Count == 0)
+        {
+            throw new BadRequestException("A fill-in-blank question requires at least one answer.");
+        }
+
+        if (answers.Any(answer =>
+                answer.BlankOrder < 0 ||
+                string.IsNullOrWhiteSpace(answer.ExpectedAnswer) ||
+                answer.ExpectedAnswer.Trim().Length > 1000))
+        {
+            throw new BadRequestException("Fill-in-blank answers must have a valid order and contain at most 1000 characters.");
+        }
+
+        if (answers.GroupBy(answer => new { answer.BlankOrder, Answer = answer.ExpectedAnswer.Trim() }).Any(group => group.Count() > 1))
+        {
+            throw new ConflictException("Duplicate expected answers for the same blank are not allowed.");
+        }
+    }
+
+    private static void ValidateId(Guid id, string fieldName)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new BadRequestException($"{fieldName} is required.");
+        }
+    }
+
+    private static string? NormalizeOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static QuestionBankDto Map(QuestionBank questionBank) => new(
+        questionBank.Id,
+        questionBank.TeacherId,
+        questionBank.Name,
+        questionBank.Description,
+        questionBank.CreatedAt,
+        questionBank.ModifiedAt);
+
+    private static QuestionDto Map(Question question) => new(
+        question.Id,
+        question.QuestionBankId,
+        question.Content,
+        question.Type,
+        question.Difficulty,
+        question.ShuffleOptions,
+        question.MultipleChoiceOptions
+            .OrderBy(option => option.Order)
+            .Select(option => new MultipleChoiceOptionDto(
+                option.Id,
+                option.Content,
+                option.Order,
+                option.Id == question.CorrectOptionId))
+            .ToArray(),
+        question.FillInBlankAnswerKeys
+            .OrderBy(answer => answer.BlankOrder)
+            .ThenBy(answer => answer.ExpectedAnswer)
+            .Select(answer => new FillInBlankAnswerDto(answer.Id, answer.BlankOrder, answer.ExpectedAnswer))
+            .ToArray(),
+        question.CreatedAt,
+        question.ModifiedAt);
+}
