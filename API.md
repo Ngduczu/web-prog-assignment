@@ -951,11 +951,35 @@ Các endpoint trả user profile dùng object sau:
 
 `HTTP` → Controller binding → Application Service (validation và authorization) → Repository/Redis/FileStorage/SMTP → UnitOfWork → PostgreSQL/Redis/Storage → JSON response hoặc `ProblemDetails`.
 
-## Chưa public
+## Chat
 
-Chatroom/message chưa có public API contract.
+Chat yêu cầu JWT và kiểm tra membership ở application service. Course chat chỉ dành cho course teacher, Admin hoặc student có enrollment `Accepted`. Direct chat chỉ dành cho user đang `Active`.
 
-## OAuth provider contract (chuẩn bị, chưa bật)
+### REST endpoints
+
+- `GET /api/chat/rooms`
+- `POST /api/chat/courses/{courseId}`
+- `POST /api/chat/direct/{userId}`
+- `GET /api/chat/rooms/{roomId}/messages?page=1&pageSize=20`
+- `POST /api/chat/rooms/{roomId}/messages`
+- `PATCH /api/chat/messages/{messageId}`
+- `DELETE /api/chat/messages/{messageId}`
+- `POST /api/chat/rooms/{roomId}/read/{messageId}`
+
+Message body:
+
+```json
+{
+  "content": "Hello",
+  "replyToMessageId": null
+}
+```
+
+### Realtime WebSocket
+
+SignalR hub: `/hubs/chat`. Client cần JWT và có thể gọi `JoinRoom`, `LeaveRoom`, `SendMessage`. Server broadcast event `MessageReceived` tới các connection trong room.
+
+## OAuth provider contract
 
 `IOAuthProvider` hiện chuẩn hóa các hàm nội bộ sau:
 
@@ -1004,4 +1028,4 @@ Chatroom/message chưa có public API contract.
 }
 ```
 
-Google/Microsoft provider, callback, account linking và JWT sẽ triển khai ở phase OAuth cuối cùng.
+Google provider, callback, PKCE, account linking và JWT đã được triển khai. Microsoft OAuth chưa được hỗ trợ.

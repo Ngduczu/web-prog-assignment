@@ -11,6 +11,9 @@ public sealed class ExaminationAttemptsController : ControllerBase
 {
     [HttpPost("{examinationId:guid}/start")]
     public async Task<ActionResult<ExaminationAttemptDto>> Start(Guid examinationId, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.StartAsync(examinationId, ct));
+
+    [HttpGet("{attemptId:guid}/questions")]
+    public async Task<ActionResult<IReadOnlyList<StudentExamQuestionDto>>> GetQuestions(Guid attemptId, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.GetQuestionsAsync(attemptId, ct));
     [HttpPut("{attemptId:guid}/questions/{questionId:guid}/multiple-choice")]
     public async Task<ActionResult<StudentAnswerDto>> SaveMultipleChoice(Guid attemptId, Guid questionId, Guid selectedOptionId, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.SaveMultipleChoiceAnswerAsync(attemptId, questionId, selectedOptionId, ct));
     [HttpPut("{attemptId:guid}/questions/{questionId:guid}/fill-in-blank")]

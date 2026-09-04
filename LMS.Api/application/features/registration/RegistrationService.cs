@@ -110,9 +110,15 @@ public sealed class RegistrationService : IRegistrationService
             throw new BadRequestException("Verification code is invalid or expired.");
         }
 
+        if (await _cache.ConsumeAsync<EmailVerificationCacheEntry>(GetVerificationKey(user.Id), cancellationToken) is null)
+        {
+            throw new ConflictException("Verification code has already been used. Request a new code.");
+        }
+
         user.SetStatus(AccountStatus.Active);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await RemoveVerificationStateAsync(user.Id, cancellationToken);
+        await _cache.RemoveAsync(GetAttemptsKey(user.Id), cancellationToken);
+        await _cache.RemoveAsync(GetCooldownKey(user.Id), cancellationToken);
         return new EmailVerificationResultDto(user.Id, user.Email, user.Status, _clock.UtcNow);
     }
 

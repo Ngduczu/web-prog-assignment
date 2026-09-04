@@ -29,10 +29,16 @@ public sealed record ExaminationAttemptDto(
     int TotalQuestions,
     decimal Score);
 
+public sealed record StudentExamOptionDto(Guid Id, string Content, int Order);
+public sealed record StudentExamQuestionDto(Guid Id, string Content, QuestionType Type, int Order, IReadOnlyList<StudentExamOptionDto> Options);
+
 public interface IExaminationAttemptService
 {
     Task<ExaminationAttemptDto> StartAsync(
         Guid examinationId,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<StudentExamQuestionDto>> GetQuestionsAsync(
+        Guid attemptId,
         CancellationToken cancellationToken = default);
     Task<StudentAnswerDto> SaveMultipleChoiceAnswerAsync(
         Guid attemptId,

@@ -40,10 +40,11 @@ public sealed class PasswordResetService : IPasswordResetService
         var entry = await _cache.GetAsync<ResetEntry>(Key(user.Id), cancellationToken) ?? throw new BadRequestException("Reset code is invalid or expired.");
         if (await _cache.IncrementAsync(AttemptsKey(user.Id), Ttl, cancellationToken) > MaxAttempts) { await _cache.RemoveAsync(Key(user.Id), cancellationToken); throw new ConflictException("Too many reset attempts. Request a new code."); }
         if (entry.UserId != user.Id || entry.Email != user.Email || !_hasher.Verify(request.ResetCode.Trim().ToUpperInvariant(), entry.CodeHash)) throw new BadRequestException("Reset code is invalid or expired.");
+        if (await _cache.ConsumeAsync<ResetEntry>(Key(user.Id), cancellationToken) is null) throw new ConflictException("Reset code has already been used. Request a new code.");
         user.SetPasswordHash(_hasher.Hash(request.NewPassword)); await _uow.SaveChangesAsync(cancellationToken);
         await _cache.SetIfNotExistsAsync($"auth:version:{user.Id:N}", 1L, TimeSpan.FromDays(365), cancellationToken);
         await _cache.IncrementAsync($"auth:version:{user.Id:N}", TimeSpan.FromDays(365), cancellationToken);
-        await _cache.RemoveAsync(Key(user.Id), cancellationToken); await _cache.RemoveAsync(AttemptsKey(user.Id), cancellationToken);
+        await _cache.RemoveAsync(AttemptsKey(user.Id), cancellationToken);
         return new PasswordResetResultDto(user.Id, user.Email, user.Status, _clock.UtcNow);
     }
     private static string GenerateCode() { Span<char> chars = stackalloc char[6]; for (var i = 0; i < chars.Length; i++) chars[i] = Alphabet[RandomNumberGenerator.GetInt32(Alphabet.Length)]; return new string(chars); }

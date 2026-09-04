@@ -4,8 +4,8 @@ namespace LMS.Api.application.abstractions.storage;
 
 public static class FileUploadPolicy
 {
-    public const long MaximumChatFileSizeBytes = 20 * 1024 * 1024;
-    public const long MaximumCourseFileSizeBytes = 20 * 1024 * 1024;
+    public const long MaximumChatFileSizeBytes = 20_000_000;
+    public const long MaximumCourseFileSizeBytes = 20_000_000;
 
     public static void Validate(FileUpload upload, long? maximumSizeBytes = null)
     {

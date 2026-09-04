@@ -80,6 +80,26 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         return Map(createdAttempt!);
     }
 
+    public async Task<IReadOnlyList<StudentExamQuestionDto>> GetQuestionsAsync(
+        Guid attemptId,
+        CancellationToken cancellationToken = default)
+    {
+        var attempt = await GetOwnedAttemptAsync(attemptId, false, cancellationToken);
+        var examination = await GetExaminationAsync(attempt.ExaminationId, true, cancellationToken);
+        return examination.Questions
+            .OrderBy(question => question.Order)
+            .Select(question => new StudentExamQuestionDto(
+                question.Id,
+                question.Content,
+                question.Type,
+                question.Order,
+                question.MultipleChoiceOptions
+                    .OrderBy(option => option.Order)
+                    .Select(option => new StudentExamOptionDto(option.Id, option.Content, option.Order))
+                    .ToArray()))
+            .ToArray();
+    }
+
     public async Task<StudentAnswerDto> SaveMultipleChoiceAnswerAsync(
         Guid attemptId,
         Guid examinationQuestionId,

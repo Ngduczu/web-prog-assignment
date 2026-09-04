@@ -2,7 +2,7 @@ namespace LMS.Api.domain.Entities.Chats;
 
 public class ChatAttachment
 {
-    public const long MaximumFileSizeInBytes = 20L * 1024 * 1024;
+    public const long MaximumFileSizeInBytes = 20_000_000L;
 
     public Guid Id { get; private set; }
     public Guid ChatMessageId { get; private set; }

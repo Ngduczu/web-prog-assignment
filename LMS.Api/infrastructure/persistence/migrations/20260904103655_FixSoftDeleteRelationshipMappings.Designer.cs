@@ -71,7 +71,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
 
                     b.ToTable("chat_attachments", null, t =>
                         {
-                            t.HasCheckConstraint("ck_chat_attachments_file_size", "file_size > 0 AND file_size < 20971520");
+                            t.HasCheckConstraint("ck_chat_attachments_file_size", "file_size > 0 AND file_size < 20000000");
                         });
                 });
 

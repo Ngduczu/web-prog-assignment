@@ -11,7 +11,6 @@ namespace LMS.Api.presentation.controllers;
 public sealed class UsersController : ControllerBase
 {
     [HttpGet("{userId:guid}/profile")]
-    [AllowAnonymous]
     public async Task<ActionResult<UserProfileDto>> Profile(Guid userId, [FromServices] IUserService service, CancellationToken cancellationToken)
         => Ok(await service.GetProfileAsync(userId, cancellationToken));
 

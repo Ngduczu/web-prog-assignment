@@ -24,6 +24,13 @@ public sealed class UserService : IUserService
     public async Task<UserProfileDto> GetProfileAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         if (userId == Guid.Empty) throw new BadRequestException("User id is required.");
+        var actorId = _currentUser.GetRequiredUserId();
+        var actorRole = _currentUser.GetRequiredRole();
+        if (actorRole != Role.Admin && actorId != userId)
+        {
+            throw new ForbiddenException("You can only view your own profile.");
+        }
+
         var user = await _users.GetByIdAsync(userId, cancellationToken) ?? throw new NotFoundException("User was not found.");
         return Map(user);
     }
