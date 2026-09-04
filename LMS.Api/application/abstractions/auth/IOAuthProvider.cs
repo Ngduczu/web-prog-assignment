@@ -8,6 +8,6 @@ public interface IOAuthProvider
 {
     string Name { get; }
     string BuildAuthorizationUrl(OAuthAuthorizationRequest request);
-    Task<OAuthTokenResult> ExchangeCodeAsync(string code, string redirectUri, CancellationToken cancellationToken = default);
+    Task<OAuthTokenResult> ExchangeCodeAsync(string code, string redirectUri, string codeVerifier, CancellationToken cancellationToken = default);
     Task<OAuthUserInfo> GetUserInfoAsync(OAuthTokenResult token, CancellationToken cancellationToken = default);
 }

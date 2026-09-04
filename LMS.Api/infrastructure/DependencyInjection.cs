@@ -13,6 +13,7 @@ using LMS.Api.infrastructure.mail.Gmail;
 using LMS.Api.infrastructure.storage.Local;
 using LMS.Api.infrastructure.time;
 using LMS.Api.infrastructure.authentication.JWT;
+using LMS.Api.infrastructure.authentication.OAuth;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -46,6 +47,8 @@ public static class DependencyInjection
         services.AddScoped<IQuestionRepository, QuestionRepository>();
         services.AddScoped<IExaminationRepository, ExaminationRepository>();
         services.AddScoped<IExaminationAttemptRepository, ExaminationAttemptRepository>();
+        services.AddScoped<IChatRoomRepository, ChatRoomRepository>();
+        services.AddScoped<IChatMessageRepository, ChatMessageRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserManagementRepository, UserRepository>();
         services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));
@@ -68,6 +71,10 @@ public static class DependencyInjection
         services.AddSingleton<IPasswordHasher, AspNetCorePasswordHasher>();
         services.Configure<MailOptions>(configuration.GetSection(MailOptions.SectionName));
         services.AddSingleton<IMailSender, GmailService>();
+        services.Configure<GoogleOAuthOptions>(configuration.GetSection(GoogleOAuthOptions.SectionName));
+        services.AddHttpClient<GoogleOAuthProvider>();
+        services.AddScoped<IOAuthProvider, GoogleOAuthProvider>();
+        services.AddScoped<OAuthResolver>();
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
         if (string.IsNullOrWhiteSpace(jwt.SigningKey) || jwt.SigningKey == "SET_VIA_ENVIRONMENT" || Encoding.UTF8.GetByteCount(jwt.SigningKey) < 32)

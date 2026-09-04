@@ -243,10 +243,15 @@ public class CourseApplicationTests
         public Task<User?> GetByEmailAsync(string normalizedEmail, CancellationToken cancellationToken) =>
             Task.FromResult(_users.Values.SingleOrDefault(user => user.Email == normalizedEmail));
 
+        public Task<User?> GetByExternalLoginAsync(ExternalProvider provider, string externalUserId, CancellationToken cancellationToken) =>
+            Task.FromResult<User?>(null);
+
         public void Add(User user)
         {
             throw new NotSupportedException();
         }
+
+        public void AddExternalUser(ExternalUser externalUser) => throw new NotSupportedException();
     }
 
     private sealed class FakeCourseRepository : ICourseRepository

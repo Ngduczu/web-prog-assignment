@@ -1,5 +1,6 @@
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.caching;
+using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.abstractions.time;
 using LMS.Api.application.features.auth;
 using LMS.Api.domain.Entities.Users;
@@ -7,6 +8,7 @@ using LMS.Api.domain.Enums.Users;
 using LMS.Api.domain.exceptions;
 using LMS.Api.domain.repositories;
 using LMS.Api.infrastructure.authentication.JWT;
+using LMS.Api.infrastructure.authentication.OAuth;
 using Microsoft.Extensions.Options;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -88,7 +90,9 @@ public sealed class AuthenticationApplicationTests
             new FakePasswordHasher(),
             new FakeTokenProvider(),
             cache,
-            new FakeClock());
+            new FakeClock(),
+            new OAuthResolver([]),
+            new FakeUnitOfWork());
         return new Fixture(service, cache);
     }
 
@@ -97,6 +101,11 @@ public sealed class AuthenticationApplicationTests
     private sealed class FakeClock : IClock
     {
         public DateTime UtcNow { get; } = new(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    }
+
+    private sealed class FakeUnitOfWork : IUnitOfWork
+    {
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
     }
 
     private sealed class FakePasswordHasher : IPasswordHasher
@@ -123,7 +132,11 @@ public sealed class AuthenticationApplicationTests
         public Task<User?> GetByEmailAsync(string normalizedEmail, CancellationToken cancellationToken) =>
             Task.FromResult<User?>(user.Email == normalizedEmail ? user : null);
 
+        public Task<User?> GetByExternalLoginAsync(ExternalProvider provider, string externalUserId, CancellationToken cancellationToken) =>
+            Task.FromResult<User?>(null);
+
         public void Add(User userToAdd) => throw new NotSupportedException();
+        public void AddExternalUser(ExternalUser externalUser) => throw new NotSupportedException();
     }
 
     private sealed class FakeCache : ICache

@@ -4,7 +4,10 @@ using System.Text;
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.caching;
 using LMS.Api.application.abstractions.time;
+using LMS.Api.infrastructure.authentication.OAuth;
+using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Users;
+using LMS.Api.application.abstractions.persistence;
 using LMS.Api.domain.exceptions;
 using LMS.Api.domain.repositories;
 
@@ -17,9 +20,11 @@ public sealed class AuthenticationService : IAuthenticationService
     private readonly ITokenProvider _tokens;
     private readonly ICache _cache;
     private readonly IClock _clock;
+    private readonly OAuthResolver _oauthResolver;
+    private readonly IUnitOfWork _unitOfWork;
     private static readonly TimeSpan RefreshLifetime = TimeSpan.FromDays(30);
     private static string AuthVersionKey(Guid userId) => $"auth:version:{userId:N}";
-    public AuthenticationService(IUserRepository users, IPasswordHasher hasher, ITokenProvider tokens, ICache cache, IClock clock) { _users = users; _hasher = hasher; _tokens = tokens; _cache = cache; _clock = clock; }
+    public AuthenticationService(IUserRepository users, IPasswordHasher hasher, ITokenProvider tokens, ICache cache, IClock clock, OAuthResolver oauthResolver, IUnitOfWork unitOfWork) { _users = users; _hasher = hasher; _tokens = tokens; _cache = cache; _clock = clock; _oauthResolver = oauthResolver; _unitOfWork = unitOfWork; }
     public async Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
         var email = request.Email?.Trim().ToLowerInvariant();
@@ -42,6 +47,54 @@ public sealed class AuthenticationService : IAuthenticationService
         if (session.AuthVersion != currentVersion) throw new UnauthorizeException("Refresh token is invalid or expired.");
         var user = await _users.GetByIdAsync(session.UserId, cancellationToken) ?? throw new UnauthorizeException("Refresh token is invalid or expired.");
         if (user.Status != AccountStatus.Active) throw new UnauthorizeException("Account is not active.");
+        return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
+    }
+
+    public async Task<LoginResponse> LoginWithOAuthAsync(
+        OAuthLoginRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Enum.TryParse<ExternalProvider>(request.Provider, true, out var providerType) ||
+            string.IsNullOrWhiteSpace(request.Code) ||
+            string.IsNullOrWhiteSpace(request.RedirectUri))
+        {
+            throw new BadRequestException("OAuth provider, code and redirect URI are required.");
+        }
+
+        var provider = _oauthResolver.Get(providerType.ToString());
+        var token = await provider.ExchangeCodeAsync(request.Code, request.RedirectUri, request.CodeVerifier, cancellationToken);
+        var externalInfo = await provider.GetUserInfoAsync(token, cancellationToken);
+        if (!externalInfo.EmailVerified)
+        {
+            throw new UnauthorizeException("The external account email is not verified.");
+        }
+
+        var user = await _users.GetByExternalLoginAsync(providerType, externalInfo.ProviderUserId, cancellationToken);
+        if (user is null)
+        {
+            var email = externalInfo.Email.Trim().ToLowerInvariant();
+            user = await _users.GetByEmailAsync(email, cancellationToken);
+            if (user is null)
+            {
+                user = new User(
+                    email,
+                    string.IsNullOrWhiteSpace(externalInfo.FullName) ? email[..email.IndexOf('@')] : externalInfo.FullName,
+                    null,
+                    null,
+                    Role.Student,
+                    AccountStatus.Active);
+                _users.Add(user);
+            }
+
+            _users.AddExternalUser(new ExternalUser(user.Id, providerType, externalInfo.ProviderUserId));
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        if (user.Status != AccountStatus.Active)
+        {
+            throw new UnauthorizeException("Account is not active.");
+        }
+
         return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
     }
 

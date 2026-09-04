@@ -137,10 +137,15 @@ public class RegistrationApplicationTests
         public Task<User?> GetByEmailAsync(string normalizedEmail, CancellationToken cancellationToken) =>
             Task.FromResult(Items.SingleOrDefault(user => user.Email == normalizedEmail));
 
+        public Task<User?> GetByExternalLoginAsync(ExternalProvider provider, string externalUserId, CancellationToken cancellationToken) =>
+            Task.FromResult<User?>(null);
+
         public void Add(User user)
         {
             Items.Add(user);
         }
+
+        public void AddExternalUser(ExternalUser externalUser) => throw new NotSupportedException();
     }
 
     private sealed class FakeCache : ICache

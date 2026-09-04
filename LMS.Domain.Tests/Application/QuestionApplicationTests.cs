@@ -158,10 +158,15 @@ public class QuestionApplicationTests
         public Task<User?> GetByEmailAsync(string normalizedEmail, CancellationToken cancellationToken) =>
             Task.FromResult<User?>(_user.Email == normalizedEmail ? _user : null);
 
+        public Task<User?> GetByExternalLoginAsync(ExternalProvider provider, string externalUserId, CancellationToken cancellationToken) =>
+            Task.FromResult<User?>(null);
+
         public void Add(User user)
         {
             throw new NotSupportedException();
         }
+
+        public void AddExternalUser(ExternalUser externalUser) => throw new NotSupportedException();
     }
 
     private sealed class FakeQuestionBankRepository : IQuestionBankRepository

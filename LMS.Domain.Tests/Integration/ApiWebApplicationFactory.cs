@@ -86,6 +86,9 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
         public Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult(CreateResponse());
 
+        public Task<LoginResponse> LoginWithOAuthAsync(OAuthLoginRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(CreateResponse());
+
         private static LoginResponse CreateResponse() => new(
             "integration-access-token",
             DateTime.UtcNow.AddMinutes(60),

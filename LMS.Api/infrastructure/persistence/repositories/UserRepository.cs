@@ -1,4 +1,5 @@
 using LMS.Api.domain.Entities.Users;
+using LMS.Api.domain.Enums.Users;
 using LMS.Api.domain.repositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,9 +20,23 @@ public sealed class UserRepository : IUserManagementRepository
     public Task<User?> GetByEmailAsync(string normalizedEmail, CancellationToken cancellationToken) =>
         _dbContext.Users.SingleOrDefaultAsync(user => user.Email == normalizedEmail, cancellationToken);
 
+    public Task<User?> GetByExternalLoginAsync(
+        ExternalProvider provider,
+        string externalUserId,
+        CancellationToken cancellationToken) =>
+        _dbContext.ExternalUsers
+            .Where(external => external.Provider == provider && external.ExternalUserId == externalUserId)
+            .Select(external => external.User)
+            .SingleOrDefaultAsync(cancellationToken);
+
     public void Add(User user)
     {
         _dbContext.Users.Add(user);
+    }
+
+    public void AddExternalUser(ExternalUser externalUser)
+    {
+        _dbContext.ExternalUsers.Add(externalUser);
     }
 
     public async Task<IReadOnlyList<User>> ListAsync(string? search, int skip, int take, CancellationToken cancellationToken)
