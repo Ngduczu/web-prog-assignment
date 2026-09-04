@@ -170,13 +170,7 @@ public sealed class CourseService : ICourseService
 
     private void EnsureCanManage(Course course)
     {
-        var actorId = _currentUser.GetRequiredUserId();
-        var actorRole = _currentUser.GetRequiredRole();
-
-        if (actorRole != Role.Admin && (actorRole != Role.Teacher || course.TeacherId != actorId))
-        {
-            throw new ForbiddenException("Only the course teacher or an administrator can manage this course.");
-        }
+        CourseAuthorization.EnsureCanManage(_currentUser, course);
     }
 
     private static void EnsureCanCreate(Guid actorId, Role actorRole, Guid teacherId)

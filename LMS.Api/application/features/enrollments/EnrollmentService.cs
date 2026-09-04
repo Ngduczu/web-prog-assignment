@@ -1,6 +1,7 @@
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.common;
+using LMS.Api.application.features.courses;
 using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Enums.Courses;
 using LMS.Api.domain.Enums.Users;
@@ -147,14 +148,7 @@ public sealed class EnrollmentService : IEnrollmentService
     {
         var course = await _courses.GetByIdAsync(courseId, false, cancellationToken)
             ?? throw new NotFoundException("Course was not found.");
-        var actorId = _currentUser.GetRequiredUserId();
-        var actorRole = _currentUser.GetRequiredRole();
-
-        if (actorRole != Role.Admin && (actorRole != Role.Teacher || course.TeacherId != actorId))
-        {
-            throw new ForbiddenException("Only the course teacher or an administrator can manage enrollments.");
-        }
-
+        CourseAuthorization.EnsureCanManage(_currentUser, course);
         return course;
     }
 
