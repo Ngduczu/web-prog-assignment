@@ -23,7 +23,7 @@ public class Examination
     public bool DetectTabChange { get; private set; }
     public bool DetectDevTools { get; private set; }
     public int MaxDisconnectMinutes { get; private set; } = 10;
-    public ICollection<ExaminationQuestionSelection> QuestionSelectionRules { get; private set; } = new List<ExaminationQuestionSelection>();
+    public ICollection<ExaminationQuestionSelectionRule> QuestionSelectionRules { get; private set; } = new List<ExaminationQuestionSelectionRule>();
     public ICollection<ExaminationQuestion> Questions { get; private set; } = new List<ExaminationQuestion>();
     public ICollection<ExaminationAttempt> Attempts { get; private set; } = new List<ExaminationAttempt>();
     public DateTime CreatedAt { get; private set; }

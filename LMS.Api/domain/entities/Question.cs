@@ -11,8 +11,10 @@ public class Question
 	public string Content { get; private set; } = null!;
 	public QuestionType Type { get; private set; }
 	public QuestionDifficulty Difficulty { get; private set; }
-	public bool ShuffleAnswers { get; private set; }
-	public ICollection<Answer> Answers { get; private set; } = new List<Answer>();
+	public bool ShuffleChoices { get; private set; }
+	public ICollection<QuestionChoice> Choices { get; private set; } = new List<QuestionChoice>();
+	public Guid? CorrectChoiceId { get; private set; }
+	public QuestionChoice? CorrectChoice { get; private set; }
 
 	public DateTime CreatedAt { get; private set; }
 	public DateTime ModifiedAt { get; private set; }
@@ -23,14 +25,14 @@ public class Question
 
 	private Question() { }
 
-	public Question(Guid questionBankId, string content, QuestionType type, QuestionDifficulty difficulty, bool shuffleAnswers, Guid createdById)
+	public Question(Guid questionBankId, string content, QuestionType type, QuestionDifficulty difficulty, bool shuffleChoices, Guid createdById)
 	{
 		Id = Guid.NewGuid();
 		QuestionBankId = questionBankId;
 		Content = content;
 		Type = type;
 		Difficulty = difficulty;
-		ShuffleAnswers = shuffleAnswers;
+		ShuffleChoices = shuffleChoices;
 		CreatedAt = DateTime.UtcNow;
 		ModifiedAt = DateTime.UtcNow;
 		CreatedById = createdById;
@@ -40,7 +42,8 @@ public class Question
 	public void SetContent(string content) { Content = content; Touch(); }
 	public void SetType(QuestionType type) { Type = type; Touch(); }
 	public void SetDifficulty(QuestionDifficulty difficulty) { Difficulty = difficulty; Touch(); }
-	public void SetShuffleAnswers(bool shuffleAnswers) { ShuffleAnswers = shuffleAnswers; Touch(); }
+	public void SetShuffleChoices(bool shuffleChoices) { ShuffleChoices = shuffleChoices; Touch(); }
+	public void SetCorrectChoice(Guid? correctChoiceId) { CorrectChoiceId = correctChoiceId; Touch(); }
 	public void SetModifiedBy(Guid modifiedById) { ModifiedById = modifiedById; Touch(); }
 	private void Touch() { ModifiedAt = DateTime.UtcNow; }
 }

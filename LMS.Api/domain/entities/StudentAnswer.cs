@@ -7,8 +7,8 @@ public class StudentAnswer
     public ExaminationAttempt? ExaminationAttempt { get; private set; }
     public Guid ExaminationQuestionId { get; private set; }
     public ExaminationQuestion? ExaminationQuestion { get; private set; }
-    public Guid? SelectedExaminationAnswerId { get; private set; }
-    public ExaminationAnswer? SelectedExaminationAnswer { get; private set; }
+    public Guid? SelectedChoiceId { get; private set; }
+    public ExaminationQuestionChoice? SelectedChoice { get; private set; }
     public ICollection<StudentAnswerValue> Values { get; private set; } = new List<StudentAnswerValue>();
     public DateTime CreatedAt { get; private set; }
     public DateTime ModifiedAt { get; private set; }
@@ -19,5 +19,5 @@ public class StudentAnswer
         Id = Guid.NewGuid(); ExaminationAttemptId = examinationAttemptId; ExaminationQuestionId = examinationQuestionId;
         CreatedAt = DateTime.UtcNow; ModifiedAt = DateTime.UtcNow;
     }
-    public void SelectAnswer(Guid? answerId) { SelectedExaminationAnswerId = answerId; ModifiedAt = DateTime.UtcNow; }
+    public void SelectChoice(Guid? choiceId) { SelectedChoiceId = choiceId; ModifiedAt = DateTime.UtcNow; }
 }
