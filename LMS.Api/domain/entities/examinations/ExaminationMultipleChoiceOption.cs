@@ -1,6 +1,6 @@
 namespace LMS.Api.domain.Entities.Examinations;
 
-public class ExaminationQuestionChoice
+public class ExaminationMultipleChoiceOption
 {
     public Guid Id { get; private set; }
     public Guid ExaminationQuestionId { get; private set; }
@@ -8,8 +8,8 @@ public class ExaminationQuestionChoice
     public string Content { get; private set; } = null!;
     public int Order { get; private set; }
 
-    private ExaminationQuestionChoice() { }
-    public ExaminationQuestionChoice(Guid examinationQuestionId, string content, int order)
+    private ExaminationMultipleChoiceOption() { }
+    public ExaminationMultipleChoiceOption(Guid examinationQuestionId, string content, int order)
     {
         Id = Guid.NewGuid(); ExaminationQuestionId = examinationQuestionId; Content = content; Order = order;
     }

@@ -8,8 +8,8 @@ public class StudentAnswer
     public Guid ExaminationQuestionId { get; private set; }
     public ExaminationQuestion? ExaminationQuestion { get; private set; }
     public Guid? SelectedChoiceId { get; private set; }
-    public ExaminationQuestionChoice? SelectedChoice { get; private set; }
-    public ICollection<StudentAnswerValue> Values { get; private set; } = new List<StudentAnswerValue>();
+    public ExaminationMultipleChoiceOption? SelectedChoice { get; private set; }
+    public ICollection<StudentFillInBlankAnswer> FillInBlankAnswers { get; private set; } = new List<StudentFillInBlankAnswer>();
     public DateTime CreatedAt { get; private set; }
     public DateTime ModifiedAt { get; private set; }
 

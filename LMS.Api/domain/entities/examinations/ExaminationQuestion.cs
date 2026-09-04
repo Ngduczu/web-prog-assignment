@@ -11,18 +11,19 @@ public class ExaminationQuestion
     public string Content { get; private set; } = null!;
     public QuestionType Type { get; private set; }
     public QuestionDifficulty Difficulty { get; private set; }
-    public bool ShuffleChoices { get; private set; }
+    public bool ShuffleOptions { get; private set; }
     public int Order { get; private set; }
-    public ICollection<ExaminationQuestionChoice> Choices { get; private set; } = new List<ExaminationQuestionChoice>();
-    public Guid? CorrectChoiceId { get; private set; }
-    public ExaminationQuestionChoice? CorrectChoice { get; private set; }
+    public ICollection<ExaminationMultipleChoiceOption> MultipleChoiceOptions { get; private set; } = new List<ExaminationMultipleChoiceOption>();
+    public Guid? CorrectOptionId { get; private set; }
+    public ExaminationMultipleChoiceOption? CorrectOption { get; private set; }
+    public ICollection<ExaminationFillInBlankAnswerKey> FillInBlankAnswerKeys { get; private set; } = new List<ExaminationFillInBlankAnswerKey>();
 
     private ExaminationQuestion() { }
-    public ExaminationQuestion(Guid examinationId, Guid? sourceQuestionId, string content, QuestionType type, QuestionDifficulty difficulty, bool shuffleChoices, int order)
+    public ExaminationQuestion(Guid examinationId, Guid? sourceQuestionId, string content, QuestionType type, QuestionDifficulty difficulty, bool shuffleOptions, int order)
     {
         Id = Guid.NewGuid(); ExaminationId = examinationId; SourceQuestionId = sourceQuestionId; Content = content;
-        Type = type; Difficulty = difficulty; ShuffleChoices = shuffleChoices; Order = order;
+        Type = type; Difficulty = difficulty; ShuffleOptions = shuffleOptions; Order = order;
     }
 
-    public void SetCorrectChoice(Guid? correctChoiceId) { CorrectChoiceId = correctChoiceId; }
+    public void SetCorrectOption(Guid? correctOptionId) { CorrectOptionId = correctOptionId; }
 }
