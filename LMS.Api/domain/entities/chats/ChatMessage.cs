@@ -18,7 +18,7 @@ public class ChatMessage
 
     private ChatMessage() { }
 
-    public ChatMessage(Guid chatRoomId, Guid senderId, string? content, Guid? replyToMessageId = null)
+    private ChatMessage(Guid chatRoomId, Guid senderId, string? content, Guid? replyToMessageId)
     {
         Id = Guid.NewGuid();
         ChatRoomId = chatRoomId;
@@ -26,6 +26,32 @@ public class ChatMessage
         Content = NormalizeContent(content);
         ReplyToMessageId = replyToMessageId;
         CreatedAt = DateTime.UtcNow;
+    }
+
+    public static ChatMessage CreateText(Guid chatRoomId, Guid senderId, string content, Guid? replyToMessageId = null)
+    {
+        var normalizedContent = NormalizeContent(content);
+        if (normalizedContent is null)
+        {
+            throw new ArgumentException("Message content is required.", nameof(content));
+        }
+
+        return new ChatMessage(chatRoomId, senderId, normalizedContent, replyToMessageId);
+    }
+
+    public static ChatMessage CreateWithAttachment(
+        Guid chatRoomId,
+        Guid senderId,
+        string? content,
+        string fileName,
+        string objectKey,
+        string contentType,
+        long fileSize,
+        Guid? replyToMessageId = null)
+    {
+        var message = new ChatMessage(chatRoomId, senderId, content, replyToMessageId);
+        message.AddAttachment(fileName, objectKey, contentType, fileSize);
+        return message;
     }
 
     public ChatAttachment AddAttachment(string fileName, string objectKey, string contentType, long fileSize)

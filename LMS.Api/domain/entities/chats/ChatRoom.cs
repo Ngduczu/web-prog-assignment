@@ -9,7 +9,7 @@ public class ChatRoom
     public Guid Id { get; private set; }
     public ChatRoomType Type { get; private set; }
     public Guid? CourseId { get; private set; }
-    public string? DirectKey { get; private set; }
+    public string? DirectMessageKey { get; private set; }
     public Guid CreatedById { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? ArchivedAt { get; private set; }
@@ -30,18 +30,13 @@ public class ChatRoom
         };
     }
 
-    public static ChatRoom CreateDirect(Guid firstUserId, Guid secondUserId)
+    public static ChatRoom CreateDirectMessage(Guid firstUserId, Guid secondUserId)
     {
-        if (firstUserId == secondUserId)
-        {
-            throw new ArgumentException("A direct chat room requires two different users.");
-        }
-
         var chatRoom = new ChatRoom
         {
             Id = Guid.NewGuid(),
-            Type = ChatRoomType.Direct,
-            DirectKey = BuildDirectKey(firstUserId, secondUserId),
+            Type = ChatRoomType.DirectMessage,
+            DirectMessageKey = BuildDirectMessageKey(firstUserId, secondUserId),
             CreatedById = firstUserId,
             CreatedAt = DateTime.UtcNow
         };
@@ -52,8 +47,13 @@ public class ChatRoom
         return chatRoom;
     }
 
-    public static string BuildDirectKey(Guid firstUserId, Guid secondUserId)
+    public static string BuildDirectMessageKey(Guid firstUserId, Guid secondUserId)
     {
+        if (firstUserId == secondUserId)
+        {
+            throw new ArgumentException("A direct chat room requires two different users.");
+        }
+
         var first = firstUserId.CompareTo(secondUserId) < 0 ? firstUserId : secondUserId;
         var second = first == firstUserId ? secondUserId : firstUserId;
 
@@ -62,6 +62,11 @@ public class ChatRoom
 
     public ChatParticipant AddCourseParticipant(Guid userId)
     {
+        if (IsArchived)
+        {
+            throw new InvalidOperationException("Participants cannot be added to an archived chat room.");
+        }
+
         if (Type != ChatRoomType.Course)
         {
             throw new InvalidOperationException("Participants can only be added explicitly to course chat rooms.");
