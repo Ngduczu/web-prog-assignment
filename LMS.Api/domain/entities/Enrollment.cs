@@ -55,4 +55,13 @@ public class Enrollment
         Status = EnrollmentStatus.Rejected;
         Touch();
     }
+
+    public void Cancel()
+    {
+        if (Status != EnrollmentStatus.Waiting)
+            throw new InvalidOperationException(
+                "Only waiting enrollment can be cancelled.");
+        Status = EnrollmentStatus.Cancelled;
+        Touch();
+    }
 }

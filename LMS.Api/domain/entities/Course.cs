@@ -1,4 +1,5 @@
 using LMS.Api.domain.Enums;
+using LMS.Api.domain.exceptions;
 
 namespace LMS.Api.domain.Entities;
 
@@ -13,13 +14,21 @@ public class Course
     public CourseStatus Status { get; private set; }
     public DateTime CreatedOn { get; private set; }
     public DateTime ModifiedOn { get; private set; }
-    
+
     // audit
     public Guid CreatedById { get; private set; }
     public Guid ModifiedById { get; private set; }
+
     public Users? CreatedBy { get; private set; }
     public Users? ModifiedBy { get; private set; }
 
+    public ICollection<Lesson> Lessons { get; private set; } = new List<Lesson>();
+    public ICollection<Exercise> Exercises { get; private set; } = new List<Exercise>();
+    public ICollection<Examination> Examinations { get; private set; } = new List<Examination>();
+
+    public DateTime? DeletedAt { get; private set; }
+    public Guid? DeletedById { get; private set; }
+    public Users? DeletedBy { get; private set; }
 
     private Course() { }
 
@@ -76,4 +85,32 @@ public class Course
     {
         ModifiedById = modifiedById;
     }
+
+    public void Delete(Guid deletedById)
+    {
+        if (Status == CourseStatus.Deleted)
+        {
+            throw new ConflictException("This course is already deleted");
+        }
+
+        Status = CourseStatus.Deleted;
+        DeletedAt = DateTime.UtcNow;
+        DeletedById = deletedById;
+        ModifiedById = deletedById;
+        Touch();
+    }
+
+    public void Restore()
+    {
+        if (Status != CourseStatus.Deleted)
+        {
+            throw new ConflictException("Only deleted courses can be restored");
+        }
+
+        Status = CourseStatus.Closed;
+        DeletedAt = null;
+        DeletedById = null;
+        Touch();
+    }
+
 }
