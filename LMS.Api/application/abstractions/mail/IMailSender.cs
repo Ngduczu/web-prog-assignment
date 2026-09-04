@@ -7,4 +7,9 @@ public interface IMailSender
         string recipientName,
         string verificationCode,
         CancellationToken cancellationToken = default);
+    Task SendPasswordResetCodeAsync(
+        string email,
+        string recipientName,
+        string resetCode,
+        CancellationToken cancellationToken = default);
 }
