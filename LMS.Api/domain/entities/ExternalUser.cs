@@ -7,7 +7,7 @@ public class ExternalUser
     public Guid  Id { get; private set; }
     
     public Guid UserId { get; private set; }
-    public Users? User  { get; private set; }
+    public User? User { get; private set; }
 
     public ExternalProvider Provider { get; private set; }
     public string ExternalUserId { get; private set; } = null!;
@@ -25,4 +25,3 @@ public class ExternalUser
         ExternalUserId = externalUserId;
     }
 }
-

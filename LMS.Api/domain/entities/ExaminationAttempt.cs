@@ -8,7 +8,7 @@ public class ExaminationAttempt
     public Guid ExaminationId { get; private set; }
     public Examination? Examination { get; private set; }
     public Guid StudentId { get; private set; }
-    public Users? Student { get; private set; }
+    public User? Student { get; private set; }
     public ExaminationAttemptStatus Status { get; private set; }
     public ExaminationSubmitReason? SubmitReason { get; private set; }
     public DateTime StartedAt { get; private set; }

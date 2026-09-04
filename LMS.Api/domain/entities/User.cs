@@ -2,35 +2,35 @@ using LMS.Api.domain.Enums;
 
 namespace LMS.Api.domain.Entities;
 
-public class Users
+public class User
 {
     public Guid Id { get; private set; }
     public string Email { get; private set; } = null!;
-    public string Fullname { get; private set; } = null!;
+    public string FullName { get; private set; } = null!;
     public string? Phone { get; private set; }
     public string? PasswordHash { get; private set;  }
     public Role Role { get; private set; }
     public AccountStatus Status  { get; private set; }
     public string? AvatarUrl { get; private set; }
-    public DateTime CreatedOn { get; private set; }
-    public DateTime ModifiedOn { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime ModifiedAt { get; private set; }
     
     // Audit
     public Guid? CreatedById { get; private set; }
     public Guid? ModifiedById { get; private set; }
-    public Users? CreatedBy { get; private set; }
-    public Users? ModifiedBy { get; private set; }
+    public User? CreatedBy { get; private set; }
+    public User? ModifiedBy { get; private set; }
     
-    private Users(){}
+    private User(){}
 
     private void Touch()
     {
-        ModifiedOn = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
     }
     
-    public Users(
+    public User(
         string email,
-        string fullname,
+        string fullName,
         string? phone,
         string? passwordHash,
         Role role,
@@ -39,22 +39,22 @@ public class Users
     {
         Id = Guid.NewGuid();
         
-        Fullname = fullname;
+        FullName = fullName;
         Email = email;
         Phone = phone;
         PasswordHash = passwordHash;
         Role = role;
         Status = status;
         
-        CreatedOn = DateTime.UtcNow;
-        ModifiedOn = DateTime.UtcNow;
+        CreatedAt = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
 
         CreatedById = createdById;
     }
 
-    public void SetFullname(string fullname)
+    public void SetFullName(string fullName)
     {
-        Fullname = fullname;
+        FullName = fullName;
         Touch();
     }
 

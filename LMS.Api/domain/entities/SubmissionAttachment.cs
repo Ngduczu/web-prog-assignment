@@ -11,8 +11,8 @@ public class SubmissionAttachment
     public string ContentType { get; private set; } = null!;
     public long FileSize { get; private set; }
 
-    public DateTime CreatedOn { get; private set; }
-    public DateTime ModifiedOn { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime ModifiedAt { get; private set; }
 
     private SubmissionAttachment() { }
 
@@ -24,8 +24,8 @@ public class SubmissionAttachment
         ObjectKey = objectKey;
         ContentType = contentType;
         FileSize = fileSize;
-        CreatedOn = DateTime.UtcNow;
-        ModifiedOn = DateTime.UtcNow;
+        CreatedAt = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
     }
 
     public void SetFileMetadata(string fileName, string objectKey, string contentType, long fileSize)
@@ -34,6 +34,6 @@ public class SubmissionAttachment
         ObjectKey = objectKey;
         ContentType = contentType;
         FileSize = fileSize;
-        ModifiedOn = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
     }
 }

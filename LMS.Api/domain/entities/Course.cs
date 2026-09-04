@@ -9,18 +9,18 @@ public class Course
     public string Name { get; private set; } = null!;
     public string? Description { get; private set; }
     public Guid TeacherId { get; private set; }
-    public Users? Teacher { get; private set; }
+    public User? Teacher { get; private set; }
     public int MaxStudents { get; private set; }
     public CourseStatus Status { get; private set; }
-    public DateTime CreatedOn { get; private set; }
-    public DateTime ModifiedOn { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime ModifiedAt { get; private set; }
 
     // audit
     public Guid CreatedById { get; private set; }
     public Guid ModifiedById { get; private set; }
 
-    public Users? CreatedBy { get; private set; }
-    public Users? ModifiedBy { get; private set; }
+    public User? CreatedBy { get; private set; }
+    public User? ModifiedBy { get; private set; }
 
     public ICollection<Lesson> Lessons { get; private set; } = new List<Lesson>();
     public ICollection<Exercise> Exercises { get; private set; } = new List<Exercise>();
@@ -28,13 +28,14 @@ public class Course
 
     public DateTime? DeletedAt { get; private set; }
     public Guid? DeletedById { get; private set; }
-    public Users? DeletedBy { get; private set; }
+    public User? DeletedBy { get; private set; }
+    public bool IsDeleted => DeletedAt.HasValue;
 
     private Course() { }
 
     private void Touch()
     {
-        ModifiedOn = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
     }
     
     public Course(
@@ -51,8 +52,8 @@ public class Course
         TeacherId = teacherId;
         MaxStudents = maxStudents;
         Status = status;
-        CreatedOn = DateTime.UtcNow;
-        ModifiedOn = DateTime.UtcNow;
+        CreatedAt = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
         CreatedById = createdById;
         ModifiedById = createdById;
     }
@@ -88,12 +89,11 @@ public class Course
 
     public void Delete(Guid deletedById)
     {
-        if (Status == CourseStatus.Deleted)
+        if (IsDeleted)
         {
             throw new ConflictException("This course is already deleted");
         }
 
-        Status = CourseStatus.Deleted;
         DeletedAt = DateTime.UtcNow;
         DeletedById = deletedById;
         ModifiedById = deletedById;
@@ -102,12 +102,11 @@ public class Course
 
     public void Restore()
     {
-        if (Status != CourseStatus.Deleted)
+        if (!IsDeleted)
         {
             throw new ConflictException("Only deleted courses can be restored");
         }
 
-        Status = CourseStatus.Closed;
         DeletedAt = null;
         DeletedById = null;
         Touch();

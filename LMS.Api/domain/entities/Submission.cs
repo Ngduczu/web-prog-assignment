@@ -10,15 +10,15 @@ public class Submission
     public Exercise? Exercise { get; private set; }
 
     public Guid StudentId { get; private set; }
-    public Users? Student { get; private set; }
+    public User? Student { get; private set; }
 
     public SubmissionStatus Status { get; private set; }
     public SubmissionAttachment? Attachment { get; private set; }
 
     public DateTime? SubmittedAt { get; private set; }
 
-    public DateTime CreatedOn { get; private set; }
-    public DateTime ModifiedOn { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime ModifiedAt { get; private set; }
 
     private Submission() { }
 
@@ -33,13 +33,13 @@ public class Submission
 
         Status = SubmissionStatus.Draft;
 
-        CreatedOn = DateTime.UtcNow;
-        ModifiedOn = DateTime.UtcNow;
+        CreatedAt = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
     }
 
     private void Touch()
     {
-        ModifiedOn = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
     }
 
     public void Submit()

@@ -4,16 +4,16 @@ namespace LMS.Api.domain.Entities;
 
 public class Enrollment
 {
-    public Guid  EnrollmentId { get; private set; }
+    public Guid Id { get; private set; }
     
     
     public Guid StudentId { get; private set; }
     public Guid CourseId { get; private set; }
-    public Users? Student { get; private set; }
+    public User? Student { get; private set; }
     public Course? Course { get; private set; }
 
-    public DateTime CreatedOn  { get; private set; }
-    public DateTime ModifiedOn  { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime ModifiedAt { get; private set; }
     
     public EnrollmentStatus Status { get; private set; }
 
@@ -21,7 +21,7 @@ public class Enrollment
 
     private void Touch()
     {
-        ModifiedOn = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
     }
 
     public Enrollment(
@@ -30,12 +30,12 @@ public class Enrollment
         EnrollmentStatus status = EnrollmentStatus.Waiting 
     )
     {
-        EnrollmentId = Guid.NewGuid();
+        Id = Guid.NewGuid();
         StudentId = studentId;
         CourseId = courseId;
         Status = status;
-        CreatedOn = DateTime.UtcNow;
-        ModifiedOn = DateTime.UtcNow;
+        CreatedAt = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
     }
 
     public void Accept()

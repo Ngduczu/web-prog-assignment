@@ -22,7 +22,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("LMS.Api.domain.Entities.Users", b =>
+            modelBuilder.Entity("LMS.Api.domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -36,7 +36,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.Property<Guid?>("CreatedById")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("CreatedOn")
+                    b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_on");
 
@@ -46,7 +46,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                         .HasColumnType("character varying(255)")
                         .HasColumnName("email");
 
-                    b.Property<string>("Fullname")
+                    b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -55,7 +55,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.Property<Guid?>("ModifiedById")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("ModifiedOn")
+                    b.Property<DateTime>("ModifiedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("modified_on");
 
@@ -92,14 +92,14 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("LMS.Api.domain.Entities.Users", b =>
+            modelBuilder.Entity("LMS.Api.domain.Entities.User", b =>
                 {
-                    b.HasOne("LMS.Api.domain.Entities.Users", "CreatedBy")
+                    b.HasOne("LMS.Api.domain.Entities.User", "CreatedBy")
                         .WithMany()
                         .HasForeignKey("CreatedById")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("LMS.Api.domain.Entities.Users", "ModifiedBy")
+                    b.HasOne("LMS.Api.domain.Entities.User", "ModifiedBy")
                         .WithMany()
                         .HasForeignKey("ModifiedById")
                         .OnDelete(DeleteBehavior.Restrict);

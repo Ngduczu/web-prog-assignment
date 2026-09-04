@@ -17,15 +17,15 @@ public class Lesson
     public LessonStatus Status { get; private set; }
     public ICollection<Material> Materials { get; private set; } = new List<Material>();
 
-    public DateTime CreatedOn { get; private set; }
-    public DateTime ModifiedOn { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime ModifiedAt { get; private set; }
 
     // audit
     public Guid CreatedById { get; private set; }
     public Guid ModifiedById { get; private set; }
 
-    public Users? CreatedBy { get; private set; }
-    public Users? ModifiedBy { get; private set; }
+    public User? CreatedBy { get; private set; }
+    public User? ModifiedBy { get; private set; }
 
     private Lesson() { }
 
@@ -45,8 +45,8 @@ public class Lesson
         Order = order;
         Status = status;
 
-        CreatedOn = DateTime.UtcNow;
-        ModifiedOn = DateTime.UtcNow;
+        CreatedAt = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
 
         CreatedById = createdById;
         ModifiedById = createdById;
@@ -54,7 +54,7 @@ public class Lesson
 
     private void Touch()
     {
-        ModifiedOn = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
     }
 
     public void SetName(string name)

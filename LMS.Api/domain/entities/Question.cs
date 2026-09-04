@@ -14,12 +14,12 @@ public class Question
 	public bool ShuffleAnswers { get; private set; }
 	public ICollection<Answer> Answers { get; private set; } = new List<Answer>();
 
-	public DateTime CreatedOn { get; private set; }
-	public DateTime ModifiedOn { get; private set; }
+	public DateTime CreatedAt { get; private set; }
+	public DateTime ModifiedAt { get; private set; }
 	public Guid CreatedById { get; private set; }
 	public Guid ModifiedById { get; private set; }
-	public Users? CreatedBy { get; private set; }
-	public Users? ModifiedBy { get; private set; }
+	public User? CreatedBy { get; private set; }
+	public User? ModifiedBy { get; private set; }
 
 	private Question() { }
 
@@ -31,8 +31,8 @@ public class Question
 		Type = type;
 		Difficulty = difficulty;
 		ShuffleAnswers = shuffleAnswers;
-		CreatedOn = DateTime.UtcNow;
-		ModifiedOn = DateTime.UtcNow;
+		CreatedAt = DateTime.UtcNow;
+		ModifiedAt = DateTime.UtcNow;
 		CreatedById = createdById;
 		ModifiedById = createdById;
 	}
@@ -42,5 +42,5 @@ public class Question
 	public void SetDifficulty(QuestionDifficulty difficulty) { Difficulty = difficulty; Touch(); }
 	public void SetShuffleAnswers(bool shuffleAnswers) { ShuffleAnswers = shuffleAnswers; Touch(); }
 	public void SetModifiedBy(Guid modifiedById) { ModifiedById = modifiedById; Touch(); }
-	private void Touch() { ModifiedOn = DateTime.UtcNow; }
+	private void Touch() { ModifiedAt = DateTime.UtcNow; }
 }

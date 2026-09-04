@@ -4,15 +4,15 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace LMS.Api.infrastructure.Persistence.Configurations;
 
-public class UsersConfiguration : IEntityTypeConfiguration<Users>
+public class UserConfiguration : IEntityTypeConfiguration<User>
 {
-    public void Configure(EntityTypeBuilder<Users> builder)
+    public void Configure(EntityTypeBuilder<User> builder)
     {
         builder.ToTable("users");
 
         builder.HasKey(x => x.Id);
         
-        builder.Property(x => x.Fullname)
+        builder.Property(x => x.FullName)
             .HasColumnName("fullname")
             .IsRequired()
             .HasMaxLength(100);
@@ -51,11 +51,11 @@ public class UsersConfiguration : IEntityTypeConfiguration<Users>
             .IsRequired(false)
             .HasMaxLength(500);
 
-        builder.Property(x => x.CreatedOn)
+        builder.Property(x => x.CreatedAt)
             .HasColumnName("created_on")
             .IsRequired();
 
-        builder.Property(x => x.ModifiedOn)
+        builder.Property(x => x.ModifiedAt)
             .HasColumnName("modified_on")
             .IsRequired();
         

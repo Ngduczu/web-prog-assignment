@@ -12,15 +12,15 @@ public class Material
     public string ContentType { get; private set; } = null!;
     public long FileSize { get; private set; }
 
-    public DateTime CreatedOn { get; private set; }
-    public DateTime ModifiedOn { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime ModifiedAt { get; private set; }
 
     // audit
     public Guid CreatedById { get; private set; }
     public Guid ModifiedById { get; private set; }
 
-    public Users? CreatedBy { get; private set; }
-    public Users? ModifiedBy { get; private set; }
+    public User? CreatedBy { get; private set; }
+    public User? ModifiedBy { get; private set; }
 
     private Material() { }
 
@@ -40,8 +40,8 @@ public class Material
         ContentType = contentType;
         FileSize = fileSize;
 
-        CreatedOn = DateTime.UtcNow;
-        ModifiedOn = DateTime.UtcNow;
+        CreatedAt = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
 
         CreatedById = createdById;
         ModifiedById = createdById;
@@ -49,7 +49,7 @@ public class Material
 
     private void Touch()
     {
-        ModifiedOn = DateTime.UtcNow;
+        ModifiedAt = DateTime.UtcNow;
     }
 
     public void SetFileName(string fileName)
