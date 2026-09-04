@@ -1,0 +1,277 @@
+using LMS.Api.application.abstractions.auth;
+using LMS.Api.application.abstractions.persistence;
+using LMS.Api.application.abstractions.storage;
+using LMS.Api.domain.Entities.Chats;
+using LMS.Api.domain.Enums.Chats;
+using LMS.Api.domain.Enums.Courses;
+using LMS.Api.domain.Enums.Users;
+using LMS.Api.domain.exceptions;
+using LMS.Api.domain.repositories;
+
+namespace LMS.Api.application.features.chats;
+
+public sealed class ChatService : IChatService
+{
+    private readonly ICurrentUser _currentUser;
+    private readonly IChatRoomRepository _rooms;
+    private readonly IChatMessageRepository _messages;
+    private readonly ICourseRepository _courses;
+    private readonly IEnrollmentRepository _enrollments;
+    private readonly IUserRepository _users;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IFileStorage _fileStorage;
+
+    public ChatService(
+        ICurrentUser currentUser,
+        IChatRoomRepository rooms,
+        IChatMessageRepository messages,
+        ICourseRepository courses,
+        IEnrollmentRepository enrollments,
+        IUserRepository users,
+        IUnitOfWork unitOfWork,
+        IFileStorage fileStorage)
+    {
+        _currentUser = currentUser;
+        _rooms = rooms;
+        _messages = messages;
+        _courses = courses;
+        _enrollments = enrollments;
+        _users = users;
+        _unitOfWork = unitOfWork;
+        _fileStorage = fileStorage;
+    }
+
+    public async Task<IReadOnlyList<ChatRoomDto>> ListRoomsAsync(CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        return (await _rooms.ListForUserAsync(userId, cancellationToken)).Select(MapRoom).ToList();
+    }
+
+    public async Task<ChatRoomDto> GetOrCreateCourseRoomAsync(Guid courseId, CancellationToken cancellationToken)
+    {
+        var userId = await EnsureCourseAccessAsync(courseId, cancellationToken);
+        var room = await _rooms.GetByCourseIdAsync(courseId, cancellationToken);
+        if (room is null)
+        {
+            room = ChatRoom.CreateForCourse(courseId, userId);
+            room.AddCourseParticipant(userId);
+            _rooms.Add(room);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            room.AddCourseParticipant(userId);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        return MapRoom(room);
+    }
+
+    public async Task<ChatRoomDto> GetOrCreateDirectRoomAsync(Guid otherUserId, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        if (userId == otherUserId)
+        {
+            throw new BadRequestException("A direct chat requires another user.");
+        }
+
+        var otherUser = await _users.GetByIdAsync(otherUserId, cancellationToken)
+            ?? throw new NotFoundException("The other user was not found.");
+        if (otherUser.Status != AccountStatus.Active)
+        {
+            throw new ForbiddenException("Direct chat is available only for active users.");
+        }
+
+        var key = ChatRoom.BuildDirectMessageKey(userId, otherUserId);
+        var room = await _rooms.GetByDirectMessageKeyAsync(key, cancellationToken);
+        if (room is null)
+        {
+            room = ChatRoom.CreateDirectMessage(userId, otherUserId);
+            _rooms.Add(room);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        return MapRoom(room);
+    }
+
+    public async Task<IReadOnlyList<ChatMessageDto>> ListMessagesAsync(Guid roomId, ChatPageQuery query, CancellationToken cancellationToken)
+    {
+        await EnsureRoomAccessAsync(roomId, cancellationToken);
+        var page = Math.Max(1, query.Page);
+        var pageSize = Math.Clamp(query.PageSize, 1, 100);
+        var messages = await _messages.ListByRoomAsync(roomId, (page - 1) * pageSize, pageSize, cancellationToken);
+        return messages.Select(MapMessage).ToList();
+    }
+
+    public async Task EnsureRoomAccessAsync(Guid roomId, CancellationToken cancellationToken)
+    {
+        await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
+    }
+
+    public async Task<ChatMessageDto> SendMessageAsync(Guid roomId, SendChatMessageRequest request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        var room = await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
+        if (room.IsArchived)
+        {
+            throw new ConflictException("Archived chat rooms do not accept new messages.");
+        }
+
+        if (request.ReplyToMessageId is not null)
+        {
+            var reply = await _messages.GetByIdAsync(request.ReplyToMessageId.Value, cancellationToken);
+            if (reply is null || reply.ChatRoomId != roomId || reply.IsDeleted)
+            {
+                throw new BadRequestException("The reply message is invalid for this room.");
+            }
+        }
+
+        ChatMessage message;
+        try
+        {
+            message = ChatMessage.CreateText(roomId, userId, request.Content ?? string.Empty, request.ReplyToMessageId);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new BadRequestException(exception.Message);
+        }
+
+        _messages.Add(message);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return MapMessage(message);
+    }
+
+    public async Task<ChatMessageDto> SendMessageWithAttachmentAsync(Guid roomId, string? content, Guid? replyToMessageId, string fileName, string contentType, long length, Stream stream, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        var room = await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
+        if (room.IsArchived) throw new ConflictException("Archived chat rooms do not accept new messages.");
+        if (replyToMessageId is not null)
+        {
+            var reply = await _messages.GetByIdAsync(replyToMessageId.Value, cancellationToken);
+            if (reply is null || reply.ChatRoomId != roomId || reply.IsDeleted) throw new BadRequestException("The reply message is invalid for this room.");
+        }
+
+        string? uploadedObjectKey = null;
+        try
+        {
+            var storedFile = await _fileStorage.UploadAsync(new FileUpload(fileName, contentType, length, stream), $"chat/{roomId:N}", ChatAttachment.MaximumFileSizeInBytes, cancellationToken);
+            uploadedObjectKey = storedFile.ObjectKey;
+            var message = ChatMessage.CreateWithAttachment(roomId, userId, content, storedFile.FileName, storedFile.ObjectKey, storedFile.ContentType, storedFile.FileSize, replyToMessageId);
+            _messages.Add(message);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return MapMessage(message);
+        }
+        catch
+        {
+            if (uploadedObjectKey is not null)
+            {
+                await _fileStorage.DeleteIfExistsAsync(uploadedObjectKey, CancellationToken.None);
+            }
+            throw;
+        }
+    }
+
+    public async Task<ChatMessageDto> EditMessageAsync(Guid messageId, EditChatMessageRequest request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        var message = await _messages.GetByIdAsync(messageId, cancellationToken)
+            ?? throw new NotFoundException("The chat message was not found.");
+        var room = await EnsureRoomAccessInternalAsync(message.ChatRoomId, cancellationToken);
+        if (message.SenderId != userId)
+        {
+            throw new ForbiddenException("Only the message sender can edit this message.");
+        }
+        if (room.IsArchived)
+        {
+            throw new ConflictException("Archived chat rooms cannot be modified.");
+        }
+
+        try
+        {
+            message.EditContent(request.Content);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new BadRequestException(exception.Message);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return MapMessage(message);
+    }
+
+    public async Task DeleteMessageAsync(Guid messageId, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        var message = await _messages.GetByIdAsync(messageId, cancellationToken)
+            ?? throw new NotFoundException("The chat message was not found.");
+        var room = await EnsureRoomAccessInternalAsync(message.ChatRoomId, cancellationToken);
+        var role = _currentUser.GetRequiredRole();
+        if (message.SenderId != userId && !CanModerate(room, role))
+        {
+            throw new ForbiddenException("You cannot delete this message.");
+        }
+
+        message.Delete();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task MarkAsReadAsync(Guid roomId, Guid messageId, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        var room = await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
+        var message = await _messages.GetByIdAsync(messageId, cancellationToken)
+            ?? throw new NotFoundException("The chat message was not found.");
+        if (message.ChatRoomId != roomId)
+        {
+            throw new BadRequestException("The message does not belong to this room.");
+        }
+
+        room.Participants.Single(participant => participant.UserId == userId).MarkAsRead(messageId);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<Guid> EnsureCourseAccessAsync(Guid courseId, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        var role = _currentUser.GetRequiredRole();
+        var course = await _courses.GetByIdAsync(courseId, false, cancellationToken)
+            ?? throw new NotFoundException("The course was not found.");
+        if (role == Role.Admin || course.TeacherId == userId)
+        {
+            return userId;
+        }
+
+        var enrollment = await _enrollments.GetByStudentAndCourseAsync(userId, courseId, cancellationToken);
+        if (role != Role.Student || enrollment?.Status != EnrollmentStatus.Accepted)
+        {
+            throw new ForbiddenException("Only the course teacher or an accepted student can access course chat.");
+        }
+
+        return userId;
+    }
+
+    private async Task<ChatRoom> EnsureRoomAccessInternalAsync(Guid roomId, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        var room = await _rooms.GetByIdAsync(roomId, cancellationToken)
+            ?? throw new NotFoundException("The chat room was not found.");
+        if (!room.Participants.Any(participant => participant.UserId == userId))
+        {
+            if (room.Type == ChatRoomType.Course && room.CourseId is not null)
+            {
+                await EnsureCourseAccessAsync(room.CourseId.Value, cancellationToken);
+            }
+            else
+            {
+                throw new ForbiddenException("You are not a participant in this chat room.");
+            }
+        }
+
+        return room;
+    }
+
+    private static bool CanModerate(ChatRoom room, Role role) => role == Role.Admin || room.Type == ChatRoomType.Course && role == Role.Teacher;
+    private static ChatRoomDto MapRoom(ChatRoom room) => new(room.Id, room.Type.ToString(), room.CourseId, room.Participants.Select(participant => participant.UserId).ToArray(), room.CreatedAt, room.ArchivedAt);
+    private static ChatMessageDto MapMessage(ChatMessage message) => new(message.Id, message.ChatRoomId, message.SenderId, message.IsDeleted ? null : message.Content, message.ReplyToMessageId, message.CreatedAt, message.EditedAt, message.DeletedAt, message.Attachments.Select(attachment => new ChatAttachmentDto(attachment.Id, attachment.FileName, attachment.ObjectKey, attachment.ContentType, attachment.FileSize)).ToArray());
+}

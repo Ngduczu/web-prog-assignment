@@ -2,12 +2,14 @@ using LMS.Api.application;
 using LMS.Api.infrastructure;
 using LMS.Api.infrastructure.Persistence;
 using LMS.Api.presentation;
+using LMS.Api.presentation.hubs;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();
 builder.Services.AddPresentation();
@@ -37,6 +39,7 @@ if (app.Environment.IsDevelopment())
 }
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();
+app.UseRateLimiter();
 
 if (!app.Environment.IsEnvironment("Testing"))
 {
@@ -45,6 +48,7 @@ if (!app.Environment.IsEnvironment("Testing"))
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<ChatHub>("/hubs/chat");
 app.Run();
 
 public partial class Program;

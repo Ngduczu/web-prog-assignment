@@ -1,0 +1,84 @@
+using LMS.Api.application.features.chats;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace LMS.Api.presentation.controllers;
+
+[ApiController]
+[Route("api/chat")]
+[Authorize]
+public sealed class ChatsController : ControllerBase
+{
+    [HttpGet("rooms")]
+    public async Task<ActionResult<IReadOnlyList<ChatRoomDto>>> ListRooms(
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken) => Ok(await service.ListRoomsAsync(cancellationToken));
+
+    [HttpPost("courses/{courseId:guid}")]
+    public async Task<ActionResult<ChatRoomDto>> GetOrCreateCourseRoom(
+        Guid courseId,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken) => Ok(await service.GetOrCreateCourseRoomAsync(courseId, cancellationToken));
+
+    [HttpPost("direct/{userId:guid}")]
+    public async Task<ActionResult<ChatRoomDto>> GetOrCreateDirectRoom(
+        Guid userId,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken) => Ok(await service.GetOrCreateDirectRoomAsync(userId, cancellationToken));
+
+    [HttpGet("rooms/{roomId:guid}/messages")]
+    public async Task<ActionResult<IReadOnlyList<ChatMessageDto>>> ListMessages(
+        Guid roomId,
+        [FromQuery] ChatPageQuery query,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken) => Ok(await service.ListMessagesAsync(roomId, query, cancellationToken));
+
+    [HttpPost("rooms/{roomId:guid}/messages")]
+    public async Task<ActionResult<ChatMessageDto>> SendMessage(
+        Guid roomId,
+        [FromBody] SendChatMessageRequest request,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken) => StatusCode(StatusCodes.Status201Created, await service.SendMessageAsync(roomId, request, cancellationToken));
+
+    [HttpPost("rooms/{roomId:guid}/messages/attachment")]
+    [RequestSizeLimit(20_000_000)]
+    public async Task<ActionResult<ChatMessageDto>> SendMessageWithAttachment(
+        Guid roomId,
+        [FromForm] string? content,
+        [FromForm] Guid? replyToMessageId,
+        [FromForm] IFormFile file,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken)
+    {
+        if (file is null || file.Length == 0) return BadRequest("A non-empty file is required.");
+        return StatusCode(StatusCodes.Status201Created, await service.SendMessageWithAttachmentAsync(roomId, content, replyToMessageId, file.FileName, file.ContentType, file.Length, file.OpenReadStream(), cancellationToken));
+    }
+
+    [HttpPatch("messages/{messageId:guid}")]
+    public async Task<ActionResult<ChatMessageDto>> EditMessage(
+        Guid messageId,
+        [FromBody] EditChatMessageRequest request,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken) => Ok(await service.EditMessageAsync(messageId, request, cancellationToken));
+
+    [HttpDelete("messages/{messageId:guid}")]
+    public async Task<IActionResult> DeleteMessage(
+        Guid messageId,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken)
+    {
+        await service.DeleteMessageAsync(messageId, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("rooms/{roomId:guid}/read/{messageId:guid}")]
+    public async Task<IActionResult> MarkAsRead(
+        Guid roomId,
+        Guid messageId,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken)
+    {
+        await service.MarkAsReadAsync(roomId, messageId, cancellationToken);
+        return NoContent();
+    }
+}

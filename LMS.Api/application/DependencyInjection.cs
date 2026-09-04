@@ -8,6 +8,7 @@ using LMS.Api.application.features.registration;
 using LMS.Api.application.features.users;
 using LMS.Api.application.features.passwordreset;
 using LMS.Api.application.features.auth;
+using LMS.Api.application.features.chats;
 
 namespace LMS.Api.application;
 
@@ -29,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<IAuthenticationService, AuthenticationService>();
+        services.AddScoped<IChatService, ChatService>();
         return services;
     }
 }
