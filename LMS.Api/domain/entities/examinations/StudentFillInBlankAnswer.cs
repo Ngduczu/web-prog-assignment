@@ -13,4 +13,9 @@ public class StudentFillInBlankAnswer
     {
         Id = Guid.NewGuid(); StudentAnswerId = studentAnswerId; BlankOrder = blankOrder; AnswerText = answerText;
     }
+
+    public void SetAnswerText(string answerText)
+    {
+        AnswerText = answerText;
+    }
 }

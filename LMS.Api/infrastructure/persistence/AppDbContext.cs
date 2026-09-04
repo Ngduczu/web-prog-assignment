@@ -4,7 +4,9 @@ using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Entities.Examinations;
 using LMS.Api.domain.Entities.Questions;
 using LMS.Api.domain.Entities.Users;
+using LMS.Api.domain.exceptions;
 using Microsoft.EntityFrameworkCore;
+using System.Data;
 
 namespace LMS.Api.infrastructure.Persistence;
 
@@ -54,10 +56,37 @@ public class AppDbContext : DbContext, IUnitOfWork, ITransactionManager
         Func<CancellationToken, Task> action,
         CancellationToken cancellationToken = default)
     {
+        await ExecuteWithIsolationAsync(action, IsolationLevel.ReadCommitted, cancellationToken);
+    }
+
+    public async Task ExecuteSerializableAsync(
+        Func<CancellationToken, Task> action,
+        CancellationToken cancellationToken = default)
+    {
+        await ExecuteWithIsolationAsync(action, IsolationLevel.Serializable, cancellationToken);
+    }
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConflictException("The data was changed by another request. Please retry.", exception);
+        }
+    }
+
+    private async Task ExecuteWithIsolationAsync(
+        Func<CancellationToken, Task> action,
+        IsolationLevel isolationLevel,
+        CancellationToken cancellationToken)
+    {
         var executionStrategy = Database.CreateExecutionStrategy();
         await executionStrategy.ExecuteAsync(async () =>
         {
-            await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+            await using var transaction = await Database.BeginTransactionAsync(isolationLevel, cancellationToken);
             await action(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         });
