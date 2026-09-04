@@ -125,6 +125,27 @@ public class CourseApplicationTests
     }
 
     [Fact]
+    public async Task AcceptEnrollmentRunsInsideSerializableTransaction()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var course = CreateCourse(teacher);
+        var enrollment = new Enrollment(student.Id, course.Id);
+        var transactionManager = new FakeTransactionManager();
+        var service = new EnrollmentService(
+            new FakeEnrollmentRepository(enrollment),
+            new FakeCourseRepository(course),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher),
+            transactionManager);
+
+        var result = await service.AcceptAsync(enrollment.Id);
+
+        Assert.Equal(EnrollmentStatus.Accepted, result.Status);
+        Assert.Equal(1, transactionManager.SerializableExecutionCount);
+    }
+
+    [Fact]
     public async Task StudentCannotCancelAnotherStudentsEnrollment()
     {
         var teacher = CreateUser(Role.Teacher);
@@ -186,6 +207,24 @@ public class CourseApplicationTests
         {
             SaveCount++;
             return Task.FromResult(1);
+        }
+    }
+
+    private sealed class FakeTransactionManager : ITransactionManager
+    {
+        public int SerializableExecutionCount { get; private set; }
+
+        public Task ExecuteAsync(
+            Func<CancellationToken, Task> action,
+            CancellationToken cancellationToken = default) =>
+            action(cancellationToken);
+
+        public Task ExecuteSerializableAsync(
+            Func<CancellationToken, Task> action,
+            CancellationToken cancellationToken = default)
+        {
+            SerializableExecutionCount++;
+            return action(cancellationToken);
         }
     }
 

@@ -25,6 +25,36 @@ public class LocalFileStorageTests
     }
 
     [Fact]
+    public void CourseUploadRejectsConfiguredMaximumSize()
+    {
+        var upload = new FileUpload("large-file.bin", "application/octet-stream", 5, Stream.Null);
+
+        Assert.Throws<BadRequestException>(() =>
+            FileUploadPolicy.Validate(upload, 5));
+    }
+
+    [Fact]
+    public async Task DeleteRejectsPathTraversal()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), $"lms-storage-{Guid.NewGuid():N}");
+
+        try
+        {
+            var storage = CreateStorage(rootPath);
+
+            await Assert.ThrowsAsync<BadRequestException>(() =>
+                storage.DeleteIfExistsAsync("../outside.txt"));
+        }
+        finally
+        {
+            if (Directory.Exists(rootPath))
+            {
+                Directory.Delete(rootPath, true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task UploadAndDeleteUseConfiguredStorageRoot()
     {
         var rootPath = Path.Combine(Path.GetTempPath(), $"lms-storage-{Guid.NewGuid():N}");

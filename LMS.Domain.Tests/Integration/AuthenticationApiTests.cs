@@ -64,4 +64,18 @@ public sealed class AuthenticationApiTests : IClassFixture<ApiWebApplicationFact
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
+
+    [Fact]
+    public async Task MissingMultipartFileReturnsBadRequest()
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/api/lessons/00000000-0000-0000-0000-000000000001/materials");
+        request.Headers.Add("X-Test-Role", "Teacher");
+        request.Content = new MultipartFormDataContent();
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }
