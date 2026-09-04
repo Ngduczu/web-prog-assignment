@@ -26,7 +26,7 @@ public class ExaminationQuestionConfiguration : IEntityTypeConfiguration<Examina
         builder.HasIndex(x => new { x.ExaminationId, x.Order }).IsUnique();
         builder.HasIndex(x => x.SourceQuestionId);
 
-        builder.HasOne(x => x.Examination).WithMany(x => x.Questions).HasForeignKey(x => x.ExaminationId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Examination).WithMany(x => x.Questions).HasForeignKey(x => x.ExaminationId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.CorrectOption).WithMany().HasForeignKey(x => x.CorrectOptionId).OnDelete(DeleteBehavior.SetNull);
     }
 }

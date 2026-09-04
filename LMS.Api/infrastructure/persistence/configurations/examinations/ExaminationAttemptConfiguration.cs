@@ -35,7 +35,7 @@ public class ExaminationAttemptConfiguration : IEntityTypeConfiguration<Examinat
         builder.HasIndex(x => new { x.ExaminationId, x.StudentId });
         builder.HasIndex(x => new { x.Status, x.LastActivityAt });
 
-        builder.HasOne(x => x.Examination).WithMany(x => x.Attempts).HasForeignKey(x => x.ExaminationId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Examination).WithMany(x => x.Attempts).HasForeignKey(x => x.ExaminationId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Restrict);
     }
 }

@@ -22,7 +22,7 @@ public class SubmissionConfiguration : IEntityTypeConfiguration<Submission>
 
         builder.HasIndex(x => new { x.ExerciseId, x.StudentId }).IsUnique();
 
-        builder.HasOne(x => x.Exercise).WithMany().HasForeignKey(x => x.ExerciseId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Exercise).WithMany().HasForeignKey(x => x.ExerciseId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(x => x.Attachment).WithOne(x => x.Submission).HasForeignKey<SubmissionAttachment>(x => x.SubmissionId).OnDelete(DeleteBehavior.Cascade);
     }

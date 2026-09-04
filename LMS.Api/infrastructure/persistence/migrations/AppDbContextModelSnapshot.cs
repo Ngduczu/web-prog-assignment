@@ -1513,8 +1513,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Course", "Course")
                         .WithMany()
                         .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "Student")
                         .WithMany()
@@ -1532,8 +1531,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Course", "Course")
                         .WithMany("Exercises")
                         .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "CreatedBy")
                         .WithMany()
@@ -1565,8 +1563,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Exercise", "Exercise")
                         .WithOne("Attachment")
                         .HasForeignKey("LMS.Api.domain.Entities.Courses.ExerciseAttachment", "ExerciseId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("CreatedBy");
 
@@ -1578,8 +1575,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Course", "Course")
                         .WithMany("Lessons")
                         .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "CreatedBy")
                         .WithMany()
@@ -1611,8 +1607,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Lesson", "Lesson")
                         .WithMany("Materials")
                         .HasForeignKey("LessonId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "ModifiedBy")
                         .WithMany()
@@ -1632,8 +1627,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Exercise", "Exercise")
                         .WithMany()
                         .HasForeignKey("ExerciseId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "Student")
                         .WithMany()
@@ -1662,8 +1656,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Course", "Course")
                         .WithMany("Examinations")
                         .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "CreatedBy")
                         .WithMany()
@@ -1689,8 +1682,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Examinations.Examination", "Examination")
                         .WithMany("Attempts")
                         .HasForeignKey("ExaminationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "Student")
                         .WithMany()
@@ -1735,8 +1727,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Examinations.Examination", "Examination")
                         .WithMany("Questions")
                         .HasForeignKey("ExaminationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("CorrectOption");
 
@@ -1748,8 +1739,7 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Examinations.Examination", "Examination")
                         .WithMany("QuestionSelectionRules")
                         .HasForeignKey("ExaminationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("LMS.Api.domain.Entities.Questions.QuestionBank", "QuestionBank")
                         .WithMany()

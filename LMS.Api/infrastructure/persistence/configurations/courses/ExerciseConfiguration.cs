@@ -23,10 +23,11 @@ public class ExerciseConfiguration : IEntityTypeConfiguration<Exercise>
         builder.Property(x => x.ModifiedById).HasColumnName("modified_by_id");
 
         builder.HasIndex(x => x.CourseId);
+        builder.HasQueryFilter(x => x.Course == null || x.Course.DeletedAt == null);
 
-        builder.HasOne(x => x.Course).WithMany(x => x.Exercises).HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Course).WithMany(x => x.Exercises).HasForeignKey(x => x.CourseId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.CreatedBy).WithMany().HasForeignKey(x => x.CreatedById).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(x => x.ModifiedBy).WithMany().HasForeignKey(x => x.ModifiedById).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne(x => x.Attachment).WithOne(x => x.Exercise).HasForeignKey<ExerciseAttachment>(x => x.ExerciseId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Attachment).WithOne(x => x.Exercise).HasForeignKey<ExerciseAttachment>(x => x.ExerciseId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
     }
 }

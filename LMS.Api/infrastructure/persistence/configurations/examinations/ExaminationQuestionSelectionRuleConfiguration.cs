@@ -21,7 +21,7 @@ public class ExaminationQuestionSelectionRuleConfiguration : IEntityTypeConfigur
 
         builder.HasIndex(x => new { x.ExaminationId, x.QuestionBankId, x.Difficulty }).IsUnique();
 
-        builder.HasOne(x => x.Examination).WithMany(x => x.QuestionSelectionRules).HasForeignKey(x => x.ExaminationId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Examination).WithMany(x => x.QuestionSelectionRules).HasForeignKey(x => x.ExaminationId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.QuestionBank).WithMany().HasForeignKey(x => x.QuestionBankId).OnDelete(DeleteBehavior.Restrict);
     }
 }

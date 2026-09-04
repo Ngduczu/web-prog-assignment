@@ -26,7 +26,7 @@ public class MaterialConfiguration : IEntityTypeConfiguration<Material>
 
         builder.HasIndex(x => x.ObjectKey).IsUnique();
 
-        builder.HasOne(x => x.Lesson).WithMany(x => x.Materials).HasForeignKey(x => x.LessonId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Lesson).WithMany(x => x.Materials).HasForeignKey(x => x.LessonId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.CreatedBy).WithMany().HasForeignKey(x => x.CreatedById).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(x => x.ModifiedBy).WithMany().HasForeignKey(x => x.ModifiedById).OnDelete(DeleteBehavior.Restrict);
     }

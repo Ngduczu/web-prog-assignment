@@ -21,8 +21,9 @@ public class EnrollmentConfiguration : IEntityTypeConfiguration<Enrollment>
 
         builder.HasIndex(x => new { x.StudentId, x.CourseId }).IsUnique();
         builder.HasIndex(x => new { x.CourseId, x.Status });
+        builder.HasQueryFilter(x => x.Course == null || x.Course.DeletedAt == null);
 
         builder.HasOne(x => x.Student).WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne(x => x.Course).WithMany().HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Course).WithMany().HasForeignKey(x => x.CourseId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
     }
 }

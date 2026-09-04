@@ -42,8 +42,9 @@ public class ExaminationConfiguration : IEntityTypeConfiguration<Examination>
 
         builder.HasIndex(x => new { x.CourseId, x.Status });
         builder.HasIndex(x => new { x.StartAt, x.DueAt });
+        builder.HasQueryFilter(x => x.Course == null || x.Course.DeletedAt == null);
 
-        builder.HasOne(x => x.Course).WithMany(x => x.Examinations).HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Course).WithMany(x => x.Examinations).HasForeignKey(x => x.CourseId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.CreatedBy).WithMany().HasForeignKey(x => x.CreatedById).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(x => x.ModifiedBy).WithMany().HasForeignKey(x => x.ModifiedById).OnDelete(DeleteBehavior.Restrict);
     }
