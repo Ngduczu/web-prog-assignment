@@ -40,7 +40,7 @@ public sealed class SubmissionService : ISubmissionService
         CancellationToken cancellationToken = default)
     {
         ValidateId(exerciseId, "Exercise id");
-        FileUploadPolicy.Validate(upload, FileUploadPolicy.MaximumCourseFileSizeBytes);
+        FileUploadPolicy.Validate(upload);
         var studentId = EnsureStudent();
         var exercise = await GetExerciseAsync(exerciseId, cancellationToken);
         await EnsureAcceptedEnrollmentAsync(studentId, exercise.CourseId, cancellationToken);
@@ -66,8 +66,7 @@ public sealed class SubmissionService : ISubmissionService
         var storedFile = await _fileStorage.UploadAsync(
             upload,
             $"courses/{exercise.CourseId:N}/submissions/{submission.Id:N}",
-            FileUploadPolicy.MaximumCourseFileSizeBytes,
-            cancellationToken);
+            cancellationToken: cancellationToken);
         var oldObjectKey = submission.Attachment?.ObjectKey;
 
         try

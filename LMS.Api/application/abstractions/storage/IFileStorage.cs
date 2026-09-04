@@ -5,7 +5,7 @@ public interface IFileStorage
     Task<StoredFile> UploadAsync(
         FileUpload upload,
         string directory,
-        long maximumSizeBytes,
+        long? maximumSizeBytes = null,
         CancellationToken cancellationToken = default);
     Task DeleteIfExistsAsync(
         string objectKey,

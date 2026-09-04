@@ -20,7 +20,7 @@ public sealed class LocalFileStorage : IFileStorage
     public async Task<StoredFile> UploadAsync(
         FileUpload upload,
         string directory,
-        long maximumSizeBytes,
+        long? maximumSizeBytes = null,
         CancellationToken cancellationToken = default)
     {
         FileUploadPolicy.Validate(upload, maximumSizeBytes);
@@ -51,7 +51,7 @@ public sealed class LocalFileStorage : IFileStorage
                 }
 
                 written += read;
-                if (written >= maximumSizeBytes)
+                if (maximumSizeBytes is not null && written >= maximumSizeBytes)
                 {
                     throw new BadRequestException($"File size must be smaller than {maximumSizeBytes} bytes.");
                 }

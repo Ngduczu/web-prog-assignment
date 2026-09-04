@@ -4,9 +4,9 @@ namespace LMS.Api.application.abstractions.storage;
 
 public static class FileUploadPolicy
 {
-    public const long MaximumCourseFileSizeBytes = 20 * 1024 * 1024;
+    public const long MaximumChatFileSizeBytes = 20 * 1024 * 1024;
 
-    public static void Validate(FileUpload upload, long maximumSizeBytes)
+    public static void Validate(FileUpload upload, long? maximumSizeBytes = null)
     {
         if (string.IsNullOrWhiteSpace(upload.FileName) || upload.FileName.Length > 255)
         {
@@ -18,7 +18,12 @@ public static class FileUploadPolicy
             throw new BadRequestException("File content type must contain between 1 and 255 characters.");
         }
 
-        if (upload.Length <= 0 || upload.Length >= maximumSizeBytes)
+        if (upload.Length <= 0)
+        {
+            throw new BadRequestException("File size must be greater than zero.");
+        }
+
+        if (maximumSizeBytes is not null && upload.Length >= maximumSizeBytes)
         {
             throw new BadRequestException($"File size must be greater than zero and smaller than {maximumSizeBytes} bytes.");
         }

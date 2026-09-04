@@ -84,15 +84,14 @@ public sealed class ExerciseService : IExerciseService
         CancellationToken cancellationToken = default)
     {
         ValidateId(exerciseId, "Exercise id");
-        FileUploadPolicy.Validate(upload, FileUploadPolicy.MaximumCourseFileSizeBytes);
+        FileUploadPolicy.Validate(upload);
         var exercise = await GetExerciseAsync(exerciseId, true, cancellationToken);
         var course = await GetCourseAsync(exercise.CourseId, cancellationToken);
         var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);
         var storedFile = await _fileStorage.UploadAsync(
             upload,
             $"courses/{course.Id:N}/exercises/{exercise.Id:N}",
-            FileUploadPolicy.MaximumCourseFileSizeBytes,
-            cancellationToken);
+            cancellationToken: cancellationToken);
         var oldObjectKey = exercise.Attachment?.ObjectKey;
 
         try

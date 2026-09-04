@@ -102,15 +102,14 @@ public sealed class LessonService : ILessonService
         CancellationToken cancellationToken = default)
     {
         ValidateId(lessonId, "Lesson id");
-        FileUploadPolicy.Validate(upload, FileUploadPolicy.MaximumCourseFileSizeBytes);
+        FileUploadPolicy.Validate(upload);
         var lesson = await GetLessonAsync(lessonId, cancellationToken);
         var course = await GetCourseAsync(lesson.CourseId, cancellationToken);
         var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);
         var storedFile = await _fileStorage.UploadAsync(
             upload,
             $"courses/{course.Id:N}/lessons/{lesson.Id:N}/materials",
-            FileUploadPolicy.MaximumCourseFileSizeBytes,
-            cancellationToken);
+            cancellationToken: cancellationToken);
 
         try
         {
