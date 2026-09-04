@@ -16,18 +16,21 @@ public sealed class EnrollmentService : IEnrollmentService
     private readonly IEnrollmentRepository _enrollments;
     private readonly ICourseRepository _courses;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ITransactionManager? _transactionManager;
     private readonly ICurrentUser _currentUser;
 
     public EnrollmentService(
         IEnrollmentRepository enrollments,
         ICourseRepository courses,
         IUnitOfWork unitOfWork,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        ITransactionManager? transactionManager = null)
     {
         _enrollments = enrollments;
         _courses = courses;
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
+        _transactionManager = transactionManager;
     }
 
     public async Task<EnrollmentDto> RequestAsync(
@@ -115,6 +118,24 @@ public sealed class EnrollmentService : IEnrollmentService
     }
 
     private async Task<EnrollmentDto> TransitionAsync(
+        Guid enrollmentId,
+        EnrollmentStatus targetStatus,
+        CancellationToken cancellationToken)
+    {
+        if (_transactionManager is null)
+        {
+            return await TransitionCoreAsync(enrollmentId, targetStatus, cancellationToken);
+        }
+
+        EnrollmentDto? result = null;
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
+        {
+            result = await TransitionCoreAsync(enrollmentId, targetStatus, transactionCancellationToken);
+        }, cancellationToken);
+        return result!;
+    }
+
+    private async Task<EnrollmentDto> TransitionCoreAsync(
         Guid enrollmentId,
         EnrollmentStatus targetStatus,
         CancellationToken cancellationToken)

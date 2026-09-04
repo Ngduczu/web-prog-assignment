@@ -66,7 +66,8 @@ public sealed class LessonService : ILessonService
         CancellationToken cancellationToken = default)
     {
         ValidateId(courseId, "Course id");
-        _ = await GetCourseAsync(courseId, cancellationToken);
+        var course = await GetCourseAsync(courseId, cancellationToken);
+        CourseAuthorization.EnsureCanManage(_currentUser, course);
         var lessons = await _lessons.ListByCourseAsync(courseId, cancellationToken);
         return lessons.Select(Map).ToArray();
     }
@@ -102,7 +103,7 @@ public sealed class LessonService : ILessonService
         CancellationToken cancellationToken = default)
     {
         ValidateId(lessonId, "Lesson id");
-        FileUploadPolicy.Validate(upload);
+        FileUploadPolicy.Validate(upload, FileUploadPolicy.MaximumCourseFileSizeBytes);
         var lesson = await GetLessonAsync(lessonId, cancellationToken);
         var course = await GetCourseAsync(lesson.CourseId, cancellationToken);
         var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);

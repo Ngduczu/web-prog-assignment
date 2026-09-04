@@ -1,6 +1,7 @@
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.abstractions.storage;
+using LMS.Api.application.abstractions.time;
 using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Enums.Courses;
 using LMS.Api.domain.Enums.Users;
@@ -17,6 +18,7 @@ public sealed class SubmissionService : ISubmissionService
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
+    private readonly IClock _clock;
 
     public SubmissionService(
         ISubmissionRepository submissions,
@@ -24,7 +26,8 @@ public sealed class SubmissionService : ISubmissionService
         IEnrollmentRepository enrollments,
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        IClock clock)
     {
         _submissions = submissions;
         _exercises = exercises;
@@ -32,6 +35,7 @@ public sealed class SubmissionService : ISubmissionService
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
+        _clock = clock;
     }
 
     public async Task<SubmissionDto> UploadAsync(
@@ -40,12 +44,12 @@ public sealed class SubmissionService : ISubmissionService
         CancellationToken cancellationToken = default)
     {
         ValidateId(exerciseId, "Exercise id");
-        FileUploadPolicy.Validate(upload);
+        FileUploadPolicy.Validate(upload, FileUploadPolicy.MaximumCourseFileSizeBytes);
         var studentId = EnsureStudent();
         var exercise = await GetExerciseAsync(exerciseId, cancellationToken);
         await EnsureAcceptedEnrollmentAsync(studentId, exercise.CourseId, cancellationToken);
 
-        if (exercise.DueAt is not null && exercise.DueAt <= DateTime.UtcNow)
+        if (exercise.DueAt is not null && exercise.DueAt <= _clock.UtcNow)
         {
             throw new ConflictException("The exercise deadline has passed.");
         }
@@ -141,7 +145,7 @@ public sealed class SubmissionService : ISubmissionService
         }
 
         var exercise = await GetExerciseAsync(submission.ExerciseId, cancellationToken);
-        if (exercise.DueAt is not null && exercise.DueAt <= DateTime.UtcNow)
+        if (exercise.DueAt is not null && exercise.DueAt <= _clock.UtcNow)
         {
             throw new ConflictException("The exercise deadline has passed.");
         }

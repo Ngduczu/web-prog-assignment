@@ -5,6 +5,7 @@ namespace LMS.Api.application.abstractions.storage;
 public static class FileUploadPolicy
 {
     public const long MaximumChatFileSizeBytes = 20 * 1024 * 1024;
+    public const long MaximumCourseFileSizeBytes = 20 * 1024 * 1024;
 
     public static void Validate(FileUpload upload, long? maximumSizeBytes = null)
     {
@@ -25,7 +26,7 @@ public static class FileUploadPolicy
 
         if (maximumSizeBytes is not null && upload.Length >= maximumSizeBytes)
         {
-            throw new BadRequestException($"File size must be greater than zero and smaller than {maximumSizeBytes} bytes.");
+            throw new BadRequestException($"File size must be smaller than {maximumSizeBytes} bytes.");
         }
 
         if (!upload.Content.CanRead)

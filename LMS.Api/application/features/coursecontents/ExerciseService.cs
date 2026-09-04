@@ -55,7 +55,8 @@ public sealed class ExerciseService : IExerciseService
         CancellationToken cancellationToken = default)
     {
         ValidateId(courseId, "Course id");
-        _ = await GetCourseAsync(courseId, cancellationToken);
+        var course = await GetCourseAsync(courseId, cancellationToken);
+        CourseAuthorization.EnsureCanManage(_currentUser, course);
         var exercises = await _exercises.ListByCourseAsync(courseId, cancellationToken);
         return exercises.Select(Map).ToArray();
     }
@@ -84,7 +85,7 @@ public sealed class ExerciseService : IExerciseService
         CancellationToken cancellationToken = default)
     {
         ValidateId(exerciseId, "Exercise id");
-        FileUploadPolicy.Validate(upload);
+        FileUploadPolicy.Validate(upload, FileUploadPolicy.MaximumCourseFileSizeBytes);
         var exercise = await GetExerciseAsync(exerciseId, true, cancellationToken);
         var course = await GetCourseAsync(exercise.CourseId, cancellationToken);
         var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);

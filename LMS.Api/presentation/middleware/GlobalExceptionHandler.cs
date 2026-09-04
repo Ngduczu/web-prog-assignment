@@ -42,7 +42,9 @@ public class GlobalExceptionHandler: IExceptionHandler
                 ConflictException => "Conflict",
                 _ => "Internal Server Error"
             },
-            Detail = exception.Message
+            Detail = statusCode == StatusCodes.Status500InternalServerError
+                ? "An unexpected error occurred."
+                : exception.Message
         };
 
         httpContext.Response.StatusCode = statusCode;
