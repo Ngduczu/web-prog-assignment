@@ -6,6 +6,10 @@ using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Users;
 using LMS.Api.domain.exceptions;
 using LMS.Api.domain.repositories;
+using LMS.Api.infrastructure.authentication.JWT;
+using Microsoft.Extensions.Options;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace LMS.Domain.Tests.Application;
 
@@ -44,6 +48,28 @@ public sealed class AuthenticationApplicationTests
 
         await Assert.ThrowsAsync<UnauthorizeException>(() =>
             fixture.Service.LoginAsync(new LoginRequest("user@example.com", "password123")));
+    }
+
+    [Fact]
+    public void AccessTokenContainsOnlySelectedAccountClaims()
+    {
+        var provider = new JwtTokenProvider(Options.Create(new JwtOptions
+        {
+            Issuer = "LMS.Api",
+            Audience = "LMS.Client",
+            SigningKey = "integration-test-signing-key-that-is-at-least-32-bytes",
+            ExpirationMinutes = 60
+        }));
+
+        var userId = Guid.NewGuid();
+        var accessToken = provider.CreateAccessToken(userId, "user@example.com", "Student", 7);
+        var token = new JwtSecurityTokenHandler().ReadJwtToken(accessToken.Token);
+
+        Assert.Equal(userId.ToString(), token.Claims.Single(claim => claim.Type == ClaimTypes.NameIdentifier).Value);
+        Assert.Equal("user@example.com", token.Claims.Single(claim => claim.Type == ClaimTypes.Email).Value);
+        Assert.Equal("Student", token.Claims.Single(claim => claim.Type == ClaimTypes.Role).Value);
+        Assert.Equal("7", token.Claims.Single(claim => claim.Type == "auth_version").Value);
+        Assert.NotNull(token.Claims.SingleOrDefault(claim => claim.Type == JwtRegisteredClaimNames.Jti));
     }
 
     private static Fixture CreateFixture(AccountStatus status)
