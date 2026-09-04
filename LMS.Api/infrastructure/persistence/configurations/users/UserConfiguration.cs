@@ -2,7 +2,7 @@ using LMS.Api.domain.Entities.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace LMS.Api.infrastructure.Persistence.Configurations;
+namespace LMS.Api.infrastructure.Persistence.Configurations.Users;
 
 public class UserConfiguration : IEntityTypeConfiguration<User>
 {
@@ -11,9 +11,12 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.ToTable("users");
 
         builder.HasKey(x => x.Id);
+
+        builder.Property(x => x.Id)
+            .HasColumnName("id");
         
         builder.Property(x => x.FullName)
-            .HasColumnName("fullname")
+            .HasColumnName("full_name")
             .IsRequired()
             .HasMaxLength(100);
         
@@ -52,12 +55,18 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .HasMaxLength(500);
 
         builder.Property(x => x.CreatedAt)
-            .HasColumnName("created_on")
+            .HasColumnName("created_at")
             .IsRequired();
 
         builder.Property(x => x.ModifiedAt)
-            .HasColumnName("modified_on")
+            .HasColumnName("modified_at")
             .IsRequired();
+
+        builder.Property(x => x.CreatedById)
+            .HasColumnName("created_by_id");
+
+        builder.Property(x => x.ModifiedById)
+            .HasColumnName("modified_by_id");
         
         builder.HasOne(x => x.CreatedBy)
             .WithMany()
