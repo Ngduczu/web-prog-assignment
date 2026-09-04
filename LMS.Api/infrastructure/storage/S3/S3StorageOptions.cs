@@ -4,6 +4,7 @@ public sealed class S3StorageOptions
 {
     public const string SectionName = "S3Storage";
 
+    public bool Enabled { get; init; }
     public string BucketName { get; init; } = string.Empty;
     public string Region { get; init; } = "us-east-1";
     public string? ServiceUrl { get; init; }

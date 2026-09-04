@@ -50,7 +50,15 @@ public static class DependencyInjection
         services.AddScoped<IUserManagementRepository, UserRepository>();
         services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));
         services.Configure<S3StorageOptions>(configuration.GetSection(S3StorageOptions.SectionName));
-        services.AddSingleton<IFileStorage, LocalFileStorage>();
+        var s3Storage = configuration.GetSection(S3StorageOptions.SectionName).Get<S3StorageOptions>();
+        if (s3Storage?.Enabled == true)
+        {
+            services.AddSingleton<IFileStorage, S3FileStorage>();
+        }
+        else
+        {
+            services.AddSingleton<IFileStorage, LocalFileStorage>();
+        }
         services.AddSingleton<IClock, SystemClock>();
         var redisConnectionString = configuration.GetConnectionString("Redis")
             ?? throw new InvalidOperationException("Redis connection string is not configured.");
