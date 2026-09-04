@@ -1,5 +1,7 @@
+using LMS.Api.application.abstractions.persistence;
+using LMS.Api.domain.repositories;
 using LMS.Api.infrastructure.Persistence;
-using LMS.Api.presentation.middleware;
+using LMS.Api.infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 
 namespace LMS.Api.infrastructure;
@@ -14,6 +16,11 @@ public static class DependencyInjection
             option.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection"))
         );
-        return  services;
+        services.AddScoped<IUnitOfWork>(serviceProvider =>
+            serviceProvider.GetRequiredService<AppDbContext>());
+        services.AddScoped<ICourseRepository, CourseRepository>();
+        services.AddScoped<IEnrollmentRepository, EnrollmentRepository>();
+        services.AddScoped<IUserRepository, UserRepository>();
+        return services;
     }
 }

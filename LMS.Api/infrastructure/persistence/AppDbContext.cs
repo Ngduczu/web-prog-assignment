@@ -1,3 +1,4 @@
+using LMS.Api.application.abstractions.persistence;
 using LMS.Api.domain.Entities.Chats;
 using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Entities.Examinations;
@@ -7,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LMS.Api.infrastructure.Persistence;
 
-public class AppDbContext : DbContext
+public class AppDbContext : DbContext, IUnitOfWork
 {
     public  AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {}

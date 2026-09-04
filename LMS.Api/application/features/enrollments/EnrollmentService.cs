@@ -1,0 +1,192 @@
+using LMS.Api.application.abstractions.auth;
+using LMS.Api.application.abstractions.persistence;
+using LMS.Api.application.common;
+using LMS.Api.domain.Entities.Courses;
+using LMS.Api.domain.Enums.Courses;
+using LMS.Api.domain.Enums.Users;
+using LMS.Api.domain.exceptions;
+using LMS.Api.domain.repositories;
+
+namespace LMS.Api.application.features.enrollments;
+
+public sealed class EnrollmentService : IEnrollmentService
+{
+    private const int MaximumPageSize = 100;
+    private readonly IEnrollmentRepository _enrollments;
+    private readonly ICourseRepository _courses;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly ICurrentUser _currentUser;
+
+    public EnrollmentService(
+        IEnrollmentRepository enrollments,
+        ICourseRepository courses,
+        IUnitOfWork unitOfWork,
+        ICurrentUser currentUser)
+    {
+        _enrollments = enrollments;
+        _courses = courses;
+        _unitOfWork = unitOfWork;
+        _currentUser = currentUser;
+    }
+
+    public async Task<EnrollmentDto> RequestAsync(
+        Guid courseId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(courseId, "Course id");
+        var studentId = _currentUser.GetRequiredUserId();
+
+        if (_currentUser.GetRequiredRole() != Role.Student)
+        {
+            throw new ForbiddenException("Only students can request enrollment.");
+        }
+
+        var course = await _courses.GetByIdAsync(courseId, false, cancellationToken)
+            ?? throw new NotFoundException("Course was not found.");
+
+        if (course.Status != CourseStatus.Open)
+        {
+            throw new ConflictException("Enrollment is only available for open courses.");
+        }
+
+        if (await _enrollments.GetByStudentAndCourseAsync(studentId, courseId, cancellationToken) is not null)
+        {
+            throw new ConflictException("An enrollment for this student and course already exists.");
+        }
+
+        var enrollment = new Enrollment(studentId, courseId);
+        _enrollments.Add(enrollment);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(enrollment);
+    }
+
+    public async Task<PagedResult<EnrollmentDto>> ListByCourseAsync(
+        Guid courseId,
+        EnrollmentQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(courseId, "Course id");
+        ValidatePage(query.Page, query.PageSize);
+        var course = await GetManagedCourseAsync(courseId, cancellationToken);
+        var skip = (query.Page - 1) * query.PageSize;
+        var enrollments = await _enrollments.ListByCourseAsync(
+            course.Id,
+            skip,
+            query.PageSize,
+            cancellationToken);
+        var totalCount = await _enrollments.CountByCourseAsync(course.Id, cancellationToken);
+
+        return new PagedResult<EnrollmentDto>(
+            enrollments.Select(Map).ToArray(),
+            query.Page,
+            query.PageSize,
+            totalCount);
+    }
+
+    public Task<EnrollmentDto> AcceptAsync(
+        Guid enrollmentId,
+        CancellationToken cancellationToken = default) =>
+        TransitionAsync(enrollmentId, EnrollmentStatus.Accepted, cancellationToken);
+
+    public Task<EnrollmentDto> RejectAsync(
+        Guid enrollmentId,
+        CancellationToken cancellationToken = default) =>
+        TransitionAsync(enrollmentId, EnrollmentStatus.Rejected, cancellationToken);
+
+    public async Task<EnrollmentDto> CancelAsync(
+        Guid enrollmentId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(enrollmentId, "Enrollment id");
+        var enrollment = await _enrollments.GetByIdAsync(enrollmentId, cancellationToken)
+            ?? throw new NotFoundException("Enrollment was not found.");
+
+        if (_currentUser.GetRequiredRole() != Role.Student ||
+            enrollment.StudentId != _currentUser.GetRequiredUserId())
+        {
+            throw new ForbiddenException("Students can only cancel their own enrollment requests.");
+        }
+
+        EnsureWaiting(enrollment);
+        enrollment.Cancel();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(enrollment);
+    }
+
+    private async Task<EnrollmentDto> TransitionAsync(
+        Guid enrollmentId,
+        EnrollmentStatus targetStatus,
+        CancellationToken cancellationToken)
+    {
+        ValidateId(enrollmentId, "Enrollment id");
+        var enrollment = await _enrollments.GetByIdAsync(enrollmentId, cancellationToken)
+            ?? throw new NotFoundException("Enrollment was not found.");
+        var course = await GetManagedCourseAsync(enrollment.CourseId, cancellationToken);
+        EnsureWaiting(enrollment);
+
+        if (targetStatus == EnrollmentStatus.Accepted)
+        {
+            var acceptedCount = await _enrollments.CountAcceptedByCourseAsync(course.Id, cancellationToken);
+            if (acceptedCount >= course.MaxStudents)
+            {
+                throw new ConflictException("Course has reached its maximum number of students.");
+            }
+
+            enrollment.Accept();
+        }
+        else
+        {
+            enrollment.Reject();
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(enrollment);
+    }
+
+    private async Task<Course> GetManagedCourseAsync(Guid courseId, CancellationToken cancellationToken)
+    {
+        var course = await _courses.GetByIdAsync(courseId, false, cancellationToken)
+            ?? throw new NotFoundException("Course was not found.");
+        var actorId = _currentUser.GetRequiredUserId();
+        var actorRole = _currentUser.GetRequiredRole();
+
+        if (actorRole != Role.Admin && (actorRole != Role.Teacher || course.TeacherId != actorId))
+        {
+            throw new ForbiddenException("Only the course teacher or an administrator can manage enrollments.");
+        }
+
+        return course;
+    }
+
+    private static void EnsureWaiting(Enrollment enrollment)
+    {
+        if (enrollment.Status != EnrollmentStatus.Waiting)
+        {
+            throw new ConflictException("Only waiting enrollments can change status.");
+        }
+    }
+
+    private static void ValidatePage(int page, int pageSize)
+    {
+        if (page <= 0 || pageSize <= 0 || pageSize > MaximumPageSize)
+        {
+            throw new BadRequestException($"Page must be positive and page size must be between 1 and {MaximumPageSize}.");
+        }
+    }
+
+    private static void ValidateId(Guid id, string fieldName)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new BadRequestException($"{fieldName} is required.");
+        }
+    }
+
+    private static EnrollmentDto Map(Enrollment enrollment) => new(
+        enrollment.Id,
+        enrollment.StudentId,
+        enrollment.CourseId,
+        enrollment.Status,
+        enrollment.CreatedAt,
+        enrollment.ModifiedAt);
+}

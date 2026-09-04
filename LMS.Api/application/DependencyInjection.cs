@@ -1,3 +1,6 @@
+using LMS.Api.application.features.courses;
+using LMS.Api.application.features.enrollments;
+
 namespace LMS.Api.application;
 
 public static class DependencyInjection
@@ -6,8 +9,8 @@ public static class DependencyInjection
         this IServiceCollection services
     )
     {
-        services.AddScoped<IServiceCollection, ServiceCollection>(); // DI chỗ này
+        services.AddScoped<ICourseService, CourseService>();
+        services.AddScoped<IEnrollmentService, EnrollmentService>();
         return services;
     }
 }
-
