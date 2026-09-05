@@ -161,6 +161,9 @@ public class QuestionApplicationTests
         public Task<User?> GetByExternalLoginAsync(ExternalProvider provider, string externalUserId, CancellationToken cancellationToken) =>
             Task.FromResult<User?>(null);
 
+        public Task<ExternalUser?> GetExternalLoginAsync(Guid userId, ExternalProvider provider, CancellationToken cancellationToken) =>
+            Task.FromResult<ExternalUser?>(null);
+
         public void Add(User user)
         {
             throw new NotSupportedException();

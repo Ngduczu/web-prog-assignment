@@ -2,6 +2,7 @@ using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.features.courses;
 using LMS.Api.application.features.enrollments;
+using LMS.Api.domain.Entities.Chats;
 using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Courses;
@@ -44,7 +45,8 @@ public class CourseApplicationTests
             new FakeCourseRepository(),
             users,
             new FakeUnitOfWork(),
-            new FakeCurrentUser(teacher));
+            new FakeCurrentUser(teacher),
+            new FakeChatRoomRepository());
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             service.CreateAsync(new CreateCourseRequest("Course", null, otherTeacher.Id, 20)));
@@ -60,10 +62,42 @@ public class CourseApplicationTests
             new FakeCourseRepository(),
             users,
             new FakeUnitOfWork(),
-            new FakeCurrentUser(admin));
+            new FakeCurrentUser(admin),
+            new FakeChatRoomRepository());
 
         await Assert.ThrowsAsync<BadRequestException>(() =>
             service.CreateAsync(new CreateCourseRequest("Course", null, inactiveTeacher.Id, 20)));
+    }
+
+    [Fact]
+    public async Task CourseChangesSynchronizeTheCourseRoomLifecycle()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var course = CreateCourse(teacher);
+        var room = ChatRoom.CreateForCourse(course.Id, teacher.Id);
+        var rooms = new FakeChatRoomRepository(room);
+        var service = new CourseService(
+            new FakeCourseRepository(course),
+            new FakeUserRepository(teacher),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher),
+            rooms);
+
+        await service.UpdateAsync(
+            course.Id,
+            new UpdateCourseRequest("Course", null, 30, CourseStatus.Closed));
+        Assert.True(room.IsArchived);
+
+        await service.UpdateAsync(
+            course.Id,
+            new UpdateCourseRequest("Course", null, 30, CourseStatus.Open));
+        Assert.False(room.IsArchived);
+
+        await service.DeleteAsync(course.Id);
+        Assert.True(room.IsArchived);
+
+        await service.RestoreAsync(course.Id);
+        Assert.False(room.IsArchived);
     }
 
     [Fact]
@@ -170,7 +204,8 @@ public class CourseApplicationTests
             courses,
             new FakeUserRepository(actor),
             unitOfWork,
-            new FakeCurrentUser(actor));
+            new FakeCurrentUser(actor),
+            new FakeChatRoomRepository());
 
     private static User CreateUser(
         Role role,
@@ -245,6 +280,9 @@ public class CourseApplicationTests
 
         public Task<User?> GetByExternalLoginAsync(ExternalProvider provider, string externalUserId, CancellationToken cancellationToken) =>
             Task.FromResult<User?>(null);
+
+        public Task<ExternalUser?> GetExternalLoginAsync(Guid userId, ExternalProvider provider, CancellationToken cancellationToken) =>
+            Task.FromResult<ExternalUser?>(null);
 
         public void Add(User user)
         {
@@ -344,5 +382,30 @@ public class CourseApplicationTests
         {
             Items.Add(enrollment);
         }
+    }
+
+    private sealed class FakeChatRoomRepository : IChatRoomRepository
+    {
+        private readonly List<ChatRoom> _rooms = [];
+
+        public FakeChatRoomRepository(params ChatRoom[] rooms)
+        {
+            _rooms.AddRange(rooms);
+        }
+
+        public Task<ChatRoom?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
+            Task.FromResult(_rooms.SingleOrDefault(room => room.Id == id));
+
+        public Task<ChatRoom?> GetByCourseIdAsync(Guid courseId, CancellationToken cancellationToken) =>
+            Task.FromResult(_rooms.SingleOrDefault(room => room.CourseId == courseId));
+
+        public Task<ChatRoom?> GetByDirectMessageKeyAsync(string key, CancellationToken cancellationToken) =>
+            Task.FromResult(_rooms.SingleOrDefault(room => room.DirectMessageKey == key));
+
+        public Task<IReadOnlyList<ChatRoom>> ListForUserAsync(Guid userId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ChatRoom>>(
+                _rooms.Where(room => room.Participants.Any(participant => participant.UserId == userId)).ToArray());
+
+        public void Add(ChatRoom room) => _rooms.Add(room);
     }
 }

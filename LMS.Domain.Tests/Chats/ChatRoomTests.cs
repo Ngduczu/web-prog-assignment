@@ -1,5 +1,7 @@
 using LMS.Api.domain.Entities.Chats;
+using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Enums.Chats;
+using LMS.Api.domain.Enums.Courses;
 
 namespace LMS.Domain.Tests.Chats;
 
@@ -50,5 +52,31 @@ public class ChatRoomTests
 
         Assert.Same(firstParticipant, secondParticipant);
         Assert.Single(chatRoom.Participants);
+    }
+
+    [Fact]
+    public void CourseRoomFollowsCourseStatusAndDeletionLifecycle()
+    {
+        var teacherId = Guid.NewGuid();
+        var course = new Course("Course", null, teacherId, 30, CourseStatus.Open, teacherId);
+        var chatRoom = ChatRoom.CreateForCourse(course.Id, teacherId);
+
+        Assert.False(chatRoom.SynchronizeWithCourse(course));
+
+        course.SetStatus(CourseStatus.Closed);
+        Assert.True(chatRoom.SynchronizeWithCourse(course));
+        Assert.True(chatRoom.IsArchived);
+
+        course.SetStatus(CourseStatus.Open);
+        Assert.True(chatRoom.SynchronizeWithCourse(course));
+        Assert.False(chatRoom.IsArchived);
+
+        course.Delete(teacherId);
+        Assert.True(chatRoom.SynchronizeWithCourse(course));
+        Assert.True(chatRoom.IsArchived);
+
+        course.Restore();
+        Assert.True(chatRoom.SynchronizeWithCourse(course));
+        Assert.False(chatRoom.IsArchived);
     }
 }
