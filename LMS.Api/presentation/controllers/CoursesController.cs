@@ -18,7 +18,6 @@ public sealed class CoursesController : ControllerBase
         => StatusCode(StatusCodes.Status201Created, await service.CreateAsync(request, cancellationToken));
 
     [HttpGet]
-    [AllowAnonymous]
     public async Task<ActionResult<PagedResult<CourseDto>>> List(
         [FromQuery] CourseQuery query,
         [FromServices] ICourseService service,
@@ -26,7 +25,6 @@ public sealed class CoursesController : ControllerBase
         => Ok(await service.ListAsync(query, cancellationToken));
 
     [HttpGet("{courseId:guid}")]
-    [AllowAnonymous]
     public async Task<ActionResult<CourseDto>> GetById(
         Guid courseId,
         [FromQuery] bool includeDeleted,
