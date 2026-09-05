@@ -14,6 +14,7 @@ public sealed class CourseService : ICourseService
     private const int MaximumPageSize = 100;
     private readonly ICourseRepository _courses;
     private readonly IUserRepository _users;
+    private readonly IEnrollmentRepository _enrollments;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
     private readonly IChatRoomRepository _chatRooms;
@@ -21,12 +22,14 @@ public sealed class CourseService : ICourseService
     public CourseService(
         ICourseRepository courses,
         IUserRepository users,
+        IEnrollmentRepository enrollments,
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
         IChatRoomRepository chatRooms)
     {
         _courses = courses;
         _users = users;
+        _enrollments = enrollments;
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
         _chatRooms = chatRooms;
@@ -78,7 +81,27 @@ public sealed class CourseService : ICourseService
         var course = await _courses.GetByIdAsync(courseId, includeDeleted, cancellationToken)
             ?? throw new NotFoundException("Course was not found.");
 
+        if (_currentUser.GetRequiredRole() == Role.Student &&
+            !await CanStudentViewAsync(course, cancellationToken))
+        {
+            throw new NotFoundException("Course was not found.");
+        }
+
         return Map(course);
+    }
+
+    private async Task<bool> CanStudentViewAsync(Course course, CancellationToken cancellationToken)
+    {
+        if (course.Status == CourseStatus.Open)
+        {
+            return true;
+        }
+
+        var enrollment = await _enrollments.GetByStudentAndCourseAsync(
+            _currentUser.GetRequiredUserId(),
+            course.Id,
+            cancellationToken);
+        return enrollment?.Status == EnrollmentStatus.Accepted;
     }
 
     public async Task<PagedResult<CourseDto>> ListAsync(

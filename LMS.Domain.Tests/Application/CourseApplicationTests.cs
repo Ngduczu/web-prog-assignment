@@ -44,6 +44,7 @@ public class CourseApplicationTests
         var service = new CourseService(
             new FakeCourseRepository(),
             users,
+            new FakeEnrollmentRepository(),
             new FakeUnitOfWork(),
             new FakeCurrentUser(teacher),
             new FakeChatRoomRepository());
@@ -61,6 +62,7 @@ public class CourseApplicationTests
         var service = new CourseService(
             new FakeCourseRepository(),
             users,
+            new FakeEnrollmentRepository(),
             new FakeUnitOfWork(),
             new FakeCurrentUser(admin),
             new FakeChatRoomRepository());
@@ -80,6 +82,7 @@ public class CourseApplicationTests
         var service = new CourseService(
             new FakeCourseRepository(openCourse, closedCourse),
             new FakeUserRepository(teacher),
+            new FakeEnrollmentRepository(),
             new FakeUnitOfWork(),
             new FakeCurrentUser(student),
             new FakeChatRoomRepository());
@@ -92,6 +95,46 @@ public class CourseApplicationTests
     }
 
     [Fact]
+    public async Task StudentCannotFetchClosedCourseById()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var closedCourse = CreateCourse(teacher);
+        closedCourse.SetStatus(CourseStatus.Closed);
+        var service = new CourseService(
+            new FakeCourseRepository(closedCourse),
+            new FakeUserRepository(teacher),
+            new FakeEnrollmentRepository(),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student),
+            new FakeChatRoomRepository());
+
+        await Assert.ThrowsAsync<NotFoundException>(() => service.GetByIdAsync(closedCourse.Id));
+    }
+
+    [Fact]
+    public async Task StudentCanViewClosedCourseWhenEnrollmentAccepted()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var closedCourse = CreateCourse(teacher);
+        closedCourse.SetStatus(CourseStatus.Closed);
+        var accepted = new Enrollment(student.Id, closedCourse.Id);
+        accepted.Accept();
+        var service = new CourseService(
+            new FakeCourseRepository(closedCourse),
+            new FakeUserRepository(teacher),
+            new FakeEnrollmentRepository(accepted),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student),
+            new FakeChatRoomRepository());
+
+        var result = await service.GetByIdAsync(closedCourse.Id);
+
+        Assert.Equal(closedCourse.Id, result.Id);
+    }
+
+    [Fact]
     public async Task CourseChangesSynchronizeTheCourseRoomLifecycle()
     {
         var teacher = CreateUser(Role.Teacher);
@@ -101,6 +144,7 @@ public class CourseApplicationTests
         var service = new CourseService(
             new FakeCourseRepository(course),
             new FakeUserRepository(teacher),
+            new FakeEnrollmentRepository(),
             new FakeUnitOfWork(),
             new FakeCurrentUser(teacher),
             rooms);
@@ -225,6 +269,7 @@ public class CourseApplicationTests
         new(
             courses,
             new FakeUserRepository(actor),
+            new FakeEnrollmentRepository(),
             unitOfWork,
             new FakeCurrentUser(actor),
             new FakeChatRoomRepository());
