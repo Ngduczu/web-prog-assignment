@@ -98,10 +98,13 @@ public sealed class CourseService : ICourseService
         }
 
         var search = NormalizeOptional(query.Search);
+        var status = _currentUser.GetRequiredRole() == Role.Student
+            ? CourseStatus.Open
+            : query.Status;
         var skip = (query.Page - 1) * query.PageSize;
         var courses = await _courses.ListAsync(
             search,
-            query.Status,
+            status,
             query.TeacherId,
             query.IncludeDeleted,
             skip,
@@ -109,7 +112,7 @@ public sealed class CourseService : ICourseService
             cancellationToken);
         var totalCount = await _courses.CountAsync(
             search,
-            query.Status,
+            status,
             query.TeacherId,
             query.IncludeDeleted,
             cancellationToken);

@@ -70,6 +70,28 @@ public class CourseApplicationTests
     }
 
     [Fact]
+    public async Task StudentCanOnlyListOpenCourses()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var openCourse = CreateCourse(teacher);
+        var closedCourse = CreateCourse(teacher);
+        closedCourse.SetStatus(CourseStatus.Closed);
+        var service = new CourseService(
+            new FakeCourseRepository(openCourse, closedCourse),
+            new FakeUserRepository(teacher),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student),
+            new FakeChatRoomRepository());
+
+        var result = await service.ListAsync(new CourseQuery(Status: CourseStatus.Closed));
+
+        var course = Assert.Single(result.Items);
+        Assert.Equal(openCourse.Id, course.Id);
+        Assert.Equal(CourseStatus.Open, course.Status);
+    }
+
+    [Fact]
     public async Task CourseChangesSynchronizeTheCourseRoomLifecycle()
     {
         var teacher = CreateUser(Role.Teacher);
