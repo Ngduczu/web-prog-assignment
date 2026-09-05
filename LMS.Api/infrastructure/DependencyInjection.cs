@@ -20,6 +20,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 using LMS.Api.infrastructure.storage.S3;
+using LMS.Api.infrastructure.workers;
 
 namespace LMS.Api.infrastructure;
 
@@ -51,6 +52,7 @@ public static class DependencyInjection
         services.AddScoped<IChatMessageRepository, ChatMessageRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserManagementRepository, UserRepository>();
+        services.AddHostedService<ExaminationAutoSubmitWorker>();
         services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));
         services.Configure<S3StorageOptions>(configuration.GetSection(S3StorageOptions.SectionName));
         var s3Storage = configuration.GetSection(S3StorageOptions.SectionName).Get<S3StorageOptions>();

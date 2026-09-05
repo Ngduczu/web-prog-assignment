@@ -208,6 +208,12 @@ public class CourseContentApplicationTests
             CancellationToken cancellationToken) =>
             Task.FromResult<Course?>(_course.Id == id ? _course : null);
 
+        public Task<IReadOnlyList<Course>> ListByIdsAsync(
+            IReadOnlyCollection<Guid> courseIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Course>>(
+                courseIds.Contains(_course.Id) ? [_course] : []);
+
         public Task<IReadOnlyList<Course>> ListAsync(
             string? search,
             CourseStatus? status,

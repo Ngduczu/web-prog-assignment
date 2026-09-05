@@ -6,6 +6,9 @@ namespace LMS.Api.domain.repositories;
 public interface ICourseRepository
 {
     Task<Course?> GetByIdAsync(Guid id, bool includeDeleted, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Course>> ListByIdsAsync(
+        IReadOnlyCollection<Guid> courseIds,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<Course>> ListAsync(
         string? search,
         CourseStatus? status,

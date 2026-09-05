@@ -375,6 +375,12 @@ public class CourseApplicationTests
             Task.FromResult(Items.SingleOrDefault(course =>
                 course.Id == id && (includeDeleted || !course.IsDeleted)));
 
+        public Task<IReadOnlyList<Course>> ListByIdsAsync(
+            IReadOnlyCollection<Guid> courseIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Course>>(
+                Items.Where(course => courseIds.Contains(course.Id)).ToArray());
+
         public Task<IReadOnlyList<Course>> ListAsync(
             string? search,
             CourseStatus? status,
@@ -429,6 +435,12 @@ public class CourseApplicationTests
             CancellationToken cancellationToken) =>
             Task.FromResult(Items.SingleOrDefault(enrollment =>
                 enrollment.StudentId == studentId && enrollment.CourseId == courseId));
+
+        public Task<IReadOnlyList<Enrollment>> ListByStudentAsync(
+            Guid studentId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Enrollment>>(
+                Items.Where(enrollment => enrollment.StudentId == studentId).ToArray());
 
         public Task<IReadOnlyList<Enrollment>> ListByCourseAsync(
             Guid courseId,

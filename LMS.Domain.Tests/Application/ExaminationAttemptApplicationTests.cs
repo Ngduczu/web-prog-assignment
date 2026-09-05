@@ -9,6 +9,7 @@ using LMS.Api.domain.Enums.Courses;
 using LMS.Api.domain.Enums.Examinations;
 using LMS.Api.domain.Enums.Questions;
 using LMS.Api.domain.Enums.Users;
+using LMS.Api.domain.exceptions;
 using LMS.Api.domain.repositories;
 
 namespace LMS.Domain.Tests.Application;
@@ -69,7 +70,22 @@ public class ExaminationAttemptApplicationTests
         Assert.Equal(ExaminationSubmitReason.DurationExpired, result.SubmitReason);
     }
 
-    private static Fixture CreateFixture(int maxViolations = 5)
+    [Fact]
+    public async Task StudentMustKeepAcceptedEnrollmentDuringAttempt()
+    {
+        var fixture = CreateFixture(enrollmentAccepted: false);
+        var attempt = new ExaminationAttempt(
+            fixture.Examination.Id,
+            fixture.Student.Id,
+            fixture.Clock.UtcNow,
+            fixture.Examination.Questions.Count);
+        fixture.Attempts.Add(attempt);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            fixture.Service.GetQuestionsAsync(attempt.Id));
+    }
+
+    private static Fixture CreateFixture(int maxViolations = 5, bool enrollmentAccepted = true)
     {
         var teacher = CreateUser(Role.Teacher);
         var student = CreateUser(Role.Student);
@@ -112,7 +128,10 @@ public class ExaminationAttemptApplicationTests
         examination.Questions.Add(fillInBlank);
 
         var enrollment = new Enrollment(student.Id, course.Id);
-        enrollment.Accept();
+        if (enrollmentAccepted)
+        {
+            enrollment.Accept();
+        }
         var attempts = new FakeExaminationAttemptRepository();
         var clock = new FakeClock(now);
         var service = new ExaminationAttemptService(
@@ -124,7 +143,7 @@ public class ExaminationAttemptApplicationTests
             new FakeTransactionManager(),
             new FakeCurrentUser(student),
             clock);
-        return new Fixture(service, examination, attempts, clock);
+        return new Fixture(service, student, examination, attempts, clock);
     }
 
     private static User CreateUser(Role role) => new(
@@ -137,6 +156,7 @@ public class ExaminationAttemptApplicationTests
 
     private sealed record Fixture(
         ExaminationAttemptService Service,
+        User Student,
         Examination Examination,
         FakeExaminationAttemptRepository Attempts,
         FakeClock Clock);
@@ -206,6 +226,16 @@ public class ExaminationAttemptApplicationTests
                 .Answers
                 .SingleOrDefault(answer => answer.ExaminationQuestionId == examinationQuestionId));
 
+        public Task<IReadOnlyList<ExaminationAttempt>> ListExpiredAsync(
+            DateTime now,
+            int take,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ExaminationAttempt>>(Items
+                .Where(attempt =>
+                    attempt.Status is ExaminationAttemptStatus.InProgress or ExaminationAttemptStatus.Disconnected)
+                .Take(take)
+                .ToArray());
+
         public void Add(ExaminationAttempt attempt)
         {
             Items.Add(attempt);
@@ -268,6 +298,12 @@ public class ExaminationAttemptApplicationTests
         public Task<Course?> GetByIdAsync(Guid id, bool includeDeleted, CancellationToken cancellationToken) =>
             Task.FromResult<Course?>(_course.Id == id ? _course : null);
 
+        public Task<IReadOnlyList<Course>> ListByIdsAsync(
+            IReadOnlyCollection<Guid> courseIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Course>>(
+                courseIds.Contains(_course.Id) ? [_course] : []);
+
         public Task<IReadOnlyList<Course>> ListAsync(
             string? search,
             CourseStatus? status,
@@ -308,6 +344,12 @@ public class ExaminationAttemptApplicationTests
             CancellationToken cancellationToken) =>
             Task.FromResult<Enrollment?>(
                 _enrollment.StudentId == studentId && _enrollment.CourseId == courseId ? _enrollment : null);
+
+        public Task<IReadOnlyList<Enrollment>> ListByStudentAsync(
+            Guid studentId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Enrollment>>(
+                _enrollment.StudentId == studentId ? [_enrollment] : []);
 
         public Task<IReadOnlyList<Enrollment>> ListByCourseAsync(
             Guid courseId,

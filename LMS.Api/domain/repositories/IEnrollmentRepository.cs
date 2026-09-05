@@ -9,6 +9,9 @@ public interface IEnrollmentRepository
         Guid studentId,
         Guid courseId,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<Enrollment>> ListByStudentAsync(
+        Guid studentId,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<Enrollment>> ListByCourseAsync(
         Guid courseId,
         int skip,

@@ -25,6 +25,14 @@ public sealed class CourseRepository : ICourseRepository
         return query.SingleOrDefaultAsync(course => course.Id == id, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Course>> ListByIdsAsync(
+        IReadOnlyCollection<Guid> courseIds,
+        CancellationToken cancellationToken) =>
+        await _dbContext.Courses
+            .IgnoreQueryFilters()
+            .Where(course => courseIds.Contains(course.Id))
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Course>> ListAsync(
         string? search,
         CourseStatus? status,

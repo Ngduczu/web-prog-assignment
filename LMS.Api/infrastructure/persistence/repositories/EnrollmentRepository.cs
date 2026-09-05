@@ -25,6 +25,14 @@ public sealed class EnrollmentRepository : IEnrollmentRepository
             enrollment => enrollment.StudentId == studentId && enrollment.CourseId == courseId,
             cancellationToken);
 
+    public async Task<IReadOnlyList<Enrollment>> ListByStudentAsync(
+        Guid studentId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.Enrollments
+            .AsNoTracking()
+            .Where(enrollment => enrollment.StudentId == studentId)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Enrollment>> ListByCourseAsync(
         Guid courseId,
         int skip,

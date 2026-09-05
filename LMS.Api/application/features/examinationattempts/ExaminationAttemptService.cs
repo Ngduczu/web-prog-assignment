@@ -86,6 +86,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
     {
         var attempt = await GetOwnedAttemptAsync(attemptId, false, cancellationToken);
         var examination = await GetExaminationAsync(attempt.ExaminationId, true, cancellationToken);
+        await EnsureAcceptedEnrollmentAsync(attempt.StudentId, examination.CourseId, cancellationToken);
         return examination.Questions
             .OrderBy(question => question.Order)
             .Select(question => new StudentExamQuestionDto(
@@ -202,12 +203,13 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
     {
         var attempt = await GetOwnedAttemptAsync(attemptId, true, cancellationToken);
         var examination = await GetExaminationAsync(attempt.ExaminationId, true, cancellationToken);
+        await EnsureAcceptedEnrollmentAsync(attempt.StudentId, examination.CourseId, cancellationToken);
         EnsureStatus(attempt, ExaminationAttemptStatus.InProgress);
         var remainingSeconds = GetRemainingSeconds(attempt, examination, _clock.UtcNow);
 
         if (remainingSeconds == 0)
         {
-            CompleteAndGrade(attempt, examination, ExaminationSubmitReason.DurationExpired, true);
+            AttemptGrader.CompleteAndGrade(attempt, examination, ExaminationSubmitReason.DurationExpired, true);
         }
         else
         {
@@ -224,17 +226,18 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
     {
         var attempt = await GetOwnedAttemptAsync(attemptId, true, cancellationToken);
         var examination = await GetExaminationAsync(attempt.ExaminationId, true, cancellationToken);
+        await EnsureAcceptedEnrollmentAsync(attempt.StudentId, examination.CourseId, cancellationToken);
         EnsureStatus(attempt, ExaminationAttemptStatus.Disconnected);
         var now = _clock.UtcNow;
         var disconnectDeadline = attempt.DisconnectedAt!.Value.AddMinutes(examination.MaxDisconnectMinutes);
 
         if (now >= disconnectDeadline)
         {
-            CompleteAndGrade(attempt, examination, ExaminationSubmitReason.DisconnectTimeout, true);
+            AttemptGrader.CompleteAndGrade(attempt, examination, ExaminationSubmitReason.DisconnectTimeout, true);
         }
         else if (GetRemainingSeconds(attempt, examination, now) == 0)
         {
-            CompleteAndGrade(attempt, examination, ExaminationSubmitReason.DurationExpired, true);
+            AttemptGrader.CompleteAndGrade(attempt, examination, ExaminationSubmitReason.DurationExpired, true);
         }
         else
         {
@@ -257,6 +260,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
 
         var attempt = await GetOwnedAttemptAsync(attemptId, true, cancellationToken);
         var examination = await GetExaminationAsync(attempt.ExaminationId, true, cancellationToken);
+        await EnsureAcceptedEnrollmentAsync(attempt.StudentId, examination.CourseId, cancellationToken);
         EnsureActive(attempt);
         var violation = new ExaminationViolation(attempt.Id, violationType, _clock.UtcNow);
         _attempts.AddViolation(violation);
@@ -264,7 +268,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
 
         if (examination.MaxViolations > 0 && attempt.ViolationCount >= examination.MaxViolations)
         {
-            CompleteAndGrade(attempt, examination, ExaminationSubmitReason.MaxViolationsExceeded, true);
+            AttemptGrader.CompleteAndGrade(attempt, examination, ExaminationSubmitReason.MaxViolationsExceeded, true);
         }
         else
         {
@@ -287,9 +291,13 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
                 submittedAttempt.ExaminationId,
                 true,
                 transactionCancellationToken);
+            await EnsureAcceptedEnrollmentAsync(
+                submittedAttempt.StudentId,
+                examination.CourseId,
+                transactionCancellationToken);
             EnsureActive(submittedAttempt);
             var expired = GetRemainingSeconds(submittedAttempt, examination, _clock.UtcNow) == 0;
-            CompleteAndGrade(
+            AttemptGrader.CompleteAndGrade(
                 submittedAttempt,
                 examination,
                 expired ? ExaminationSubmitReason.DurationExpired : ExaminationSubmitReason.StudentSubmitted,
@@ -326,7 +334,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
                 true,
                 transactionCancellationToken);
             EnsureActive(submittedAttempt);
-            CompleteAndGrade(submittedAttempt, examination, reason, true);
+            AttemptGrader.CompleteAndGrade(submittedAttempt, examination, reason, true);
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
         }, cancellationToken);
         return Map(submittedAttempt!);
@@ -341,6 +349,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         var attempt = await GetOwnedAttemptAsync(attemptId, false, cancellationToken);
         EnsureStatus(attempt, ExaminationAttemptStatus.InProgress);
         var examination = await GetExaminationAsync(attempt.ExaminationId, true, cancellationToken);
+        await EnsureAcceptedEnrollmentAsync(attempt.StudentId, examination.CourseId, cancellationToken);
 
         if (GetRemainingSeconds(attempt, examination, _clock.UtcNow) == 0)
         {
@@ -436,53 +445,6 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         var durationDeadline = attempt.StartedAt.AddMinutes(examination.DurationMinutes);
         var deadline = durationDeadline < examination.DueAt ? durationDeadline : examination.DueAt;
         return Math.Max(0, (int)Math.Ceiling((deadline - now).TotalSeconds));
-    }
-
-    private static void CompleteAndGrade(
-        ExaminationAttempt attempt,
-        Examination examination,
-        ExaminationSubmitReason reason,
-        bool autoSubmit)
-    {
-        var answersByQuestion = attempt.Answers.ToDictionary(answer => answer.ExaminationQuestionId);
-        var correctAnswers = examination.Questions.Count(question =>
-            IsCorrect(question, answersByQuestion.GetValueOrDefault(question.Id)));
-        attempt.SetResult(correctAnswers, examination.Questions.Count);
-
-        if (autoSubmit)
-        {
-            attempt.AutoSubmit(reason);
-        }
-        else
-        {
-            attempt.Submit(reason);
-        }
-    }
-
-    private static bool IsCorrect(ExaminationQuestion question, StudentAnswer? answer)
-    {
-        if (answer is null)
-        {
-            return false;
-        }
-
-        if (question.Type == QuestionType.MultipleChoice)
-        {
-            return question.CorrectOptionId is not null && answer.SelectedOptionId == question.CorrectOptionId;
-        }
-
-        var expectedAnswers = question.FillInBlankAnswerKeys
-            .GroupBy(key => key.BlankOrder)
-            .ToDictionary(
-                group => group.Key,
-                group => group.Select(key => key.ExpectedAnswer.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase));
-        var studentAnswers = answer.FillInBlankAnswers.ToDictionary(
-            item => item.BlankOrder,
-            item => item.AnswerText.Trim());
-        return expectedAnswers.Count > 0 &&
-               expectedAnswers.All(expected =>
-                   studentAnswers.TryGetValue(expected.Key, out var studentAnswer) &&
-                   expected.Value.Contains(studentAnswer));
     }
 
     private static void ValidateFillInBlankAnswers(IReadOnlyList<StudentFillInBlankAnswerInput> answers)

@@ -60,6 +60,31 @@ public sealed class ExaminationAttemptRepository : IExaminationAttemptRepository
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ExaminationAttempt>> ListExpiredAsync(
+        DateTime now,
+        int take,
+        CancellationToken cancellationToken) =>
+        await _dbContext.ExaminationAttempts
+            .AsSplitQuery()
+            .Include(attempt => attempt.Examination!)
+            .Include(attempt => attempt.Examination!)
+                .ThenInclude(examination => examination.Questions)
+            .Include(attempt => attempt.Examination!)
+                .ThenInclude(examination => examination.Questions)
+                    .ThenInclude(question => question.FillInBlankAnswerKeys)
+            .Include(attempt => attempt.Answers)
+                .ThenInclude(answer => answer.FillInBlankAnswers)
+            .Where(attempt =>
+                (attempt.Status == ExaminationAttemptStatus.InProgress &&
+                 (attempt.StartedAt.AddMinutes(attempt.Examination!.DurationMinutes) <= now ||
+                  attempt.Examination!.DueAt <= now)) ||
+                (attempt.Status == ExaminationAttemptStatus.Disconnected &&
+                 attempt.DisconnectedAt != null &&
+                 attempt.DisconnectedAt.Value.AddMinutes(attempt.Examination!.MaxDisconnectMinutes) <= now))
+            .OrderBy(attempt => attempt.LastActivityAt)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+
     public void Add(ExaminationAttempt attempt)
     {
         _dbContext.ExaminationAttempts.Add(attempt);

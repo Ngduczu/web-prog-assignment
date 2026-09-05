@@ -132,11 +132,10 @@ public class ChatApplicationTests
             course,
             room,
             listedRooms: [room, directRoom]);
-        fixture.Courses.Setup(repository => repository.GetByIdAsync(
-                course.Id,
-                true,
+        fixture.Courses.Setup(repository => repository.ListByIdsAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Course?)null);
+            .ReturnsAsync(Array.Empty<Course>());
 
         var result = await fixture.Service.ListRoomsAsync(CancellationToken.None);
 
@@ -225,6 +224,36 @@ public class ChatApplicationTests
             fixture.Service.EnsureRoomAccessAsync(room.Id, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task RoomListLoadsCoursesAndEnrollmentsInBatchedQueries()
+    {
+        var teacherId = Guid.NewGuid();
+        var studentId = Guid.NewGuid();
+        var course = new Course("Course", null, teacherId, 30, CourseStatus.Open, teacherId);
+        var room = ChatRoom.CreateForCourse(course.Id, teacherId);
+        room.AddCourseParticipant(studentId);
+        var enrollment = new Enrollment(studentId, course.Id);
+        enrollment.Accept();
+        var directRoom = ChatRoom.CreateDirectMessage(studentId, teacherId);
+        var fixture = CreateFixture(
+            studentId,
+            Role.Student,
+            course,
+            room,
+            enrollment,
+            listedRooms: [room, directRoom]);
+
+        var result = await fixture.Service.ListRoomsAsync(CancellationToken.None);
+
+        Assert.Equal(2, result.Count);
+        fixture.Courses.Verify(repository => repository.ListByIdsAsync(
+            It.IsAny<IReadOnlyCollection<Guid>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        fixture.Enrollments.Verify(repository => repository.ListByStudentAsync(
+            studentId,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private static Fixture CreateFixture(
         Guid userId,
         Role role,
@@ -247,6 +276,10 @@ public class ChatApplicationTests
         var courses = new Mock<ICourseRepository>();
         courses.Setup(repository => repository.GetByIdAsync(course.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(course);
+        courses.Setup(repository => repository.ListByIdsAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([course]);
 
         var enrollments = new Mock<IEnrollmentRepository>();
         enrollments.Setup(repository => repository.GetByStudentAndCourseAsync(
@@ -254,6 +287,10 @@ public class ChatApplicationTests
                 course.Id,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(enrollment);
+        enrollments.Setup(repository => repository.ListByStudentAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(enrollment is null ? [] : [enrollment]);
 
         var unitOfWork = new Mock<IUnitOfWork>();
         unitOfWork.Setup(repository => repository.SaveChangesAsync(It.IsAny<CancellationToken>()))

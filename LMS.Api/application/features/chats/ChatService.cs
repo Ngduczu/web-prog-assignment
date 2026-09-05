@@ -46,23 +46,68 @@ public sealed class ChatService : IChatService
     {
         var userId = _currentUser.GetRequiredUserId();
         var rooms = await _rooms.ListForUserAsync(userId, cancellationToken);
-        var accessibleRooms = new List<ChatRoomDto>(rooms.Count);
 
+        var courseRoomIds = rooms
+            .Where(room => room.Type == ChatRoomType.Course && room.CourseId is not null)
+            .Select(room => room.CourseId!.Value)
+            .Distinct()
+            .ToArray();
+
+        IReadOnlyDictionary<Guid, Course> coursesById = new Dictionary<Guid, Course>();
+        var enrollmentsByCourseId = new Dictionary<Guid, Enrollment>();
+        if (courseRoomIds.Length > 0)
+        {
+            var courses = await _courses.ListByIdsAsync(courseRoomIds, cancellationToken);
+            coursesById = courses.ToDictionary(course => course.Id);
+            var role = _currentUser.GetRequiredRole();
+            if (role is not Role.Admin and not Role.Teacher)
+            {
+                var enrollments = await _enrollments.ListByStudentAsync(userId, cancellationToken);
+                foreach (var enrollment in enrollments.Where(enrollment => enrollment.Status == EnrollmentStatus.Accepted))
+                {
+                    enrollmentsByCourseId[enrollment.CourseId] = enrollment;
+                }
+            }
+        }
+
+        var accessibleRooms = new List<ChatRoomDto>(rooms.Count);
+        var courseLifecycleChanged = false;
         foreach (var room in rooms)
         {
-            try
+            if (room.Type == ChatRoomType.Course)
             {
-                await EnsureCurrentCourseAccessAsync(room, cancellationToken);
-                accessibleRooms.Add(MapRoom(room));
+                if (room.CourseId is null || !coursesById.TryGetValue(room.CourseId.Value, out var course))
+                {
+                    continue;
+                }
+
+                if (room.SynchronizeWithCourse(course))
+                {
+                    courseLifecycleChanged = true;
+                }
+
+                if (course.IsDeleted)
+                {
+                    continue;
+                }
+
+                var role = _currentUser.GetRequiredRole();
+                if (role is not Role.Admin and not Role.Teacher &&
+                    (!enrollmentsByCourseId.TryGetValue(course.Id, out var enrollment) ||
+                     enrollment.StudentId != userId ||
+                     enrollment.CourseId != course.Id ||
+                     enrollment.Status != EnrollmentStatus.Accepted))
+                {
+                    continue;
+                }
             }
-            catch (ForbiddenException) when (room.Type == ChatRoomType.Course)
-            {
-                // A chat participant is historical state, not proof of current course access.
-            }
-            catch (NotFoundException) when (room.Type == ChatRoomType.Course)
-            {
-                // Deleted courses are no longer accessible from the active room list.
-            }
+
+            accessibleRooms.Add(MapRoom(room));
+        }
+
+        if (courseLifecycleChanged)
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
         return accessibleRooms;
