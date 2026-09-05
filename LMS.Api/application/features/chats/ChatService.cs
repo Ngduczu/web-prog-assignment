@@ -269,7 +269,9 @@ public sealed class ChatService : IChatService
             throw new BadRequestException("The message does not belong to this room.");
         }
 
-        room.Participants.Single(participant => participant.UserId == userId).MarkAsRead(messageId);
+        var participant = room.Participants.SingleOrDefault(participant => participant.UserId == userId)
+            ?? throw new ConflictException("You are not a participant in this chat room.");
+        participant.MarkAsRead(messageId);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
