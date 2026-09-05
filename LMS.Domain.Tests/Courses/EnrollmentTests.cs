@@ -1,5 +1,6 @@
 using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Enums.Courses;
+using LMS.Api.domain.exceptions;
 
 namespace LMS.Domain.Tests.Courses;
 
@@ -36,6 +37,6 @@ public class EnrollmentTests
         var enrollment = new Enrollment(Guid.NewGuid(), Guid.NewGuid());
         enrollment.Accept();
 
-        Assert.Throws<InvalidOperationException>(() => enrollment.Cancel());
+        Assert.Throws<ConflictException>(() => enrollment.Cancel());
     }
 }

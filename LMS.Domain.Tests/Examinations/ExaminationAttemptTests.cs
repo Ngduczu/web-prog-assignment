@@ -1,5 +1,6 @@
 using LMS.Api.domain.Entities.Examinations;
 using LMS.Api.domain.Enums.Examinations;
+using LMS.Api.domain.exceptions;
 
 namespace LMS.Domain.Tests.Examinations;
 
@@ -31,6 +32,6 @@ public class ExaminationAttemptTests
 
         Assert.Equal(ExaminationAttemptStatus.Submitted, attempt.Status);
         Assert.Equal(ExaminationSubmitReason.StudentSubmitted, attempt.SubmitReason);
-        Assert.Throws<InvalidOperationException>(() => attempt.Submit());
+        Assert.Throws<ConflictException>(() => attempt.Submit());
     }
 }
