@@ -1,5 +1,6 @@
 using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Examinations;
+using LMS.Api.domain.exceptions;
 
 namespace LMS.Api.domain.Entities.Examinations;
 
@@ -34,12 +35,12 @@ public class ExaminationAttempt
     public void TouchActivity(DateTime activityAt) { LastActivityAt = activityAt; }
     public void Disconnect(DateTime disconnectedAt, int remainingSeconds)
     {
-        if (Status != ExaminationAttemptStatus.InProgress) throw new InvalidOperationException("Only in-progress attempts can be disconnected.");
+        if (Status != ExaminationAttemptStatus.InProgress) throw new ConflictException("Only in-progress attempts can be disconnected.");
         Status = ExaminationAttemptStatus.Disconnected; DisconnectedAt = disconnectedAt; RemainingSeconds = remainingSeconds; LastActivityAt = disconnectedAt;
     }
     public void Reconnect(DateTime reconnectedAt)
     {
-        if (Status != ExaminationAttemptStatus.Disconnected) throw new InvalidOperationException("Only disconnected attempts can reconnect.");
+        if (Status != ExaminationAttemptStatus.Disconnected) throw new ConflictException("Only disconnected attempts can reconnect.");
         Status = ExaminationAttemptStatus.InProgress; LastActivityAt = reconnectedAt; DisconnectedAt = null;
     }
     public void Submit(ExaminationSubmitReason reason = ExaminationSubmitReason.StudentSubmitted) { Complete(ExaminationAttemptStatus.Submitted, reason); }
@@ -53,7 +54,7 @@ public class ExaminationAttempt
     private void Complete(ExaminationAttemptStatus status, ExaminationSubmitReason reason)
     {
         if (Status != ExaminationAttemptStatus.InProgress && Status != ExaminationAttemptStatus.Disconnected)
-            throw new InvalidOperationException("Only active attempts can be submitted.");
+            throw new ConflictException("Only active attempts can be submitted.");
         Status = status; SubmitReason = reason; SubmittedAt = DateTime.UtcNow; LastActivityAt = SubmittedAt.Value;
     }
 }
