@@ -141,6 +141,15 @@ public sealed class ChatService : IChatService
         await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
     }
 
+    public async Task EnsureRoomJoinAccessAsync(Guid roomId, CancellationToken cancellationToken)
+    {
+        var room = await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
+        if (room.IsArchived)
+        {
+            throw new ConflictException("Archived chat rooms cannot be joined.");
+        }
+    }
+
     public async Task<ChatMessageDto> SendMessageAsync(Guid roomId, SendChatMessageRequest request, CancellationToken cancellationToken)
     {
         var userId = _currentUser.GetRequiredUserId();
@@ -266,8 +275,6 @@ public sealed class ChatService : IChatService
 
     private async Task<Course> GetAccessibleCourseAsync(Guid courseId, CancellationToken cancellationToken)
     {
-        var userId = _currentUser.GetRequiredUserId();
-        var role = _currentUser.GetRequiredRole();
         var course = await _courses.GetByIdAsync(courseId, true, cancellationToken)
             ?? throw new NotFoundException("The course was not found.");
         if (course.IsDeleted)
@@ -275,17 +282,7 @@ public sealed class ChatService : IChatService
             throw new NotFoundException("The course was not found.");
         }
 
-        if (role == Role.Admin || course.TeacherId == userId)
-        {
-            return course;
-        }
-
-        var enrollment = await _enrollments.GetByStudentAndCourseAsync(userId, courseId, cancellationToken);
-        if (role != Role.Student || enrollment?.Status != EnrollmentStatus.Accepted)
-        {
-            throw new ForbiddenException("Only the course teacher or an accepted student can access course chat.");
-        }
-
+        await EnsureCourseAuthorizationAsync(course, cancellationToken);
         return course;
     }
 
@@ -343,7 +340,10 @@ public sealed class ChatService : IChatService
         }
 
         var enrollment = await _enrollments.GetByStudentAndCourseAsync(userId, course.Id, cancellationToken);
-        if (role != Role.Student || enrollment?.Status != EnrollmentStatus.Accepted)
+        if (role != Role.Student ||
+            enrollment?.StudentId != userId ||
+            enrollment.CourseId != course.Id ||
+            enrollment.Status != EnrollmentStatus.Accepted)
         {
             throw new ForbiddenException("Only the course teacher or an accepted student can access course chat.");
         }

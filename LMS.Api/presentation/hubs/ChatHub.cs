@@ -16,7 +16,7 @@ public sealed class ChatHub : Hub
 
     public async Task JoinRoom(Guid roomId)
     {
-        await _chatService.EnsureRoomAccessAsync(roomId, Context.ConnectionAborted);
+        await _chatService.EnsureRoomJoinAccessAsync(roomId, Context.ConnectionAborted);
         await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(roomId), Context.ConnectionAborted);
     }
 

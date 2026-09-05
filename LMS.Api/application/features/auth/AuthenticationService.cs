@@ -23,6 +23,7 @@ public sealed class AuthenticationService : IAuthenticationService
     private readonly OAuthResolver _oauthResolver;
     private readonly IUnitOfWork _unitOfWork;
     private static readonly TimeSpan RefreshLifetime = TimeSpan.FromDays(30);
+    private static readonly TimeSpan OAuthLoginCodeLifetime = TimeSpan.FromMinutes(2);
     private static string AuthVersionKey(Guid userId) => $"auth:version:{userId:N}";
     public AuthenticationService(IUserRepository users, IPasswordHasher hasher, ITokenProvider tokens, ICache cache, IClock clock, OAuthResolver oauthResolver, IUnitOfWork unitOfWork) { _users = users; _hasher = hasher; _tokens = tokens; _cache = cache; _clock = clock; _oauthResolver = oauthResolver; _unitOfWork = unitOfWork; }
     public async Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
@@ -50,7 +51,7 @@ public sealed class AuthenticationService : IAuthenticationService
         return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
     }
 
-    public async Task<LoginResponse> LoginWithOAuthAsync(
+    public async Task<OAuthLoginCodeResponse> LoginWithOAuthAsync(
         OAuthLoginRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -84,6 +85,29 @@ public sealed class AuthenticationService : IAuthenticationService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
+        if (user.Status != AccountStatus.Active)
+        {
+            throw new UnauthorizeException("Account is not active.");
+        }
+
+        return await CreateOAuthLoginCodeAsync(user.Id, cancellationToken);
+    }
+
+    public async Task<LoginResponse> RedeemOAuthLoginCodeAsync(
+        OAuthLoginCodeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var loginCode = request.LoginCode?.Trim();
+        if (string.IsNullOrWhiteSpace(loginCode) || loginCode.Length > 128)
+        {
+            throw new BadRequestException("OAuth login code is required.");
+        }
+
+        var entry = await _cache.ConsumeAsync<OAuthLoginCodeEntry>(
+            OAuthLoginCodeKey(loginCode),
+            cancellationToken) ?? throw new UnauthorizeException("OAuth login code is invalid or expired.");
+        var user = await _users.GetByIdAsync(entry.UserId, cancellationToken)
+            ?? throw new UnauthorizeException("OAuth login code is invalid or expired.");
         if (user.Status != AccountStatus.Active)
         {
             throw new UnauthorizeException("Account is not active.");
@@ -187,7 +211,32 @@ public sealed class AuthenticationService : IAuthenticationService
         return new LoginResponse(access.Token, access.ExpiresAt, refresh, refreshExpires);
     }
 
+    private async Task<OAuthLoginCodeResponse> CreateOAuthLoginCodeAsync(
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var loginCode = Base64Url(RandomNumberGenerator.GetBytes(32));
+            if (await _cache.SetIfNotExistsAsync(
+                    OAuthLoginCodeKey(loginCode),
+                    new OAuthLoginCodeEntry(userId),
+                    OAuthLoginCodeLifetime,
+                    cancellationToken))
+            {
+                return new OAuthLoginCodeResponse(loginCode, _clock.UtcNow.Add(OAuthLoginCodeLifetime));
+            }
+        }
+
+        throw new InvalidOperationException("Could not create a unique OAuth login code.");
+    }
+
     private sealed record RefreshSession(Guid UserId, long AuthVersion);
+    private sealed record OAuthLoginCodeEntry(Guid UserId);
 
     private static string HashRefreshToken(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+    private static string OAuthLoginCodeKey(string loginCode) =>
+        $"auth:oauth-login-code:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(loginCode))).ToLowerInvariant()}";
+    private static string Base64Url(byte[] value) =>
+        Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

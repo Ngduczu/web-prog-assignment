@@ -18,7 +18,6 @@ public class GlobalExceptionHandler: IExceptionHandler
         Exception exception,
         CancellationToken cancellationToken)
     {
-        _logger.LogError(exception, "Error occured: {Message}", exception.Message);
         var statusCode = exception switch
         {
             BadRequestException => StatusCodes.Status400BadRequest,
@@ -29,6 +28,20 @@ public class GlobalExceptionHandler: IExceptionHandler
             
             _ => StatusCodes.Status500InternalServerError
         };
+
+        if (statusCode >= StatusCodes.Status500InternalServerError)
+        {
+            _logger.LogError(
+                "Unhandled request failure of type {ExceptionType}.",
+                exception.GetType().Name);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Request rejected with status {StatusCode} and exception type {ExceptionType}.",
+                statusCode,
+                exception.GetType().Name);
+        }
 
         var problemDetails = new ProblemDetails
         {

@@ -71,6 +71,14 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<LoginResponse>> Refresh(RefreshTokenRequest request, IAuthenticationService service, CancellationToken ct)
         => Ok(await service.RefreshAsync(request, ct));
 
+    [HttpPost("oauth/login-code")]
+    [AllowAnonymous]
+    public async Task<ActionResult<LoginResponse>> RedeemOAuthLoginCode(
+        OAuthLoginCodeRequest request,
+        IAuthenticationService service,
+        CancellationToken ct) =>
+        Ok(await service.RedeemOAuthLoginCodeAsync(request, ct));
+
     [HttpGet("oauth/{provider}/authorize")]
     [AllowAnonymous]
     public async Task<ActionResult<object>> OAuthAuthorize(
