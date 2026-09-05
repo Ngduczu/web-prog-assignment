@@ -114,11 +114,11 @@ Flow: validate → hash password → PostgreSQL → Redis mã 6 ký tự với T
 }
 ```
 
-Mã sai hoặc hết hạn trả `400`. Vượt quá 5 lần thử trả `409`.
+Chỉ account đang `Inactive` được redeem mã. Account `Active`, `Disabled`, `Banned` hoặc trạng thái không hợp lệ bị từ chối, kể cả khi mã được phát hành trước lúc trạng thái thay đổi. Mã sai/hết hạn trả `400`, mã chỉ dùng một lần và được consume atomically. Vượt quá 5 lần thử trả `409`.
 
 ### `POST /api/auth/resend-verification`
 
-**Quyền:** Public, chỉ áp dụng cho local account chưa `Active`.
+**Quyền:** Public, chỉ áp dụng cho local account đang `Inactive`.
 
 **Request body:**
 
@@ -178,6 +178,56 @@ Mã sai hoặc hết hạn trả `400`. Vượt quá 5 lần thử trả `409`.
 ```
 
 Reset code dùng namespace Redis riêng `auth:password-reset:*`, TTL 15 phút và tối đa 5 lần thử.
+
+### `GET /api/auth/oauth/Google/authorize`
+
+**Quyền:** Public. Bắt đầu luồng đăng nhập Google và trả `authorizationUrl`.
+
+State có TTL 10 phút, dùng một lần, dùng PKCE và được gắn với cookie bảo mật của trình duyệt khởi tạo. Nếu Google trả về email đã thuộc một tài khoản local nhưng external identity chưa được liên kết, callback trả `409 Conflict`. Người dùng phải đăng nhập tài khoản local rồi dùng luồng liên kết bên dưới.
+
+### `GET /api/auth/oauth/Google/link/authorize`
+
+**Quyền:** User đã đăng nhập. Bắt đầu luồng liên kết Google với chính tài khoản lấy từ JWT. Client không được truyền `userId` cần liên kết.
+
+State lưu riêng mục đích `Link` và user ID đã xác thực. State đăng nhập không thể dùng để liên kết và state liên kết không thể dùng để đăng nhập.
+
+### `GET /api/auth/oauth/Google/callback?code={code}&state={state}`
+
+**Quyền:** Public, nhưng bắt buộc có state, PKCE verifier và browser-binding cookie hợp lệ.
+
+- Với state đăng nhập, response chỉ chứa application login code dùng một lần, TTL 2 phút; callback không trả access/refresh token và không đặt credential vào URL:
+
+```json
+{
+  "loginCode": "opaque-one-time-code",
+  "expiresAt": "2026-09-04T12:02:00Z"
+}
+```
+
+- Với state liên kết, response là:
+- Với state liên kết, response là:
+
+```json
+{
+  "userId": "00000000-0000-0000-0000-000000000001",
+  "provider": "Google",
+  "externalEmail": "student@gmail.com"
+}
+```
+
+Một external identity chỉ được thuộc một tài khoản; mỗi tài khoản chỉ được liên kết một identity cho mỗi provider.
+
+### `POST /api/auth/login-code`
+
+**Quyền:** Public. Đổi application login code lấy token pair. Code được lưu bằng key SHA-256, hết hạn sau 2 phút và được consume atomically nên chỉ một request đồng thời có thể thành công.
+
+```json
+{
+  "loginCode": "opaque-one-time-code"
+}
+```
+
+**Response `200 OK`:** Token pair giống `POST /api/auth/login`. Code sai, hết hạn hoặc đã dùng trả `401 Unauthorized`.
 
 ## Users
 
@@ -953,7 +1003,9 @@ Các endpoint trả user profile dùng object sau:
 
 ## Chat
 
-Chat yêu cầu JWT và kiểm tra membership ở application service. Course chat chỉ dành cho course teacher, Admin hoặc student có enrollment `Accepted`. Direct chat chỉ dành cho user đang `Active`.
+Chat yêu cầu JWT và kiểm tra membership ở application service. Course chat chỉ dành cho course teacher hiện tại, Admin hoặc student đang có enrollment `Accepted`; bản ghi `ChatParticipant` chỉ là lịch sử tham gia và không thay thế việc kiểm tra lại quyền course ở mỗi lần truy cập REST/SignalR. Room không còn quyền sẽ bị loại khỏi `GET /api/chat/rooms`.
+
+Course room theo vòng đời course: chuyển sang archive khi course `Closed` hoặc bị xóa mềm, và được mở lại khi course chuyển về `Open` hoặc được khôi phục với trạng thái `Open`. Room của course `Closed` vẫn đọc được nhưng không nhận message mới hay chỉnh sửa message; course đã xóa không còn truy cập được.
 
 ### REST endpoints
 
@@ -978,6 +1030,21 @@ Message body:
 ### Realtime WebSocket
 
 SignalR hub: `/hubs/chat`. Client cần JWT và có thể gọi `JoinRoom`, `LeaveRoom`, `SendMessage`. Server broadcast event `MessageReceived` tới các connection trong room.
+
+`JoinRoom`/reconnect và `SendMessage` kiểm tra lại quyền course hiện tại. Room archived không được join hoặc gửi; connection đã tham gia trước đó cũng bị từ chối ở lần ghi tiếp theo nếu enrollment bị revoke hoặc course đã archive.
+
+- Client native có thể gửi JWT bằng header `Authorization: Bearer {token}`.
+- Với browser WebSocket/SSE, cấu hình SignalR client bằng `accessTokenFactory`; token query `access_token` chỉ được backend chấp nhận trên `/hubs/chat` và các endpoint con của hub, không áp dụng cho REST API hay path khác.
+- Connection được server đóng khi JWT hết hạn. Client cần lấy access token mới và reconnect; nên dùng cơ chế automatic reconnect của SignalR client.
+
+```javascript
+const connection = new signalR.HubConnectionBuilder()
+  .withUrl("/hubs/chat", {
+    accessTokenFactory: () => accessToken
+  })
+  .withAutomaticReconnect()
+  .build();
+```
 
 ## OAuth provider contract
 

@@ -71,7 +71,7 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<LoginResponse>> Refresh(RefreshTokenRequest request, IAuthenticationService service, CancellationToken ct)
         => Ok(await service.RefreshAsync(request, ct));
 
-    [HttpPost("oauth/login-code")]
+    [HttpPost("login-code")]
     [AllowAnonymous]
     public async Task<ActionResult<LoginResponse>> RedeemOAuthLoginCode(
         OAuthLoginCodeRequest request,
@@ -195,21 +195,34 @@ public class AuthController : ControllerBase
             throw new InvalidOperationException("OAuth:Google:RedirectUri must be configured.");
         }
 
-        var state = Base64Url(RandomNumberGenerator.GetBytes(32));
         var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
         var codeChallenge = Base64Url(SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(codeVerifier)));
         var browserBinding = Base64Url(RandomNumberGenerator.GetBytes(32));
-        await cache.SetAsync(
-            GetOAuthStateKey(state),
-            new OAuthState(
-                provider,
-                redirectUri,
-                codeVerifier,
-                HashBrowserBinding(browserBinding),
-                purpose,
-                userId),
-            OAuthStateLifetime,
-            ct);
+        string? state = null;
+        for (var attempt = 0; attempt < 3 && state is null; attempt++)
+        {
+            var candidate = Base64Url(RandomNumberGenerator.GetBytes(32));
+            if (await cache.SetIfNotExistsAsync(
+                    GetOAuthStateKey(candidate),
+                    new OAuthState(
+                        provider,
+                        redirectUri,
+                        codeVerifier,
+                        HashBrowserBinding(browserBinding),
+                        purpose,
+                        userId),
+                    OAuthStateLifetime,
+                    ct))
+            {
+                state = candidate;
+            }
+        }
+
+        if (state is null)
+        {
+            throw new InvalidOperationException("Could not create a unique OAuth state.");
+        }
+
         Response.Cookies.Append(
             GetOAuthBindingCookieName(state),
             browserBinding,

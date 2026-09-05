@@ -178,6 +178,12 @@ public sealed class AuthenticationService : IAuthenticationService
         var provider = _oauthResolver.Get(providerType.ToString());
         var token = await provider.ExchangeCodeAsync(code, redirectUri, codeVerifier, cancellationToken);
         var externalInfo = await provider.GetUserInfoAsync(token, cancellationToken);
+        if (string.IsNullOrWhiteSpace(externalInfo.ProviderUserId) ||
+            externalInfo.ProviderUserId.Length > 255)
+        {
+            throw new UnauthorizeException("The external account returned an invalid provider identity.");
+        }
+
         if (!externalInfo.EmailVerified)
         {
             throw new UnauthorizeException("The external account email is not verified.");
