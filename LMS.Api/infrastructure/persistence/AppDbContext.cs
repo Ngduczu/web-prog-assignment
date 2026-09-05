@@ -6,6 +6,7 @@ using LMS.Api.domain.Entities.Questions;
 using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.exceptions;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System.Data;
 
 namespace LMS.Api.infrastructure.Persistence;
@@ -76,7 +77,14 @@ public class AppDbContext : DbContext, IUnitOfWork, ITransactionManager
         {
             throw new ConflictException("The data was changed by another request. Please retry.", exception);
         }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            throw new ConflictException("The record already exists.", exception);
+        }
     }
+
+    private static bool IsUniqueViolation(DbUpdateException exception) =>
+        exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 
     private async Task ExecuteWithIsolationAsync(
         Func<CancellationToken, Task> action,

@@ -1,5 +1,6 @@
 using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Courses;
+using LMS.Api.domain.exceptions;
 
 namespace LMS.Api.domain.Entities.Courses;
 
@@ -42,7 +43,7 @@ public class Enrollment
     public void Accept()
     {
         if (Status != EnrollmentStatus.Waiting)
-            throw new InvalidOperationException(
+            throw new ConflictException(
                 "Only waiting enrollment can be accepted.");
         Status = EnrollmentStatus.Accepted;
         Touch();
@@ -51,7 +52,7 @@ public class Enrollment
     public void Reject()
     {
         if (Status != EnrollmentStatus.Waiting)
-            throw new InvalidOperationException(
+            throw new ConflictException(
                 "Only waiting enrollments can be rejected.");
         Status = EnrollmentStatus.Rejected;
         Touch();
@@ -60,7 +61,7 @@ public class Enrollment
     public void Cancel()
     {
         if (Status != EnrollmentStatus.Waiting)
-            throw new InvalidOperationException(
+            throw new ConflictException(
                 "Only waiting enrollment can be cancelled.");
         Status = EnrollmentStatus.Cancelled;
         Touch();
