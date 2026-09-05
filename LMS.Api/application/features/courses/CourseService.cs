@@ -16,17 +16,20 @@ public sealed class CourseService : ICourseService
     private readonly IUserRepository _users;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
+    private readonly IChatRoomRepository _chatRooms;
 
     public CourseService(
         ICourseRepository courses,
         IUserRepository users,
         IUnitOfWork unitOfWork,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        IChatRoomRepository chatRooms)
     {
         _courses = courses;
         _users = users;
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
+        _chatRooms = chatRooms;
     }
 
     public async Task<CourseDto> CreateAsync(
@@ -134,6 +137,7 @@ public sealed class CourseService : ICourseService
         course.SetMaxStudents(request.MaxStudents);
         course.SetStatus(request.Status);
         course.SetModifiedBy(actorId);
+        await SynchronizeChatRoomAsync(course, cancellationToken);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Map(course);
@@ -144,6 +148,7 @@ public sealed class CourseService : ICourseService
         ValidateId(courseId, "Course id");
         var course = await GetManagedCourseAsync(courseId, cancellationToken);
         course.Delete(_currentUser.GetRequiredUserId());
+        await SynchronizeChatRoomAsync(course, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
@@ -156,6 +161,7 @@ public sealed class CourseService : ICourseService
         EnsureCanManage(course);
         course.Restore();
         course.SetModifiedBy(_currentUser.GetRequiredUserId());
+        await SynchronizeChatRoomAsync(course, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Map(course);
     }
@@ -171,6 +177,12 @@ public sealed class CourseService : ICourseService
     private void EnsureCanManage(Course course)
     {
         CourseAuthorization.EnsureCanManage(_currentUser, course);
+    }
+
+    private async Task SynchronizeChatRoomAsync(Course course, CancellationToken cancellationToken)
+    {
+        var room = await _chatRooms.GetByCourseIdAsync(course.Id, cancellationToken);
+        room?.SynchronizeWithCourse(course);
     }
 
     private static void EnsureCanCreate(Guid actorId, Role actorRole, Guid teacherId)

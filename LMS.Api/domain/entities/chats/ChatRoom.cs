@@ -1,4 +1,6 @@
 using LMS.Api.domain.Enums.Chats;
+using LMS.Api.domain.Entities.Courses;
+using LMS.Api.domain.Enums.Courses;
 
 namespace LMS.Api.domain.Entities.Chats;
 
@@ -96,5 +98,30 @@ public class ChatRoom
     public void Restore()
     {
         ArchivedAt = null;
+    }
+
+    public bool SynchronizeWithCourse(Course course)
+    {
+        if (Type != ChatRoomType.Course || CourseId != course.Id)
+        {
+            throw new InvalidOperationException("Only the room's course can control its lifecycle.");
+        }
+
+        var shouldBeArchived = course.IsDeleted || course.Status == CourseStatus.Closed;
+        if (shouldBeArchived == IsArchived)
+        {
+            return false;
+        }
+
+        if (shouldBeArchived)
+        {
+            Archive();
+        }
+        else
+        {
+            Restore();
+        }
+
+        return true;
     }
 }

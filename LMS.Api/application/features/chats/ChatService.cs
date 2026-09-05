@@ -2,6 +2,7 @@ using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.abstractions.storage;
 using LMS.Api.domain.Entities.Chats;
+using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Enums.Chats;
 using LMS.Api.domain.Enums.Courses;
 using LMS.Api.domain.Enums.Users;
@@ -44,24 +45,56 @@ public sealed class ChatService : IChatService
     public async Task<IReadOnlyList<ChatRoomDto>> ListRoomsAsync(CancellationToken cancellationToken)
     {
         var userId = _currentUser.GetRequiredUserId();
-        return (await _rooms.ListForUserAsync(userId, cancellationToken)).Select(MapRoom).ToList();
+        var rooms = await _rooms.ListForUserAsync(userId, cancellationToken);
+        var accessibleRooms = new List<ChatRoomDto>(rooms.Count);
+
+        foreach (var room in rooms)
+        {
+            try
+            {
+                await EnsureCurrentCourseAccessAsync(room, cancellationToken);
+                accessibleRooms.Add(MapRoom(room));
+            }
+            catch (ForbiddenException) when (room.Type == ChatRoomType.Course)
+            {
+                // A chat participant is historical state, not proof of current course access.
+            }
+            catch (NotFoundException) when (room.Type == ChatRoomType.Course)
+            {
+                // Deleted courses are no longer accessible from the active room list.
+            }
+        }
+
+        return accessibleRooms;
     }
 
     public async Task<ChatRoomDto> GetOrCreateCourseRoomAsync(Guid courseId, CancellationToken cancellationToken)
     {
-        var userId = await EnsureCourseAccessAsync(courseId, cancellationToken);
+        var course = await GetAccessibleCourseAsync(courseId, cancellationToken);
+        var userId = _currentUser.GetRequiredUserId();
         var room = await _rooms.GetByCourseIdAsync(courseId, cancellationToken);
         if (room is null)
         {
             room = ChatRoom.CreateForCourse(courseId, userId);
             room.AddCourseParticipant(userId);
+            room.SynchronizeWithCourse(course);
             _rooms.Add(room);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
         else
         {
-            room.AddCourseParticipant(userId);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            var lifecycleChanged = room.SynchronizeWithCourse(course);
+            var participantAdded = false;
+            if (!room.IsArchived && room.Participants.All(participant => participant.UserId != userId))
+            {
+                room.AddCourseParticipant(userId);
+                participantAdded = true;
+            }
+
+            if (lifecycleChanged || participantAdded)
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
         }
 
         return MapRoom(room);
@@ -231,15 +264,20 @@ public sealed class ChatService : IChatService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<Guid> EnsureCourseAccessAsync(Guid courseId, CancellationToken cancellationToken)
+    private async Task<Course> GetAccessibleCourseAsync(Guid courseId, CancellationToken cancellationToken)
     {
         var userId = _currentUser.GetRequiredUserId();
         var role = _currentUser.GetRequiredRole();
-        var course = await _courses.GetByIdAsync(courseId, false, cancellationToken)
+        var course = await _courses.GetByIdAsync(courseId, true, cancellationToken)
             ?? throw new NotFoundException("The course was not found.");
+        if (course.IsDeleted)
+        {
+            throw new NotFoundException("The course was not found.");
+        }
+
         if (role == Role.Admin || course.TeacherId == userId)
         {
-            return userId;
+            return course;
         }
 
         var enrollment = await _enrollments.GetByStudentAndCourseAsync(userId, courseId, cancellationToken);
@@ -248,7 +286,7 @@ public sealed class ChatService : IChatService
             throw new ForbiddenException("Only the course teacher or an accepted student can access course chat.");
         }
 
-        return userId;
+        return course;
     }
 
     private async Task<ChatRoom> EnsureRoomAccessInternalAsync(Guid roomId, CancellationToken cancellationToken)
@@ -256,19 +294,59 @@ public sealed class ChatService : IChatService
         var userId = _currentUser.GetRequiredUserId();
         var room = await _rooms.GetByIdAsync(roomId, cancellationToken)
             ?? throw new NotFoundException("The chat room was not found.");
-        if (!room.Participants.Any(participant => participant.UserId == userId))
+        if (room.Type == ChatRoomType.Course)
         {
-            if (room.Type == ChatRoomType.Course && room.CourseId is not null)
-            {
-                await EnsureCourseAccessAsync(room.CourseId.Value, cancellationToken);
-            }
-            else
-            {
-                throw new ForbiddenException("You are not a participant in this chat room.");
-            }
+            await EnsureCurrentCourseAccessAsync(room, cancellationToken);
+        }
+        else if (!room.Participants.Any(participant => participant.UserId == userId))
+        {
+            throw new ForbiddenException("You are not a participant in this chat room.");
         }
 
         return room;
+    }
+
+    private async Task EnsureCurrentCourseAccessAsync(ChatRoom room, CancellationToken cancellationToken)
+    {
+        if (room.Type != ChatRoomType.Course)
+        {
+            return;
+        }
+
+        if (room.CourseId is null)
+        {
+            throw new NotFoundException("The course chat room is invalid.");
+        }
+
+        var course = await _courses.GetByIdAsync(room.CourseId.Value, true, cancellationToken)
+            ?? throw new NotFoundException("The course was not found.");
+        if (room.SynchronizeWithCourse(course))
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        if (course.IsDeleted)
+        {
+            throw new NotFoundException("The course was not found.");
+        }
+
+        await EnsureCourseAuthorizationAsync(course, cancellationToken);
+    }
+
+    private async Task EnsureCourseAuthorizationAsync(Course course, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        var role = _currentUser.GetRequiredRole();
+        if (role == Role.Admin || course.TeacherId == userId)
+        {
+            return;
+        }
+
+        var enrollment = await _enrollments.GetByStudentAndCourseAsync(userId, course.Id, cancellationToken);
+        if (role != Role.Student || enrollment?.Status != EnrollmentStatus.Accepted)
+        {
+            throw new ForbiddenException("Only the course teacher or an accepted student can access course chat.");
+        }
     }
 
     private static bool CanModerate(ChatRoom room, Role role) => role == Role.Admin || room.Type == ChatRoomType.Course && role == Role.Teacher;

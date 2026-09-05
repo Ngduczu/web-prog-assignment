@@ -46,7 +46,7 @@ public sealed class ChatsController : ControllerBase
         Guid roomId,
         [FromForm] string? content,
         [FromForm] Guid? replyToMessageId,
-        [FromForm] IFormFile file,
+        IFormFile file,
         [FromServices] IChatService service,
         CancellationToken cancellationToken)
     {
