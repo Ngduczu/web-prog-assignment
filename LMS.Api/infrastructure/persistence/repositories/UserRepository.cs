@@ -29,6 +29,14 @@ public sealed class UserRepository : IUserManagementRepository
             .Select(external => external.User)
             .SingleOrDefaultAsync(cancellationToken);
 
+    public Task<ExternalUser?> GetExternalLoginAsync(
+        Guid userId,
+        ExternalProvider provider,
+        CancellationToken cancellationToken) =>
+        _dbContext.ExternalUsers.SingleOrDefaultAsync(
+            external => external.UserId == userId && external.Provider == provider,
+            cancellationToken);
+
     public void Add(User user)
     {
         _dbContext.Users.Add(user);

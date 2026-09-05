@@ -54,38 +54,32 @@ public sealed class AuthenticationService : IAuthenticationService
         OAuthLoginRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (!Enum.TryParse<ExternalProvider>(request.Provider, true, out var providerType) ||
-            string.IsNullOrWhiteSpace(request.Code) ||
-            string.IsNullOrWhiteSpace(request.RedirectUri))
-        {
-            throw new BadRequestException("OAuth provider, code and redirect URI are required.");
-        }
-
-        var provider = _oauthResolver.Get(providerType.ToString());
-        var token = await provider.ExchangeCodeAsync(request.Code, request.RedirectUri, request.CodeVerifier, cancellationToken);
-        var externalInfo = await provider.GetUserInfoAsync(token, cancellationToken);
-        if (!externalInfo.EmailVerified)
-        {
-            throw new UnauthorizeException("The external account email is not verified.");
-        }
+        var (providerType, externalInfo) = await GetVerifiedExternalIdentityAsync(
+            request.Provider,
+            request.Code,
+            request.RedirectUri,
+            request.CodeVerifier,
+            cancellationToken);
 
         var user = await _users.GetByExternalLoginAsync(providerType, externalInfo.ProviderUserId, cancellationToken);
         if (user is null)
         {
-            var email = externalInfo.Email.Trim().ToLowerInvariant();
+            var email = NormalizeExternalEmail(externalInfo.Email);
             user = await _users.GetByEmailAsync(email, cancellationToken);
-            if (user is null)
+            if (user is not null)
             {
-                user = new User(
-                    email,
-                    string.IsNullOrWhiteSpace(externalInfo.FullName) ? email[..email.IndexOf('@')] : externalInfo.FullName,
-                    null,
-                    null,
-                    Role.Student,
-                    AccountStatus.Active);
-                _users.Add(user);
+                throw new ConflictException(
+                    "An account with this email already exists. Sign in to that account and link Google from account settings.");
             }
 
+            user = new User(
+                email,
+                string.IsNullOrWhiteSpace(externalInfo.FullName) ? email[..email.IndexOf('@')] : externalInfo.FullName.Trim(),
+                null,
+                null,
+                Role.Student,
+                AccountStatus.Active);
+            _users.Add(user);
             _users.AddExternalUser(new ExternalUser(user.Id, providerType, externalInfo.ProviderUserId));
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
@@ -96,6 +90,90 @@ public sealed class AuthenticationService : IAuthenticationService
         }
 
         return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
+    }
+
+    public async Task<OAuthLinkResponse> LinkOAuthAsync(
+        OAuthLinkRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.UserId == Guid.Empty)
+        {
+            throw new BadRequestException("The account to link is required.");
+        }
+
+        var user = await _users.GetByIdAsync(request.UserId, cancellationToken)
+            ?? throw new NotFoundException("Account was not found.");
+        if (user.Status != AccountStatus.Active)
+        {
+            throw new UnauthorizeException("Account is not active.");
+        }
+
+        var (providerType, externalInfo) = await GetVerifiedExternalIdentityAsync(
+            request.Provider,
+            request.Code,
+            request.RedirectUri,
+            request.CodeVerifier,
+            cancellationToken);
+        var externalEmail = NormalizeExternalEmail(externalInfo.Email);
+        var owner = await _users.GetByExternalLoginAsync(
+            providerType,
+            externalInfo.ProviderUserId,
+            cancellationToken);
+        if (owner is not null)
+        {
+            throw new ConflictException(owner.Id == user.Id
+                ? "This external account is already linked to your account."
+                : "This external account is already linked to another account.");
+        }
+
+        if (await _users.GetExternalLoginAsync(user.Id, providerType, cancellationToken) is not null)
+        {
+            throw new ConflictException($"Your account already has a linked {providerType} account.");
+        }
+
+        _users.AddExternalUser(new ExternalUser(user.Id, providerType, externalInfo.ProviderUserId));
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return new OAuthLinkResponse(user.Id, providerType.ToString(), externalEmail);
+    }
+
+    private async Task<(ExternalProvider Provider, OAuthUserInfo ExternalInfo)> GetVerifiedExternalIdentityAsync(
+        string providerName,
+        string code,
+        string redirectUri,
+        string codeVerifier,
+        CancellationToken cancellationToken)
+    {
+        if (!Enum.TryParse<ExternalProvider>(providerName, true, out var providerType) ||
+            string.IsNullOrWhiteSpace(code) ||
+            string.IsNullOrWhiteSpace(redirectUri) ||
+            string.IsNullOrWhiteSpace(codeVerifier))
+        {
+            throw new BadRequestException("OAuth provider, code, redirect URI and code verifier are required.");
+        }
+
+        var provider = _oauthResolver.Get(providerType.ToString());
+        var token = await provider.ExchangeCodeAsync(code, redirectUri, codeVerifier, cancellationToken);
+        var externalInfo = await provider.GetUserInfoAsync(token, cancellationToken);
+        if (!externalInfo.EmailVerified)
+        {
+            throw new UnauthorizeException("The external account email is not verified.");
+        }
+
+        return (providerType, externalInfo);
+    }
+
+    private static string NormalizeExternalEmail(string email)
+    {
+        var normalized = email?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalized) ||
+            normalized.Length > 255 ||
+            !MailAddress.TryCreate(normalized, out var address) ||
+            address.Address != normalized)
+        {
+            throw new UnauthorizeException("The external account returned an invalid email address.");
+        }
+
+        return normalized;
     }
 
     private async Task<LoginResponse> IssueTokensAsync(Guid userId, string email, string role, CancellationToken cancellationToken)

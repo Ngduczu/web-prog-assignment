@@ -16,6 +16,9 @@ namespace LMS.Api.presentation.controllers;
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
+    private static readonly TimeSpan OAuthStateLifetime = TimeSpan.FromMinutes(10);
+    private const string OAuthBindingCookiePrefix = "__Host-LMS.OAuth.";
+
     [AllowAnonymous]
     [HttpPost("register")]
     public async Task<ActionResult<RegistrationDto>> Register(
@@ -77,12 +80,105 @@ public class AuthController : ControllerBase
         [FromServices] IOptions<GoogleOAuthOptions> googleOptions,
         CancellationToken ct)
     {
-        var state = Base64Url(RandomNumberGenerator.GetBytes(32));
-        var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
-        var codeChallenge = Base64Url(SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(codeVerifier)));
+        return await BeginOAuthAsync(
+            provider,
+            OAuthFlowPurpose.Login,
+            null,
+            resolver,
+            cache,
+            googleOptions,
+            ct);
+    }
+
+    [HttpGet("oauth/{provider}/link/authorize")]
+    [Authorize]
+    public async Task<ActionResult<object>> OAuthLinkAuthorize(
+        string provider,
+        [FromServices] ICurrentUser currentUser,
+        [FromServices] OAuthResolver resolver,
+        [FromServices] ICache cache,
+        [FromServices] IOptions<GoogleOAuthOptions> googleOptions,
+        CancellationToken ct)
+    {
+        return await BeginOAuthAsync(
+            provider,
+            OAuthFlowPurpose.Link,
+            currentUser.GetRequiredUserId(),
+            resolver,
+            cache,
+            googleOptions,
+            ct);
+    }
+
+    [HttpGet("oauth/{provider}/callback")]
+    [AllowAnonymous]
+    public async Task<ActionResult<object>> OAuthCallback(
+        string provider,
+        [FromQuery] string code,
+        [FromQuery] string state,
+        [FromServices] ICache cache,
+        [FromServices] IAuthenticationService service,
+        CancellationToken ct)
+    {
+        var stateKey = GetOAuthStateKey(state);
+        var storedState = await cache.GetAsync<OAuthState>(stateKey, ct)
+            ?? throw new BadRequestException("OAuth state is invalid or expired.");
+        if (!storedState.Provider.Equals(provider, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new BadRequestException("OAuth state does not match the provider.");
+        }
+
+        var bindingCookieName = GetOAuthBindingCookieName(state);
+        if (!Request.Cookies.TryGetValue(bindingCookieName, out var browserBinding) ||
+            string.IsNullOrWhiteSpace(browserBinding) ||
+            !FixedTimeEquals(storedState.BrowserBindingHash, HashBrowserBinding(browserBinding)))
+        {
+            throw new BadRequestException("OAuth state is not valid for this browser.");
+        }
+
+        storedState = await cache.ConsumeAsync<OAuthState>(stateKey, ct)
+            ?? throw new BadRequestException("OAuth state is invalid or expired.");
+        Response.Cookies.Delete(bindingCookieName, CreateOAuthBindingCookieOptions(TimeSpan.Zero));
+        SetNoStoreHeaders();
+        if (storedState.Purpose == OAuthFlowPurpose.Login && storedState.UserId is null)
+        {
+            return Ok(await service.LoginWithOAuthAsync(
+                new OAuthLoginRequest(provider, code, storedState.RedirectUri, storedState.CodeVerifier), ct));
+        }
+
+        if (storedState.Purpose == OAuthFlowPurpose.Link && storedState.UserId is not null)
+        {
+            return Ok(await service.LinkOAuthAsync(
+                new OAuthLinkRequest(
+                    storedState.UserId.Value,
+                    provider,
+                    code,
+                    storedState.RedirectUri,
+                    storedState.CodeVerifier),
+                ct));
+        }
+
+        throw new BadRequestException("OAuth state has an invalid flow purpose.");
+    }
+
+    private async Task<ActionResult<object>> BeginOAuthAsync(
+        string provider,
+        OAuthFlowPurpose purpose,
+        Guid? userId,
+        OAuthResolver resolver,
+        ICache cache,
+        IOptions<GoogleOAuthOptions> googleOptions,
+        CancellationToken ct)
+    {
         if (!provider.Equals("Google", StringComparison.OrdinalIgnoreCase))
         {
             throw new BadRequestException($"OAuth provider '{provider}' is not supported.");
+        }
+
+        if (purpose == OAuthFlowPurpose.Link && userId is null ||
+            purpose == OAuthFlowPurpose.Login && userId is not null)
+        {
+            throw new BadRequestException("OAuth flow purpose is invalid.");
         }
 
         var redirectUri = googleOptions.Value.RedirectUri;
@@ -91,32 +187,66 @@ public class AuthController : ControllerBase
             throw new InvalidOperationException("OAuth:Google:RedirectUri must be configured.");
         }
 
-        await cache.SetAsync($"auth:oauth-state:{state}", new OAuthState(provider, redirectUri, codeVerifier), TimeSpan.FromMinutes(10), ct);
-        var url = resolver.Get(provider).BuildAuthorizationUrl(new OAuthAuthorizationRequest(redirectUri, state, codeChallenge));
+        var state = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var codeChallenge = Base64Url(SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(codeVerifier)));
+        var browserBinding = Base64Url(RandomNumberGenerator.GetBytes(32));
+        await cache.SetAsync(
+            GetOAuthStateKey(state),
+            new OAuthState(
+                provider,
+                redirectUri,
+                codeVerifier,
+                HashBrowserBinding(browserBinding),
+                purpose,
+                userId),
+            OAuthStateLifetime,
+            ct);
+        Response.Cookies.Append(
+            GetOAuthBindingCookieName(state),
+            browserBinding,
+            CreateOAuthBindingCookieOptions(OAuthStateLifetime));
+        SetNoStoreHeaders();
+        var url = resolver.Get(provider).BuildAuthorizationUrl(
+            new OAuthAuthorizationRequest(redirectUri, state, codeChallenge));
         return Ok(new { authorizationUrl = url });
     }
 
-    [HttpGet("oauth/{provider}/callback")]
-    [AllowAnonymous]
-    public async Task<ActionResult<LoginResponse>> OAuthCallback(
-        string provider,
-        [FromQuery] string code,
-        [FromQuery] string state,
-        [FromServices] ICache cache,
-        [FromServices] IAuthenticationService service,
-        CancellationToken ct)
+    private void SetNoStoreHeaders()
     {
-        var storedState = await cache.ConsumeAsync<OAuthState>($"auth:oauth-state:{state}", ct)
-            ?? throw new BadRequestException("OAuth state is invalid or expired.");
-        if (!storedState.Provider.Equals(provider, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new BadRequestException("OAuth state does not match the provider.");
-        }
-
-        return Ok(await service.LoginWithOAuthAsync(
-            new OAuthLoginRequest(provider, code, storedState.RedirectUri, storedState.CodeVerifier), ct));
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers.Pragma = "no-cache";
     }
 
-    private sealed record OAuthState(string Provider, string RedirectUri, string CodeVerifier);
+    private static CookieOptions CreateOAuthBindingCookieOptions(TimeSpan maxAge) => new()
+    {
+        HttpOnly = true,
+        Secure = true,
+        SameSite = SameSiteMode.Lax,
+        IsEssential = true,
+        Path = "/",
+        MaxAge = maxAge
+    };
+
+    private static string GetOAuthStateKey(string state) => $"auth:oauth-state:{state}";
+    private static string GetOAuthBindingCookieName(string state) => $"{OAuthBindingCookiePrefix}{state}";
+    private static string HashBrowserBinding(string value) =>
+        Base64Url(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)));
+    private static bool FixedTimeEquals(string expected, string actual) =>
+        CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.ASCII.GetBytes(expected),
+            System.Text.Encoding.ASCII.GetBytes(actual));
+    private sealed record OAuthState(
+        string Provider,
+        string RedirectUri,
+        string CodeVerifier,
+        string BrowserBindingHash,
+        OAuthFlowPurpose Purpose,
+        Guid? UserId);
+    private enum OAuthFlowPurpose
+    {
+        Login,
+        Link
+    }
     private static string Base64Url(byte[] value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
