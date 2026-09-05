@@ -78,9 +78,9 @@ public sealed class RegistrationService : IRegistrationService
         var user = await _users.GetByEmailAsync(normalizedEmail, cancellationToken)
             ?? throw new NotFoundException("Account was not found.");
 
-        if (user.Status == AccountStatus.Active)
+        if (user.Status != AccountStatus.Inactive)
         {
-            throw new ConflictException("Account is already active.");
+            throw new ConflictException("Only inactive accounts can be verified.");
         }
 
         if (user.PasswordHash is null)
@@ -130,9 +130,9 @@ public sealed class RegistrationService : IRegistrationService
         var user = await _users.GetByEmailAsync(normalizedEmail, cancellationToken)
             ?? throw new NotFoundException("Account was not found.");
 
-        if (user.Status == AccountStatus.Active)
+        if (user.Status != AccountStatus.Inactive)
         {
-            throw new ConflictException("Account is already active.");
+            throw new ConflictException("Only inactive accounts can request a verification code.");
         }
 
         if (user.PasswordHash is null)
