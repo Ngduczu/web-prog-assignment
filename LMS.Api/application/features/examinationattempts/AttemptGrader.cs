@@ -1,6 +1,7 @@
 using LMS.Api.domain.Entities.Examinations;
 using LMS.Api.domain.Enums.Examinations;
 using LMS.Api.domain.Enums.Questions;
+using LMS.Api.domain.exceptions;
 
 namespace LMS.Api.application.features.examinationattempts;
 
@@ -12,6 +13,11 @@ internal static class AttemptGrader
         ExaminationSubmitReason reason,
         bool autoSubmit)
     {
+        if (attempt.Status is ExaminationAttemptStatus.Submitted or ExaminationAttemptStatus.AutoSubmitted)
+        {
+            throw new ConflictException("The examination attempt has already been submitted.");
+        }
+
         var answersByQuestion = attempt.Answers.ToDictionary(answer => answer.ExaminationQuestionId);
         var correctAnswers = examination.Questions.Count(question =>
             IsCorrect(question, answersByQuestion.GetValueOrDefault(question.Id)));

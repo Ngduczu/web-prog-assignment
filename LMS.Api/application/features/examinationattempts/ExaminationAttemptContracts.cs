@@ -25,9 +25,9 @@ public sealed record ExaminationAttemptDto(
     int? RemainingSeconds,
     DateTime LastActivityAt,
     int ViolationCount,
-    int CorrectAnswers,
-    int TotalQuestions,
-    decimal Score);
+    int? CorrectAnswers,
+    int? TotalQuestions,
+    decimal? Score);
 
 public sealed record StudentExamOptionDto(Guid Id, string Content, int Order);
 public sealed record StudentExamQuestionDto(Guid Id, string Content, QuestionType Type, int Order, IReadOnlyList<StudentExamOptionDto> Options);

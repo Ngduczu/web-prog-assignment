@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.abstractions.time;
@@ -49,10 +51,11 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         ValidateId(examinationId, "Examination id");
         var studentId = EnsureStudent();
         ExaminationAttempt? createdAttempt = null;
+        Examination? examination = null;
 
         await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
-            var examination = await GetExaminationAsync(examinationId, true, transactionCancellationToken);
+            examination = await GetExaminationAsync(examinationId, true, transactionCancellationToken);
             _ = await _courses.GetByIdAsync(examination.CourseId, false, transactionCancellationToken)
                 ?? throw new NotFoundException("Course was not found.");
             await EnsureAcceptedEnrollmentAsync(studentId, examination.CourseId, transactionCancellationToken);
@@ -77,7 +80,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
         }, cancellationToken);
 
-        return Map(createdAttempt!);
+        return Map(createdAttempt!, examination!);
     }
 
     public async Task<IReadOnlyList<StudentExamQuestionDto>> GetQuestionsAsync(
@@ -87,18 +90,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         var attempt = await GetOwnedAttemptAsync(attemptId, false, cancellationToken);
         var examination = await GetExaminationAsync(attempt.ExaminationId, true, cancellationToken);
         await EnsureAcceptedEnrollmentAsync(attempt.StudentId, examination.CourseId, cancellationToken);
-        return examination.Questions
-            .OrderBy(question => question.Order)
-            .Select(question => new StudentExamQuestionDto(
-                question.Id,
-                question.Content,
-                question.Type,
-                question.Order,
-                question.MultipleChoiceOptions
-                    .OrderBy(option => option.Order)
-                    .Select(option => new StudentExamOptionDto(option.Id, option.Content, option.Order))
-                    .ToArray()))
-            .ToArray();
+        return BuildStudentQuestions(examination, attempt.Id);
     }
 
     public async Task<StudentAnswerDto> SaveMultipleChoiceAnswerAsync(
@@ -201,51 +193,79 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         Guid attemptId,
         CancellationToken cancellationToken = default)
     {
-        var attempt = await GetOwnedAttemptAsync(attemptId, true, cancellationToken);
-        var examination = await GetExaminationAsync(attempt.ExaminationId, true, cancellationToken);
-        await EnsureAcceptedEnrollmentAsync(attempt.StudentId, examination.CourseId, cancellationToken);
-        EnsureStatus(attempt, ExaminationAttemptStatus.InProgress);
-        var remainingSeconds = GetRemainingSeconds(attempt, examination, _clock.UtcNow);
-
-        if (remainingSeconds == 0)
+        ExaminationAttempt? attempt = null;
+        Examination? examination = null;
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
-            AttemptGrader.CompleteAndGrade(attempt, examination, ExaminationSubmitReason.DurationExpired, true);
-        }
-        else
-        {
-            attempt.Disconnect(_clock.UtcNow, remainingSeconds);
-        }
+            attempt = await GetOwnedAttemptAsync(attemptId, true, transactionCancellationToken);
+            examination = await GetExaminationAsync(attempt.ExaminationId, true, transactionCancellationToken);
+            await EnsureAcceptedEnrollmentAsync(
+                attempt.StudentId,
+                examination.CourseId,
+                transactionCancellationToken);
+            EnsureStatus(attempt, ExaminationAttemptStatus.InProgress);
+            var remainingSeconds = GetRemainingSeconds(attempt, examination, _clock.UtcNow);
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(attempt);
+            if (remainingSeconds == 0)
+            {
+                AttemptGrader.CompleteAndGrade(
+                    attempt,
+                    examination,
+                    ExaminationSubmitReason.DurationExpired,
+                    true);
+            }
+            else
+            {
+                attempt.Disconnect(_clock.UtcNow, remainingSeconds);
+            }
+
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
+        return Map(attempt!, examination!);
     }
 
     public async Task<ExaminationAttemptDto> ReconnectAsync(
         Guid attemptId,
         CancellationToken cancellationToken = default)
     {
-        var attempt = await GetOwnedAttemptAsync(attemptId, true, cancellationToken);
-        var examination = await GetExaminationAsync(attempt.ExaminationId, true, cancellationToken);
-        await EnsureAcceptedEnrollmentAsync(attempt.StudentId, examination.CourseId, cancellationToken);
-        EnsureStatus(attempt, ExaminationAttemptStatus.Disconnected);
-        var now = _clock.UtcNow;
-        var disconnectDeadline = attempt.DisconnectedAt!.Value.AddMinutes(examination.MaxDisconnectMinutes);
+        ExaminationAttempt? attempt = null;
+        Examination? examination = null;
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
+        {
+            attempt = await GetOwnedAttemptAsync(attemptId, true, transactionCancellationToken);
+            examination = await GetExaminationAsync(attempt.ExaminationId, true, transactionCancellationToken);
+            await EnsureAcceptedEnrollmentAsync(
+                attempt.StudentId,
+                examination.CourseId,
+                transactionCancellationToken);
+            EnsureStatus(attempt, ExaminationAttemptStatus.Disconnected);
+            var now = _clock.UtcNow;
+            var disconnectDeadline = attempt.DisconnectedAt!.Value.AddMinutes(examination.MaxDisconnectMinutes);
 
-        if (now >= disconnectDeadline)
-        {
-            AttemptGrader.CompleteAndGrade(attempt, examination, ExaminationSubmitReason.DisconnectTimeout, true);
-        }
-        else if (GetRemainingSeconds(attempt, examination, now) == 0)
-        {
-            AttemptGrader.CompleteAndGrade(attempt, examination, ExaminationSubmitReason.DurationExpired, true);
-        }
-        else
-        {
-            attempt.Reconnect(now);
-        }
+            if (now >= disconnectDeadline)
+            {
+                AttemptGrader.CompleteAndGrade(
+                    attempt,
+                    examination,
+                    ExaminationSubmitReason.DisconnectTimeout,
+                    true);
+            }
+            else if (GetRemainingSeconds(attempt, examination, now) == 0)
+            {
+                AttemptGrader.CompleteAndGrade(
+                    attempt,
+                    examination,
+                    ExaminationSubmitReason.DurationExpired,
+                    true);
+            }
+            else
+            {
+                attempt.Reconnect(now);
+            }
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(attempt);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
+        return Map(attempt!, examination!);
     }
 
     public async Task<ExaminationAttemptDto> RecordViolationAsync(
@@ -258,25 +278,37 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
             throw new BadRequestException("Examination violation type is invalid.");
         }
 
-        var attempt = await GetOwnedAttemptAsync(attemptId, true, cancellationToken);
-        var examination = await GetExaminationAsync(attempt.ExaminationId, true, cancellationToken);
-        await EnsureAcceptedEnrollmentAsync(attempt.StudentId, examination.CourseId, cancellationToken);
-        EnsureActive(attempt);
-        var violation = new ExaminationViolation(attempt.Id, violationType, _clock.UtcNow);
-        _attempts.AddViolation(violation);
-        attempt.AddViolation();
-
-        if (examination.MaxViolations > 0 && attempt.ViolationCount >= examination.MaxViolations)
+        ExaminationAttempt? attempt = null;
+        Examination? examination = null;
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
-            AttemptGrader.CompleteAndGrade(attempt, examination, ExaminationSubmitReason.MaxViolationsExceeded, true);
-        }
-        else
-        {
-            attempt.TouchActivity(_clock.UtcNow);
-        }
+            attempt = await GetOwnedAttemptAsync(attemptId, true, transactionCancellationToken);
+            examination = await GetExaminationAsync(attempt.ExaminationId, true, transactionCancellationToken);
+            await EnsureAcceptedEnrollmentAsync(
+                attempt.StudentId,
+                examination.CourseId,
+                transactionCancellationToken);
+            EnsureActive(attempt);
+            var violation = new ExaminationViolation(attempt.Id, violationType, _clock.UtcNow);
+            _attempts.AddViolation(violation);
+            attempt.AddViolation();
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(attempt);
+            if (examination.MaxViolations > 0 && attempt.ViolationCount >= examination.MaxViolations)
+            {
+                AttemptGrader.CompleteAndGrade(
+                    attempt,
+                    examination,
+                    ExaminationSubmitReason.MaxViolationsExceeded,
+                    true);
+            }
+            else
+            {
+                attempt.TouchActivity(_clock.UtcNow);
+            }
+
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
+        return Map(attempt!, examination!);
     }
 
     public async Task<ExaminationAttemptDto> SubmitAsync(
@@ -284,10 +316,11 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         CancellationToken cancellationToken = default)
     {
         ExaminationAttempt? submittedAttempt = null;
+        Examination? examination = null;
         await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
             submittedAttempt = await GetOwnedAttemptAsync(attemptId, true, transactionCancellationToken);
-            var examination = await GetExaminationAsync(
+            examination = await GetExaminationAsync(
                 submittedAttempt.ExaminationId,
                 true,
                 transactionCancellationToken);
@@ -304,7 +337,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
                 expired);
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
         }, cancellationToken);
-        return Map(submittedAttempt!);
+        return Map(submittedAttempt!, examination!);
     }
 
     public async Task<ExaminationAttemptDto> AutoSubmitAsync(
@@ -325,11 +358,12 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         }
 
         ExaminationAttempt? submittedAttempt = null;
+        Examination? examination = null;
         await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
             submittedAttempt = await _attempts.GetByIdAsync(attemptId, true, transactionCancellationToken)
                 ?? throw new NotFoundException("Examination attempt was not found.");
-            var examination = await GetExaminationAsync(
+            examination = await GetExaminationAsync(
                 submittedAttempt.ExaminationId,
                 true,
                 transactionCancellationToken);
@@ -337,7 +371,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
             AttemptGrader.CompleteAndGrade(submittedAttempt, examination, reason, true);
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
         }, cancellationToken);
-        return Map(submittedAttempt!);
+        return Map(submittedAttempt!, examination!);
     }
 
     private async Task<(ExaminationAttempt Attempt, Examination Examination, ExaminationQuestion Question)>
@@ -447,6 +481,69 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         return Math.Max(0, (int)Math.Ceiling((deadline - now).TotalSeconds));
     }
 
+    private static IReadOnlyList<StudentExamQuestionDto> BuildStudentQuestions(
+        Examination examination,
+        Guid attemptId)
+    {
+        var questions = examination.Questions.ToList();
+        if (examination.ShuffleQuestions)
+        {
+            ShuffleInPlace(questions, CreateSeed(attemptId, "questions"));
+        }
+        else
+        {
+            questions = questions.OrderBy(question => question.Order).ToList();
+        }
+
+        return questions
+            .Select((question, questionIndex) =>
+            {
+                IReadOnlyList<StudentExamOptionDto> options = [];
+                if (question.Type == QuestionType.MultipleChoice)
+                {
+                    var optionItems = question.MultipleChoiceOptions.ToList();
+                    if (question.ShuffleOptions)
+                    {
+                        ShuffleInPlace(optionItems, CreateSeed(attemptId, $"options:{question.Id:N}"));
+                    }
+                    else
+                    {
+                        optionItems = optionItems.OrderBy(option => option.Order).ToList();
+                    }
+
+                    options = optionItems
+                        .Select((option, optionIndex) =>
+                            new StudentExamOptionDto(option.Id, option.Content, optionIndex))
+                        .ToArray();
+                }
+
+                return new StudentExamQuestionDto(
+                    question.Id,
+                    question.Content,
+                    question.Type,
+                    questionIndex,
+                    options);
+            })
+            .ToArray();
+    }
+
+    private static int CreateSeed(Guid attemptId, string salt)
+    {
+        var bytes = Encoding.UTF8.GetBytes($"{attemptId:N}:{salt}");
+        var hash = SHA256.HashData(bytes);
+        return BitConverter.ToInt32(hash, 0);
+    }
+
+    private static void ShuffleInPlace<T>(IList<T> items, int seed)
+    {
+        var random = new Random(seed);
+        for (var index = items.Count - 1; index > 0; index--)
+        {
+            var replacementIndex = random.Next(index + 1);
+            (items[index], items[replacementIndex]) = (items[replacementIndex], items[index]);
+        }
+    }
+
     private static void ValidateFillInBlankAnswers(IReadOnlyList<StudentFillInBlankAnswerInput> answers)
     {
         if (answers.Any(answer =>
@@ -488,19 +585,34 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
             answer.ModifiedAt);
     }
 
-    private static ExaminationAttemptDto Map(ExaminationAttempt attempt) => new(
-        attempt.Id,
-        attempt.ExaminationId,
-        attempt.StudentId,
-        attempt.Status,
-        attempt.SubmitReason,
-        attempt.StartedAt,
-        attempt.SubmittedAt,
-        attempt.DisconnectedAt,
-        attempt.RemainingSeconds,
-        attempt.LastActivityAt,
-        attempt.ViolationCount,
-        attempt.CorrectAnswers,
-        attempt.TotalQuestions,
-        attempt.Score);
+    private static ExaminationAttemptDto Map(ExaminationAttempt attempt, Examination examination)
+    {
+        var revealScore = ShouldRevealScore(attempt, examination);
+        return new(
+            attempt.Id,
+            attempt.ExaminationId,
+            attempt.StudentId,
+            attempt.Status,
+            attempt.SubmitReason,
+            attempt.StartedAt,
+            attempt.SubmittedAt,
+            attempt.DisconnectedAt,
+            attempt.RemainingSeconds,
+            attempt.LastActivityAt,
+            attempt.ViolationCount,
+            revealScore ? attempt.CorrectAnswers : null,
+            revealScore ? attempt.TotalQuestions : null,
+            revealScore ? attempt.Score : null);
+    }
+
+    private static bool ShouldRevealScore(ExaminationAttempt attempt, Examination examination)
+    {
+        if (examination.ShowScoreImmediately)
+        {
+            return true;
+        }
+
+        return attempt.Status is not ExaminationAttemptStatus.Submitted
+            and not ExaminationAttemptStatus.AutoSubmitted;
+    }
 }

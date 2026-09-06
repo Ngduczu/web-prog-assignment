@@ -85,7 +85,61 @@ public class ExaminationAttemptApplicationTests
             fixture.Service.GetQuestionsAsync(attempt.Id));
     }
 
-    private static Fixture CreateFixture(int maxViolations = 5, bool enrollmentAccepted = true)
+    [Fact]
+    public async Task SubmittedAttemptHidesScoreWhenShowScoreImmediatelyIsDisabled()
+    {
+        var fixture = CreateFixture(showScoreImmediately: false);
+        var started = await fixture.Service.StartAsync(fixture.Examination.Id);
+        Assert.Equal(2, started.TotalQuestions);
+        Assert.Equal(0, started.CorrectAnswers);
+        Assert.Equal(0m, started.Score);
+
+        var submitted = await fixture.Service.SubmitAsync(started.Id);
+
+        Assert.Equal(ExaminationAttemptStatus.Submitted, submitted.Status);
+        Assert.Null(submitted.CorrectAnswers);
+        Assert.Null(submitted.TotalQuestions);
+        Assert.Null(submitted.Score);
+    }
+
+    [Fact]
+    public async Task GetQuestionsKeepsSnapshotOrderWhenShuffleIsDisabled()
+    {
+        var fixture = CreateFixture(shuffleQuestions: false);
+        var started = await fixture.Service.StartAsync(fixture.Examination.Id);
+
+        var questions = await fixture.Service.GetQuestionsAsync(started.Id);
+
+        Assert.Equal(
+            fixture.Examination.Questions.OrderBy(question => question.Order).Select(question => question.Id),
+            questions.Select(question => question.Id));
+        Assert.Equal([0, 1], questions.Select(question => question.Order).ToArray());
+    }
+
+    [Fact]
+    public async Task GetQuestionsAppliesStablePerAttemptShuffle()
+    {
+        var fixture = CreateFixture(shuffleQuestions: true);
+        var started = await fixture.Service.StartAsync(fixture.Examination.Id);
+
+        var first = await fixture.Service.GetQuestionsAsync(started.Id);
+        var second = await fixture.Service.GetQuestionsAsync(started.Id);
+
+        Assert.Equal(first.Select(question => question.Id), second.Select(question => question.Id));
+        Assert.Equal(first.Select(question => question.Order), second.Select(question => question.Order));
+
+        var multipleChoice = first.Single(question => question.Type == QuestionType.MultipleChoice);
+        Assert.Equal([0, 1], multipleChoice.Options.Select(option => option.Order).ToArray());
+        Assert.Equal(
+            multipleChoice.Options.Select(option => option.Id).ToArray(),
+            second.Single(question => question.Id == multipleChoice.Id).Options.Select(option => option.Id).ToArray());
+    }
+
+    private static Fixture CreateFixture(
+        int maxViolations = 5,
+        bool enrollmentAccepted = true,
+        bool showScoreImmediately = true,
+        bool shuffleQuestions = false)
     {
         var teacher = CreateUser(Role.Teacher);
         var student = CreateUser(Role.Student);
@@ -99,6 +153,7 @@ public class ExaminationAttemptApplicationTests
             now.AddHours(2),
             60,
             teacher.Id);
+        examination.SetDisplayOptions(shuffleQuestions, showScoreImmediately);
         examination.SetAntiCheat(true, 3, maxViolations, true, true, true, false, 10);
         examination.SetStatus(ExaminationStatus.Published);
 
