@@ -59,6 +59,52 @@ public class CourseContentApplicationTests
         Assert.Equal(["stored/object.pdf"], storage.DeletedObjectKeys);
     }
 
+    [Fact]
+    public async Task StudentListsOnlyPublishedLessonsWhenEnrolled()
+    {
+        var teacher = CreateTeacher();
+        var student = CreateStudent();
+        var course = CreateCourse(teacher);
+        var published = new Lesson(course.Id, "Published", null, 0, teacher.Id, LessonStatus.Published);
+        var draft = new Lesson(course.Id, "Draft", null, 1, teacher.Id, LessonStatus.Draft);
+        var enrollment = new Enrollment(student.Id, course.Id, EnrollmentStatus.Accepted);
+        var service = new LessonService(
+            new FakeLessonRepository(published, draft),
+            new FakeMaterialRepository(),
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(enrollment),
+            new FakeFileStorage(),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student));
+
+        var result = await service.ListAsync(course.Id);
+
+        Assert.Single(result);
+        Assert.Equal(published.Id, result[0].Id);
+        Assert.Equal(LessonStatus.Published, result[0].Status);
+    }
+
+    [Fact]
+    public async Task StudentCannotGetDraftLesson()
+    {
+        var teacher = CreateTeacher();
+        var student = CreateStudent();
+        var course = CreateCourse(teacher);
+        var draft = new Lesson(course.Id, "Draft", null, 0, teacher.Id, LessonStatus.Draft);
+        var enrollment = new Enrollment(student.Id, course.Id, EnrollmentStatus.Accepted);
+        var service = new LessonService(
+            new FakeLessonRepository(draft),
+            new FakeMaterialRepository(),
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(enrollment),
+            new FakeFileStorage(),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student));
+
+        await Assert.ThrowsAsync<LMS.Api.domain.exceptions.NotFoundException>(() =>
+            service.GetAsync(draft.Id));
+    }
+
     private static LessonService CreateLessonService(
         User teacher,
         Course course,
@@ -70,6 +116,7 @@ public class CourseContentApplicationTests
             new FakeLessonRepository(lesson),
             materials,
             new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(),
             storage,
             unitOfWork,
             new FakeCurrentUser(teacher));
@@ -80,6 +127,14 @@ public class CourseContentApplicationTests
         null,
         null,
         Role.Teacher,
+        AccountStatus.Active);
+
+    private static User CreateStudent() => new(
+        $"{Guid.NewGuid():N}@example.com",
+        "Student",
+        null,
+        null,
+        Role.Student,
         AccountStatus.Active);
 
     private static Course CreateCourse(User teacher) =>
@@ -153,6 +208,12 @@ public class CourseContentApplicationTests
         public Task<Material?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
             Task.FromResult(Items.SingleOrDefault(material => material.Id == id));
 
+        public Task<IReadOnlyList<Material>> ListByLessonAsync(
+            Guid lessonId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Material>>(
+                Items.Where(material => material.LessonId == lessonId).ToArray());
+
         public void Add(Material material)
         {
             Items.Add(material);
@@ -164,22 +225,76 @@ public class CourseContentApplicationTests
         }
     }
 
+    private sealed class FakeEnrollmentRepository : IEnrollmentRepository
+    {
+        private readonly Enrollment? _enrollment;
+
+        public FakeEnrollmentRepository(Enrollment? enrollment = null)
+        {
+            _enrollment = enrollment;
+        }
+
+        public Task<Enrollment?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
+            Task.FromResult(_enrollment?.Id == id ? _enrollment : null);
+
+        public Task<Enrollment?> GetByStudentAndCourseAsync(
+            Guid studentId,
+            Guid courseId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                _enrollment is not null &&
+                _enrollment.StudentId == studentId &&
+                _enrollment.CourseId == courseId
+                    ? _enrollment
+                    : null);
+
+        public Task<IReadOnlyList<Enrollment>> ListByStudentAsync(
+            Guid studentId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Enrollment>>(
+                _enrollment is not null && _enrollment.StudentId == studentId ? [_enrollment] : []);
+
+        public Task<IReadOnlyList<Enrollment>> ListByCourseAsync(
+            Guid courseId,
+            int skip,
+            int take,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Enrollment>>(
+                _enrollment is not null && _enrollment.CourseId == courseId ? [_enrollment] : []);
+
+        public Task<int> CountByCourseAsync(Guid courseId, CancellationToken cancellationToken) =>
+            Task.FromResult(_enrollment is not null && _enrollment.CourseId == courseId ? 1 : 0);
+
+        public Task<int> CountAcceptedByCourseAsync(Guid courseId, CancellationToken cancellationToken) =>
+            Task.FromResult(
+                _enrollment is not null &&
+                _enrollment.CourseId == courseId &&
+                _enrollment.Status == EnrollmentStatus.Accepted
+                    ? 1
+                    : 0);
+
+        public void Add(Enrollment enrollment)
+        {
+        }
+    }
+
     private sealed class FakeLessonRepository : ILessonRepository
     {
-        private readonly Lesson _lesson;
+        private readonly IReadOnlyList<Lesson> _lessons;
 
-        public FakeLessonRepository(Lesson lesson)
+        public FakeLessonRepository(params Lesson[] lessons)
         {
-            _lesson = lesson;
+            _lessons = lessons;
         }
 
         public Task<Lesson?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
-            Task.FromResult<Lesson?>(_lesson.Id == id ? _lesson : null);
+            Task.FromResult(_lessons.SingleOrDefault(lesson => lesson.Id == id));
 
         public Task<IReadOnlyList<Lesson>> ListByCourseAsync(
             Guid courseId,
             CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<Lesson>>([_lesson]);
+            Task.FromResult<IReadOnlyList<Lesson>>(
+                _lessons.Where(lesson => lesson.CourseId == courseId).ToArray());
 
         public Task<bool> OrderExistsAsync(
             Guid courseId,

@@ -62,6 +62,22 @@ public sealed record ExaminationDto(
     DateTime CreatedAt,
     DateTime ModifiedAt);
 
+public sealed record StudentExaminationDto(
+    Guid Id,
+    Guid CourseId,
+    string Title,
+    string? Description,
+    ExaminationStatus Status,
+    DateTime StartAt,
+    DateTime DueAt,
+    int DurationMinutes,
+    bool ShuffleQuestions,
+    bool ShowScoreImmediately,
+    ExaminationSecuritySettings Security,
+    int QuestionCount,
+    DateTime CreatedAt,
+    DateTime ModifiedAt);
+
 public interface IExaminationService
 {
     Task<ExaminationDto> CreateAsync(
@@ -71,7 +87,13 @@ public interface IExaminationService
     Task<ExaminationDto> GetForManagementAsync(
         Guid examinationId,
         CancellationToken cancellationToken = default);
+    Task<StudentExaminationDto> GetForStudentAsync(
+        Guid examinationId,
+        CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ExaminationDto>> ListByCourseAsync(
+        Guid courseId,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<StudentExaminationDto>> ListAvailableForStudentAsync(
         Guid courseId,
         CancellationToken cancellationToken = default);
     Task<ExaminationDto> UpdateAsync(

@@ -16,6 +16,7 @@ public sealed class ExaminationService : IExaminationService
 {
     private readonly IExaminationRepository _examinations;
     private readonly ICourseRepository _courses;
+    private readonly IEnrollmentRepository _enrollments;
     private readonly IQuestionBankRepository _questionBanks;
     private readonly IQuestionRepository _questions;
     private readonly IUnitOfWork _unitOfWork;
@@ -26,6 +27,7 @@ public sealed class ExaminationService : IExaminationService
     public ExaminationService(
         IExaminationRepository examinations,
         ICourseRepository courses,
+        IEnrollmentRepository enrollments,
         IQuestionBankRepository questionBanks,
         IQuestionRepository questions,
         IUnitOfWork unitOfWork,
@@ -35,6 +37,7 @@ public sealed class ExaminationService : IExaminationService
     {
         _examinations = examinations;
         _courses = courses;
+        _enrollments = enrollments;
         _questionBanks = questionBanks;
         _questions = questions;
         _unitOfWork = unitOfWork;
@@ -131,7 +134,7 @@ public sealed class ExaminationService : IExaminationService
         return Map(examination);
     }
 
-    public async Task<ExaminationDto> GetForManagementAsync(
+        public async Task<ExaminationDto> GetForManagementAsync(
         Guid examinationId,
         CancellationToken cancellationToken = default)
     {
@@ -139,6 +142,32 @@ public sealed class ExaminationService : IExaminationService
         var examination = await GetExaminationAsync(examinationId, true, cancellationToken);
         await EnsureCanManageAsync(examination, cancellationToken);
         return Map(examination);
+    }
+
+    public async Task<StudentExaminationDto> GetForStudentAsync(
+        Guid examinationId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(examinationId, "Examination id");
+        var examination = await GetExaminationAsync(examinationId, true, cancellationToken);
+        var course = await GetCourseAsync(examination.CourseId, cancellationToken);
+        await CourseAuthorization.EnsureCanViewContentAsync(
+            _currentUser,
+            course,
+            _enrollments,
+            cancellationToken);
+
+        if (CourseAuthorization.IsCourseManager(_currentUser, course))
+        {
+            return MapForStudent(examination);
+        }
+
+        if (examination.Status == ExaminationStatus.Draft)
+        {
+            throw new NotFoundException("Examination was not found.");
+        }
+
+        return MapForStudent(examination);
     }
 
     public async Task<IReadOnlyList<ExaminationDto>> ListByCourseAsync(
@@ -150,6 +179,29 @@ public sealed class ExaminationService : IExaminationService
         CourseAuthorization.EnsureCanManage(_currentUser, course);
         var examinations = await _examinations.ListByCourseAsync(courseId, cancellationToken);
         return examinations.Select(Map).ToArray();
+    }
+
+    public async Task<IReadOnlyList<StudentExaminationDto>> ListAvailableForStudentAsync(
+        Guid courseId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(courseId, "Course id");
+        var course = await GetCourseAsync(courseId, cancellationToken);
+        await CourseAuthorization.EnsureCanViewContentAsync(
+            _currentUser,
+            course,
+            _enrollments,
+            cancellationToken);
+        var examinations = await _examinations.ListByCourseAsync(courseId, cancellationToken);
+
+        if (!CourseAuthorization.IsCourseManager(_currentUser, course))
+        {
+            examinations = examinations
+                .Where(examination => examination.Status != ExaminationStatus.Draft)
+                .ToArray();
+        }
+
+        return examinations.Select(MapForStudent).ToArray();
     }
 
     public async Task<ExaminationDto> UpdateAsync(
@@ -407,15 +459,7 @@ public sealed class ExaminationService : IExaminationService
         examination.DurationMinutes,
         examination.ShuffleQuestions,
         examination.ShowScoreImmediately,
-        new ExaminationSecuritySettings(
-            examination.RequireFullscreen,
-            examination.FullscreenGraceSeconds,
-            examination.MaxViolations,
-            examination.BlockCopyPaste,
-            examination.BlockRightClick,
-            examination.DetectTabChange,
-            examination.DetectDevTools,
-            examination.MaxDisconnectMinutes),
+        MapSecurity(examination),
         examination.QuestionSelectionRules
             .Select(rule => new QuestionSelectionRuleDto(
                 rule.Id,
@@ -426,4 +470,30 @@ public sealed class ExaminationService : IExaminationService
         examination.Questions.Count,
         examination.CreatedAt,
         examination.ModifiedAt);
+
+    private static StudentExaminationDto MapForStudent(Examination examination) => new(
+        examination.Id,
+        examination.CourseId,
+        examination.Title,
+        examination.Description,
+        examination.Status,
+        examination.StartAt,
+        examination.DueAt,
+        examination.DurationMinutes,
+        examination.ShuffleQuestions,
+        examination.ShowScoreImmediately,
+        MapSecurity(examination),
+        examination.Questions.Count,
+        examination.CreatedAt,
+        examination.ModifiedAt);
+
+    private static ExaminationSecuritySettings MapSecurity(Examination examination) => new(
+        examination.RequireFullscreen,
+        examination.FullscreenGraceSeconds,
+        examination.MaxViolations,
+        examination.BlockCopyPaste,
+        examination.BlockRightClick,
+        examination.DetectTabChange,
+        examination.DetectDevTools,
+        examination.MaxDisconnectMinutes);
 }

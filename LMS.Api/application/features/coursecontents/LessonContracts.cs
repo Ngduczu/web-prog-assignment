@@ -39,7 +39,9 @@ public interface ILessonService
 {
     Task<LessonDto> CreateAsync(Guid courseId, CreateLessonRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<LessonDto>> ListAsync(Guid courseId, CancellationToken cancellationToken = default);
+    Task<LessonDto> GetAsync(Guid lessonId, CancellationToken cancellationToken = default);
     Task<LessonDto> UpdateAsync(Guid lessonId, UpdateLessonRequest request, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<MaterialDto>> ListMaterialsAsync(Guid lessonId, CancellationToken cancellationToken = default);
     Task<MaterialDto> UploadMaterialAsync(Guid lessonId, FileUpload upload, CancellationToken cancellationToken = default);
     Task DeleteMaterialAsync(Guid materialId, CancellationToken cancellationToken = default);
 }

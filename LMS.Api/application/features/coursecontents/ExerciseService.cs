@@ -12,6 +12,7 @@ public sealed class ExerciseService : IExerciseService
 {
     private readonly IExerciseRepository _exercises;
     private readonly ICourseRepository _courses;
+    private readonly IEnrollmentRepository _enrollments;
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
@@ -19,12 +20,14 @@ public sealed class ExerciseService : IExerciseService
     public ExerciseService(
         IExerciseRepository exercises,
         ICourseRepository courses,
+        IEnrollmentRepository enrollments,
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser)
     {
         _exercises = exercises;
         _courses = courses;
+        _enrollments = enrollments;
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
@@ -56,9 +59,28 @@ public sealed class ExerciseService : IExerciseService
     {
         ValidateId(courseId, "Course id");
         var course = await GetCourseAsync(courseId, cancellationToken);
-        CourseAuthorization.EnsureCanManage(_currentUser, course);
+        await CourseAuthorization.EnsureCanViewContentAsync(
+            _currentUser,
+            course,
+            _enrollments,
+            cancellationToken);
         var exercises = await _exercises.ListByCourseAsync(courseId, cancellationToken);
         return exercises.Select(Map).ToArray();
+    }
+
+    public async Task<ExerciseDto> GetAsync(
+        Guid exerciseId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(exerciseId, "Exercise id");
+        var exercise = await GetExerciseAsync(exerciseId, true, cancellationToken);
+        var course = await GetCourseAsync(exercise.CourseId, cancellationToken);
+        await CourseAuthorization.EnsureCanViewContentAsync(
+            _currentUser,
+            course,
+            _enrollments,
+            cancellationToken);
+        return Map(exercise);
     }
 
     public async Task<ExerciseDto> UpdateAsync(

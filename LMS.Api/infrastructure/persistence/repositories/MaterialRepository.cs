@@ -16,6 +16,16 @@ public sealed class MaterialRepository : IMaterialRepository
     public Task<Material?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
         _dbContext.Materials.SingleOrDefaultAsync(material => material.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyList<Material>> ListByLessonAsync(
+        Guid lessonId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.Materials
+            .AsNoTracking()
+            .Where(material => material.LessonId == lessonId)
+            .OrderBy(material => material.CreatedAt)
+            .ThenBy(material => material.Id)
+            .ToListAsync(cancellationToken);
+
     public void Add(Material material)
     {
         _dbContext.Materials.Add(material);

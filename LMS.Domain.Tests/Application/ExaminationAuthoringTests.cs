@@ -117,6 +117,7 @@ public class ExaminationAuthoringTests
         var service = new ExaminationService(
             examinations,
             new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(),
             new FakeQuestionBankRepository(questionBank),
             new FakeQuestionRepository(multipleChoice, fillInBlank),
             unitOfWork,
@@ -182,6 +183,11 @@ public class ExaminationAuthoringTests
             ExecutionCount++;
             await action(cancellationToken);
         }
+
+        public Task ExecuteSerializableAsync(
+            Func<CancellationToken, Task> action,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(action, cancellationToken);
     }
 
     private sealed class FakeExaminationRepository : IExaminationRepository
@@ -258,6 +264,7 @@ public class ExaminationAuthoringTests
         public Task<QuestionBank?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
             Task.FromResult<QuestionBank?>(_questionBank.Id == id ? _questionBank : null);
 
+
         public Task<IReadOnlyList<QuestionBank>> ListByTeacherAsync(
             Guid teacherId,
             CancellationToken cancellationToken) =>
@@ -289,7 +296,42 @@ public class ExaminationAuthoringTests
             Task.FromResult<IReadOnlyList<Question>>(
                 _questions.Where(question => question.QuestionBankId == questionBankId).ToArray());
 
+
         public void Add(Question question)
+        {
+        }
+    }
+
+    private sealed class FakeEnrollmentRepository : IEnrollmentRepository
+    {
+        public Task<Enrollment?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
+            Task.FromResult<Enrollment?>(null);
+
+        public Task<Enrollment?> GetByStudentAndCourseAsync(
+            Guid studentId,
+            Guid courseId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<Enrollment?>(null);
+
+        public Task<IReadOnlyList<Enrollment>> ListByStudentAsync(
+            Guid studentId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Enrollment>>([]);
+
+        public Task<IReadOnlyList<Enrollment>> ListByCourseAsync(
+            Guid courseId,
+            int skip,
+            int take,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Enrollment>>([]);
+
+        public Task<int> CountByCourseAsync(Guid courseId, CancellationToken cancellationToken) =>
+            Task.FromResult(0);
+
+        public Task<int> CountAcceptedByCourseAsync(Guid courseId, CancellationToken cancellationToken) =>
+            Task.FromResult(0);
+
+        public void Add(Enrollment enrollment)
         {
         }
     }

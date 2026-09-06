@@ -10,14 +10,25 @@ public sealed class ExaminationsController : ControllerBase
 {
     [HttpPost("courses/{courseId:guid}/examinations")]
     public async Task<ActionResult<ExaminationDto>> Create(Guid courseId, CreateExaminationRequest request, IExaminationService service, CancellationToken ct) => StatusCode(StatusCodes.Status201Created, await service.CreateAsync(courseId, request, ct));
+
     [HttpGet("courses/{courseId:guid}/examinations")]
     public async Task<ActionResult<IReadOnlyList<ExaminationDto>>> List(Guid courseId, IExaminationService service, CancellationToken ct) => Ok(await service.ListByCourseAsync(courseId, ct));
+
+    [HttpGet("courses/{courseId:guid}/examinations/available")]
+    public async Task<ActionResult<IReadOnlyList<StudentExaminationDto>>> ListAvailable(Guid courseId, IExaminationService service, CancellationToken ct) => Ok(await service.ListAvailableForStudentAsync(courseId, ct));
+
     [HttpGet("examinations/{id:guid}")]
     public async Task<ActionResult<ExaminationDto>> Get(Guid id, IExaminationService service, CancellationToken ct) => Ok(await service.GetForManagementAsync(id, ct));
+
+    [HttpGet("examinations/{id:guid}/student")]
+    public async Task<ActionResult<StudentExaminationDto>> GetForStudent(Guid id, IExaminationService service, CancellationToken ct) => Ok(await service.GetForStudentAsync(id, ct));
+
     [HttpPut("examinations/{id:guid}")]
     public async Task<ActionResult<ExaminationDto>> Update(Guid id, UpdateExaminationRequest request, IExaminationService service, CancellationToken ct) => Ok(await service.UpdateAsync(id, request, ct));
+
     [HttpPost("examinations/{id:guid}/publish")]
     public async Task<ActionResult<ExaminationDto>> Publish(Guid id, IExaminationService service, CancellationToken ct) => Ok(await service.PublishAsync(id, ct));
+
     [HttpPost("examinations/{id:guid}/close")]
     public async Task<ActionResult<ExaminationDto>> Close(Guid id, IExaminationService service, CancellationToken ct) => Ok(await service.CloseAsync(id, ct));
 }

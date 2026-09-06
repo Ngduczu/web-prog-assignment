@@ -14,6 +14,7 @@ public sealed class LessonService : ILessonService
     private readonly ILessonRepository _lessons;
     private readonly IMaterialRepository _materials;
     private readonly ICourseRepository _courses;
+    private readonly IEnrollmentRepository _enrollments;
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
@@ -22,6 +23,7 @@ public sealed class LessonService : ILessonService
         ILessonRepository lessons,
         IMaterialRepository materials,
         ICourseRepository courses,
+        IEnrollmentRepository enrollments,
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser)
@@ -29,6 +31,7 @@ public sealed class LessonService : ILessonService
         _lessons = lessons;
         _materials = materials;
         _courses = courses;
+        _enrollments = enrollments;
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
@@ -67,9 +70,37 @@ public sealed class LessonService : ILessonService
     {
         ValidateId(courseId, "Course id");
         var course = await GetCourseAsync(courseId, cancellationToken);
-        CourseAuthorization.EnsureCanManage(_currentUser, course);
+        await CourseAuthorization.EnsureCanViewContentAsync(
+            _currentUser,
+            course,
+            _enrollments,
+            cancellationToken);
         var lessons = await _lessons.ListByCourseAsync(courseId, cancellationToken);
+
+        if (!CourseAuthorization.IsCourseManager(_currentUser, course))
+        {
+            lessons = lessons
+                .Where(lesson => lesson.Status == LessonStatus.Published)
+                .ToArray();
+        }
+
         return lessons.Select(Map).ToArray();
+    }
+
+    public async Task<LessonDto> GetAsync(
+        Guid lessonId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(lessonId, "Lesson id");
+        var lesson = await GetLessonAsync(lessonId, cancellationToken);
+        var course = await GetCourseAsync(lesson.CourseId, cancellationToken);
+        await CourseAuthorization.EnsureCanViewContentAsync(
+            _currentUser,
+            course,
+            _enrollments,
+            cancellationToken);
+        EnsureStudentCanAccessPublishedLesson(course, lesson);
+        return Map(lesson);
     }
 
     public async Task<LessonDto> UpdateAsync(
@@ -95,6 +126,23 @@ public sealed class LessonService : ILessonService
         lesson.SetModifiedBy(actorId);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Map(lesson);
+    }
+
+    public async Task<IReadOnlyList<MaterialDto>> ListMaterialsAsync(
+        Guid lessonId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(lessonId, "Lesson id");
+        var lesson = await GetLessonAsync(lessonId, cancellationToken);
+        var course = await GetCourseAsync(lesson.CourseId, cancellationToken);
+        await CourseAuthorization.EnsureCanViewContentAsync(
+            _currentUser,
+            course,
+            _enrollments,
+            cancellationToken);
+        EnsureStudentCanAccessPublishedLesson(course, lesson);
+        var materials = await _materials.ListByLessonAsync(lessonId, cancellationToken);
+        return materials.Select(Map).ToArray();
     }
 
     public async Task<MaterialDto> UploadMaterialAsync(
@@ -146,6 +194,19 @@ public sealed class LessonService : ILessonService
         _materials.Remove(material);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await _fileStorage.DeleteIfExistsAsync(material.ObjectKey, CancellationToken.None);
+    }
+
+    private void EnsureStudentCanAccessPublishedLesson(Course course, Lesson lesson)
+    {
+        if (CourseAuthorization.IsCourseManager(_currentUser, course))
+        {
+            return;
+        }
+
+        if (lesson.Status != LessonStatus.Published)
+        {
+            throw new NotFoundException("Lesson was not found.");
+        }
     }
 
     private async Task<Course> GetCourseAsync(Guid courseId, CancellationToken cancellationToken) =>
