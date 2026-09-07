@@ -18,6 +18,20 @@ public sealed class QuestionBankRepository : IQuestionBankRepository
             questionBank => questionBank.Id == id,
             cancellationToken);
 
+    public async Task<IReadOnlyList<QuestionBank>> ListByIdsAsync(
+        IReadOnlyCollection<Guid> questionBankIds,
+        CancellationToken cancellationToken)
+    {
+        if (questionBankIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.QuestionBanks
+            .Where(questionBank => questionBankIds.Contains(questionBank.Id))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<QuestionBank>> ListByTeacherAsync(
         Guid teacherId,
         CancellationToken cancellationToken) =>
