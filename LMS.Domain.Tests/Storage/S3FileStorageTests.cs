@@ -61,6 +61,27 @@ public sealed class S3FileStorageTests
     }
 
     [Fact]
+    public async Task OpenReadNormalizesSeparatorsAndReturnsResponseStream()
+    {
+        var responseContent = new MemoryStream([1, 2, 3]);
+        var client = new Mock<IAmazonS3>();
+        client
+            .Setup(s3 => s3.GetObjectAsync(It.IsAny<GetObjectRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GetObjectResponse { ResponseStream = responseContent });
+        var storage = CreateStorage(client.Object);
+
+        await using var content = await storage.OpenReadAsync("courses\\course\\file.pdf");
+        using var copy = new MemoryStream();
+        await content.CopyToAsync(copy);
+
+        Assert.Equal([1, 2, 3], copy.ToArray());
+        client.Verify(s3 => s3.GetObjectAsync(
+            It.Is<GetObjectRequest>(request =>
+                request.BucketName == "test-bucket" && request.Key == "courses/course/file.pdf"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task DeleteRejectsPathTraversalBeforeCallingS3()
     {
         var client = new Mock<IAmazonS3>();
