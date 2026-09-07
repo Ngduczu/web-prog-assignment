@@ -38,6 +38,7 @@ public interface IExerciseService
     Task<ExerciseDto> CreateAsync(Guid courseId, CreateExerciseRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ExerciseDto>> ListAsync(Guid courseId, CancellationToken cancellationToken = default);
     Task<ExerciseDto> GetAsync(Guid exerciseId, CancellationToken cancellationToken = default);
+    Task<FileContent> GetAttachmentContentAsync(Guid exerciseId, CancellationToken cancellationToken = default);
     Task<ExerciseDto> UpdateAsync(Guid exerciseId, UpdateExerciseRequest request, CancellationToken cancellationToken = default);
     Task<ExerciseDto> UploadAttachmentAsync(Guid exerciseId, FileUpload upload, CancellationToken cancellationToken = default);
 }
