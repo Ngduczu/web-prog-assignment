@@ -61,62 +61,82 @@ public sealed class ExaminationService : IExaminationService
             request.Security);
         ValidateSelectionRules(request.QuestionSelectionRules);
 
-        var course = await GetCourseAsync(courseId, cancellationToken);
-        var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);
-        var examination = new Examination(
-            course.Id,
-            request.Title.Trim(),
-            NormalizeOptional(request.Description),
-            request.StartAt,
-            request.DueAt,
-            request.DurationMinutes,
-            actorId);
-        examination.SetDisplayOptions(request.ShuffleQuestions, request.ShowScoreImmediately);
-        ApplySecurity(examination, request.Security);
-
-        var snapshotCorrectOptions = new List<(ExaminationQuestion Question, Guid CorrectOptionId)>();
-        var questionOrder = 0;
-
-        foreach (var ruleInput in request.QuestionSelectionRules)
+        Examination? examination = null;
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
-            var questionBank = await _questionBanks.GetByIdAsync(ruleInput.QuestionBankId, cancellationToken)
-                ?? throw new NotFoundException("A selected question bank was not found.");
+            var course = await GetCourseAsync(courseId, transactionCancellationToken);
+            var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);
+            examination = new Examination(
+                course.Id,
+                request.Title.Trim(),
+                NormalizeOptional(request.Description),
+                request.StartAt,
+                request.DueAt,
+                request.DurationMinutes,
+                actorId);
+            examination.SetDisplayOptions(request.ShuffleQuestions, request.ShowScoreImmediately);
+            ApplySecurity(examination, request.Security);
 
-            if (questionBank.TeacherId != course.TeacherId)
+            var questionBankIds = request.QuestionSelectionRules
+                .Select(rule => rule.QuestionBankId)
+                .Distinct()
+                .ToArray();
+            var questionBanks = await _questionBanks.ListByIdsAsync(
+                questionBankIds,
+                transactionCancellationToken);
+            if (questionBanks.Count != questionBankIds.Length)
             {
-                throw new ForbiddenException("Examinations can only use question banks owned by the course teacher.");
+                throw new NotFoundException("A selected question bank was not found.");
             }
 
-            var candidates = (await _questions.ListByQuestionBankAsync(questionBank.Id, cancellationToken))
-                .Where(question => question.Difficulty == ruleInput.Difficulty)
-                .ToList();
-
-            if (candidates.Count < ruleInput.QuestionCount)
+            var questionBanksById = questionBanks.ToDictionary(questionBank => questionBank.Id);
+            if (questionBanks.Any(questionBank => questionBank.TeacherId != course.TeacherId))
             {
-                throw new ConflictException(
-                    $"Question bank '{questionBank.Name}' does not contain enough {ruleInput.Difficulty} questions.");
+                throw new ForbiddenException(
+                    "Examinations can only use question banks owned by the course teacher.");
             }
 
-            examination.QuestionSelectionRules.Add(new ExaminationQuestionSelectionRule(
-                examination.Id,
-                questionBank.Id,
-                ruleInput.Difficulty,
-                ruleInput.QuestionCount));
+            var sourceQuestions = await _questions.ListByQuestionBankIdsAsync(
+                questionBankIds,
+                transactionCancellationToken);
+            var questionsByBankId = sourceQuestions
+                .GroupBy(question => question.QuestionBankId)
+                .ToDictionary(group => group.Key, group => group.ToList());
 
-            Shuffle(candidates);
-            foreach (var sourceQuestion in candidates.Take(ruleInput.QuestionCount))
+            var snapshotCorrectOptions = new List<(ExaminationQuestion Question, Guid CorrectOptionId)>();
+            var questionOrder = 0;
+
+            foreach (var ruleInput in request.QuestionSelectionRules)
             {
-                var snapshot = CreateSnapshot(
+                var questionBank = questionBanksById[ruleInput.QuestionBankId];
+                var candidates = questionsByBankId.GetValueOrDefault(ruleInput.QuestionBankId, [])
+                    .Where(question => question.Difficulty == ruleInput.Difficulty)
+                    .ToList();
+
+                if (candidates.Count < ruleInput.QuestionCount)
+                {
+                    throw new ConflictException(
+                        $"Question bank '{questionBank.Name}' does not contain enough {ruleInput.Difficulty} questions.");
+                }
+
+                examination.QuestionSelectionRules.Add(new ExaminationQuestionSelectionRule(
                     examination.Id,
-                    sourceQuestion,
-                    questionOrder++,
-                    snapshotCorrectOptions);
-                examination.Questions.Add(snapshot);
-            }
-        }
+                    questionBank.Id,
+                    ruleInput.Difficulty,
+                    ruleInput.QuestionCount));
 
-        await _transactionManager.ExecuteAsync(async transactionCancellationToken =>
-        {
+                Shuffle(candidates);
+                foreach (var sourceQuestion in candidates.Take(ruleInput.QuestionCount))
+                {
+                    var snapshot = CreateSnapshot(
+                        examination.Id,
+                        sourceQuestion,
+                        questionOrder++,
+                        snapshotCorrectOptions);
+                    examination.Questions.Add(snapshot);
+                }
+            }
+
             _examinations.Add(examination);
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
 
@@ -131,10 +151,10 @@ public sealed class ExaminationService : IExaminationService
             }
         }, cancellationToken);
 
-        return Map(examination);
+        return Map(examination!);
     }
 
-        public async Task<ExaminationDto> GetForManagementAsync(
+    public async Task<ExaminationDto> GetForManagementAsync(
         Guid examinationId,
         CancellationToken cancellationToken = default)
     {
