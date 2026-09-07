@@ -32,15 +32,26 @@ public sealed class QuestionRepository : IQuestionRepository
     public async Task<IReadOnlyList<Question>> ListByQuestionBankAsync(
         Guid questionBankId,
         CancellationToken cancellationToken) =>
-        await _dbContext.Questions
-            .AsNoTracking()
+        await ListByQuestionBankIdsAsync([questionBankId], cancellationToken);
+
+    public async Task<IReadOnlyList<Question>> ListByQuestionBankIdsAsync(
+        IReadOnlyCollection<Guid> questionBankIds,
+        CancellationToken cancellationToken)
+    {
+        if (questionBankIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.Questions
             .Include(question => question.MultipleChoiceOptions)
             .Include(question => question.FillInBlankAnswerKeys)
-            .Where(question => question.QuestionBankId == questionBankId)
+            .Where(question => questionBankIds.Contains(question.QuestionBankId))
             .OrderByDescending(question => question.CreatedAt)
             .ThenBy(question => question.Id)
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
+    }
 
     public void Add(Question question)
     {
