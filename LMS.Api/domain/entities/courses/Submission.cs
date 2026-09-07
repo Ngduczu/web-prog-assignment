@@ -58,6 +58,7 @@ public class Submission
         if (Status != SubmissionStatus.Submitted)
             throw new InvalidOperationException("Only submitted submissions can be unsubmitted.");
         Status = SubmissionStatus.Draft;
+        SubmittedAt = null;
 
         Touch();
     }
