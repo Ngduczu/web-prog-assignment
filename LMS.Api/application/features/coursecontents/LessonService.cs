@@ -128,6 +128,25 @@ public sealed class LessonService : ILessonService
         return Map(lesson);
     }
 
+    public async Task<FileContent> GetMaterialContentAsync(
+        Guid materialId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(materialId, "Material id");
+        var material = await _materials.GetByIdAsync(materialId, cancellationToken)
+            ?? throw new NotFoundException("Material was not found.");
+        var lesson = await GetLessonAsync(material.LessonId, cancellationToken);
+        var course = await GetCourseAsync(lesson.CourseId, cancellationToken);
+        await CourseAuthorization.EnsureCanViewContentAsync(
+            _currentUser,
+            course,
+            _enrollments,
+            cancellationToken);
+        EnsureStudentCanAccessPublishedLesson(course, lesson);
+        var content = await _fileStorage.OpenReadAsync(material.ObjectKey, cancellationToken);
+        return new FileContent(content, material.FileName, material.ContentType);
+    }
+
     public async Task<IReadOnlyList<MaterialDto>> ListMaterialsAsync(
         Guid lessonId,
         CancellationToken cancellationToken = default)
