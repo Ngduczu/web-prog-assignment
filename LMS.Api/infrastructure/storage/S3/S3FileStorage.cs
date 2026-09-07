@@ -3,6 +3,7 @@ using Amazon.S3.Model;
 using LMS.Api.application.abstractions.storage;
 using LMS.Api.domain.exceptions;
 using Microsoft.Extensions.Options;
+using System.Net;
 
 namespace LMS.Api.infrastructure.storage.S3;
 
@@ -55,6 +56,25 @@ public sealed class S3FileStorage : IFileStorage, IDisposable
         }, cancellationToken);
 
         return new StoredFile(Path.GetFileName(upload.FileName), key, upload.ContentType.Trim(), upload.Length);
+    }
+
+    public async Task<Stream> OpenReadAsync(
+        string objectKey,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _client.GetObjectAsync(new GetObjectRequest
+            {
+                BucketName = _options.BucketName,
+                Key = ValidateObjectKey(objectKey)
+            }, cancellationToken);
+            return new S3ResponseStream(response);
+        }
+        catch (AmazonS3Exception exception) when (exception.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new NotFoundException("Stored file was not found.");
+        }
     }
 
     public Task DeleteIfExistsAsync(string objectKey, CancellationToken cancellationToken = default) =>
@@ -115,5 +135,47 @@ public sealed class S3FileStorage : IFileStorage, IDisposable
         }
 
         return normalized;
+    }
+
+    private sealed class S3ResponseStream : Stream
+    {
+        private readonly GetObjectResponse _response;
+        private Stream Inner => _response.ResponseStream;
+
+        public S3ResponseStream(GetObjectResponse response)
+        {
+            _response = response;
+        }
+
+        public override bool CanRead => Inner.CanRead;
+        public override bool CanSeek => Inner.CanSeek;
+        public override bool CanWrite => Inner.CanWrite;
+        public override long Length => Inner.Length;
+        public override long Position { get => Inner.Position; set => Inner.Position = value; }
+        public override void Flush() => Inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) => Inner.Read(buffer, offset, count);
+        public override long Seek(long offset, SeekOrigin origin) => Inner.Seek(offset, origin);
+        public override void SetLength(long value) => Inner.SetLength(value);
+        public override void Write(byte[] buffer, int offset, int count) => Inner.Write(buffer, offset, count);
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            Inner.ReadAsync(buffer, cancellationToken);
+        public override Task FlushAsync(CancellationToken cancellationToken) => Inner.FlushAsync(cancellationToken);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _response.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        public override ValueTask DisposeAsync()
+        {
+            _response.Dispose();
+            GC.SuppressFinalize(this);
+            return ValueTask.CompletedTask;
+        }
     }
 }
