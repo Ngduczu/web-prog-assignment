@@ -86,6 +86,55 @@ public class LocalFileStorageTests
     }
 
     [Fact]
+    public async Task OpenReadReturnsStoredContent()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), $"lms-storage-{Guid.NewGuid():N}");
+
+        try
+        {
+            var storage = CreateStorage(rootPath);
+            await using var uploadContent = new MemoryStream([1, 2, 3, 4]);
+            var storedFile = await storage.UploadAsync(
+                new FileUpload("document.pdf", "application/pdf", uploadContent.Length, uploadContent),
+                "courses/course/materials");
+
+            await using var storedContent = await storage.OpenReadAsync(storedFile.ObjectKey);
+            using var copy = new MemoryStream();
+            await storedContent.CopyToAsync(copy);
+
+            Assert.Equal([1, 2, 3, 4], copy.ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(rootPath))
+            {
+                Directory.Delete(rootPath, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task OpenReadRejectsPathTraversal()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), $"lms-storage-{Guid.NewGuid():N}");
+
+        try
+        {
+            var storage = CreateStorage(rootPath);
+
+            await Assert.ThrowsAsync<BadRequestException>(() =>
+                storage.OpenReadAsync("../outside.txt"));
+        }
+        finally
+        {
+            if (Directory.Exists(rootPath))
+            {
+                Directory.Delete(rootPath, true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task UploadRejectsContentThatExceedsDeclaredLength()
     {
         var rootPath = Path.Combine(Path.GetTempPath(), $"lms-storage-{Guid.NewGuid():N}");
