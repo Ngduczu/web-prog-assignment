@@ -184,6 +184,12 @@ public class QuestionApplicationTests
         public Task<QuestionBank?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
             Task.FromResult<QuestionBank?>(_questionBank.Id == id ? _questionBank : null);
 
+        public Task<IReadOnlyList<QuestionBank>> ListByIdsAsync(
+            IReadOnlyCollection<Guid> questionBankIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<QuestionBank>>(
+                questionBankIds.Contains(_questionBank.Id) ? [_questionBank] : []);
+
         public Task<IReadOnlyList<QuestionBank>> ListByTeacherAsync(
             Guid teacherId,
             CancellationToken cancellationToken) =>
@@ -209,6 +215,12 @@ public class QuestionApplicationTests
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<Question>>(
                 Items.Where(question => question.QuestionBankId == questionBankId).ToArray());
+
+        public Task<IReadOnlyList<Question>> ListByQuestionBankIdsAsync(
+            IReadOnlyCollection<Guid> questionBankIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Question>>(
+                Items.Where(question => questionBankIds.Contains(question.QuestionBankId)).ToArray());
 
         public void Add(Question question)
         {
