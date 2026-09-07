@@ -4,6 +4,7 @@ using LMS.Api.infrastructure.Persistence;
 using LMS.Api.presentation;
 using LMS.Api.presentation.hubs;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization;
 
 // Rider can start the project with the repository root as its working directory.
 // Search parent directories for .env while preserving variables supplied by the host.
@@ -12,7 +13,8 @@ DotNetEnv.Env.NoClobber().TraversePath().Load();
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(options =>
+    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSignalR();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();
