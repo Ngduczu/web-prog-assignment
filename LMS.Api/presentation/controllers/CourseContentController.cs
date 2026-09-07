@@ -24,6 +24,10 @@ public sealed class CourseContentController : ControllerBase
     [HttpGet("lessons/{lessonId:guid}/materials")]
     public async Task<ActionResult<IReadOnlyList<MaterialDto>>> ListMaterials(Guid lessonId, ILessonService service, CancellationToken ct) => Ok(await service.ListMaterialsAsync(lessonId, ct));
 
+    [HttpGet("materials/{materialId:guid}/content")]
+    public async Task<IActionResult> GetMaterialContent(Guid materialId, [FromQuery] bool download, ILessonService service, CancellationToken ct) =>
+        ToFileResult(await service.GetMaterialContentAsync(materialId, ct), download);
+
     [HttpPost("lessons/{lessonId:guid}/materials")]
     public async Task<ActionResult<MaterialDto>> UploadMaterial(Guid lessonId, IFormFile file, ILessonService service, CancellationToken ct) => Ok(await service.UploadMaterialAsync(lessonId, ToUpload(file), ct));
 
@@ -38,6 +42,10 @@ public sealed class CourseContentController : ControllerBase
 
     [HttpGet("exercises/{exerciseId:guid}")]
     public async Task<ActionResult<ExerciseDto>> GetExercise(Guid exerciseId, IExerciseService service, CancellationToken ct) => Ok(await service.GetAsync(exerciseId, ct));
+
+    [HttpGet("exercises/{exerciseId:guid}/attachment")]
+    public async Task<IActionResult> GetExerciseAttachment(Guid exerciseId, [FromQuery] bool download, IExerciseService service, CancellationToken ct) =>
+        ToFileResult(await service.GetAttachmentContentAsync(exerciseId, ct), download);
 
     [HttpPut("exercises/{exerciseId:guid}")]
     public async Task<ActionResult<ExerciseDto>> UpdateExercise(Guid exerciseId, UpdateExerciseRequest request, IExerciseService service, CancellationToken ct) => Ok(await service.UpdateAsync(exerciseId, request, ct));
@@ -57,4 +65,8 @@ public sealed class CourseContentController : ControllerBase
     private static FileUpload ToUpload(IFormFile? file) => file is null
         ? throw new LMS.Api.domain.exceptions.BadRequestException("A file is required.")
         : new(file.FileName, file.ContentType, file.Length, file.OpenReadStream());
+
+    private FileStreamResult ToFileResult(FileContent file, bool download) => download
+        ? File(file.Content, file.ContentType, file.FileName, enableRangeProcessing: true)
+        : File(file.Content, file.ContentType, enableRangeProcessing: true);
 }
