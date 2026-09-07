@@ -254,6 +254,41 @@ public class ChatApplicationTests
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task MessageListOmitsDeletedMessagesAndTheirAttachments()
+    {
+        var userId = Guid.NewGuid();
+        var teacherId = Guid.NewGuid();
+        var course = new Course("Course", null, teacherId, 30, CourseStatus.Open, teacherId);
+        var room = ChatRoom.CreateDirectMessage(userId, teacherId);
+        var visible = ChatMessage.CreateText(room.Id, userId, "visible");
+        var deleted = ChatMessage.CreateWithAttachment(
+            room.Id,
+            userId,
+            "deleted",
+            "secret.pdf",
+            "chat/secret.pdf",
+            "application/pdf",
+            100);
+        deleted.Delete();
+        var fixture = CreateFixture(userId, Role.Student, course, room);
+        fixture.Messages.Setup(repository => repository.ListByRoomAsync(
+                room.Id,
+                0,
+                20,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([deleted, visible]);
+
+        var result = await fixture.Service.ListMessagesAsync(
+            room.Id,
+            new ChatPageQuery(),
+            CancellationToken.None);
+
+        var returnedMessage = Assert.Single(result);
+        Assert.Equal(visible.Id, returnedMessage.Id);
+        Assert.Empty(returnedMessage.Attachments);
+    }
+
     private static Fixture CreateFixture(
         Guid userId,
         Role role,
