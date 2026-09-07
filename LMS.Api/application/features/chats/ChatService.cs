@@ -178,7 +178,10 @@ public sealed class ChatService : IChatService
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var messages = await _messages.ListByRoomAsync(roomId, (page - 1) * pageSize, pageSize, cancellationToken);
-        return messages.Select(MapMessage).ToList();
+        return messages
+            .Where(message => !message.IsDeleted)
+            .Select(MapMessage)
+            .ToList();
     }
 
     public async Task EnsureRoomAccessAsync(Guid roomId, CancellationToken cancellationToken)
@@ -398,5 +401,5 @@ public sealed class ChatService : IChatService
 
     private static bool CanModerate(ChatRoom room, Role role) => role == Role.Admin || room.Type == ChatRoomType.Course && role == Role.Teacher;
     private static ChatRoomDto MapRoom(ChatRoom room) => new(room.Id, room.Type.ToString(), room.CourseId, room.Participants.Select(participant => participant.UserId).ToArray(), room.CreatedAt, room.ArchivedAt);
-    private static ChatMessageDto MapMessage(ChatMessage message) => new(message.Id, message.ChatRoomId, message.SenderId, message.IsDeleted ? null : message.Content, message.ReplyToMessageId, message.CreatedAt, message.EditedAt, message.DeletedAt, message.Attachments.Select(attachment => new ChatAttachmentDto(attachment.Id, attachment.FileName, attachment.ObjectKey, attachment.ContentType, attachment.FileSize)).ToArray());
+    private static ChatMessageDto MapMessage(ChatMessage message) => new(message.Id, message.ChatRoomId, message.SenderId, message.IsDeleted ? null : message.Content, message.ReplyToMessageId, message.CreatedAt, message.EditedAt, message.DeletedAt, message.IsDeleted ? [] : message.Attachments.Select(attachment => new ChatAttachmentDto(attachment.Id, attachment.FileName, attachment.ObjectKey, attachment.ContentType, attachment.FileSize)).ToArray());
 }
