@@ -16,7 +16,7 @@ public sealed class ChatMessageRepository : IChatMessageRepository
         await _dbContext.ChatMessages
             .AsNoTracking()
             .Include(message => message.Attachments)
-            .Where(message => message.ChatRoomId == roomId)
+            .Where(message => message.ChatRoomId == roomId && message.DeletedAt == null)
             .OrderByDescending(message => message.CreatedAt)
             .ThenByDescending(message => message.Id)
             .Skip(skip)
