@@ -48,7 +48,7 @@ public class ExaminationAuthoringTests
             fixture.Service.CreateAsync(fixture.Course.Id, fixture.CreateRequest(questionCount: 3)));
 
         Assert.Empty(fixture.Examinations.Items);
-        Assert.Equal(0, fixture.TransactionManager.ExecutionCount);
+        Assert.Equal(1, fixture.TransactionManager.ExecutionCount);
     }
 
     [Fact]
@@ -264,6 +264,11 @@ public class ExaminationAuthoringTests
         public Task<QuestionBank?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
             Task.FromResult<QuestionBank?>(_questionBank.Id == id ? _questionBank : null);
 
+        public Task<IReadOnlyList<QuestionBank>> ListByIdsAsync(
+            IReadOnlyCollection<Guid> questionBankIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<QuestionBank>>(
+                questionBankIds.Contains(_questionBank.Id) ? [_questionBank] : []);
 
         public Task<IReadOnlyList<QuestionBank>> ListByTeacherAsync(
             Guid teacherId,
@@ -296,6 +301,11 @@ public class ExaminationAuthoringTests
             Task.FromResult<IReadOnlyList<Question>>(
                 _questions.Where(question => question.QuestionBankId == questionBankId).ToArray());
 
+        public Task<IReadOnlyList<Question>> ListByQuestionBankIdsAsync(
+            IReadOnlyCollection<Guid> questionBankIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Question>>(
+                _questions.Where(question => questionBankIds.Contains(question.QuestionBankId)).ToArray());
 
         public void Add(Question question)
         {
