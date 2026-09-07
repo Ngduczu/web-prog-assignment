@@ -101,6 +101,24 @@ public sealed class ExerciseService : IExerciseService
         return Map(exercise);
     }
 
+    public async Task<FileContent> GetAttachmentContentAsync(
+        Guid exerciseId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(exerciseId, "Exercise id");
+        var exercise = await GetExerciseAsync(exerciseId, true, cancellationToken);
+        var course = await GetCourseAsync(exercise.CourseId, cancellationToken);
+        await CourseAuthorization.EnsureCanViewContentAsync(
+            _currentUser,
+            course,
+            _enrollments,
+            cancellationToken);
+        var attachment = exercise.Attachment
+            ?? throw new NotFoundException("Exercise attachment was not found.");
+        var content = await _fileStorage.OpenReadAsync(attachment.ObjectKey, cancellationToken);
+        return new FileContent(content, attachment.FileName, attachment.ContentType);
+    }
+
     public async Task<ExerciseDto> UploadAttachmentAsync(
         Guid exerciseId,
         FileUpload upload,
