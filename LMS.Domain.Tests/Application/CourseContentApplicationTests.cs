@@ -105,6 +105,72 @@ public class CourseContentApplicationTests
             service.GetAsync(draft.Id));
     }
 
+    [Fact]
+    public async Task StudentCanReadMaterialFromPublishedLessonWhenEnrolled()
+    {
+        var teacher = CreateTeacher();
+        var student = CreateStudent();
+        var course = CreateCourse(teacher);
+        var lesson = new Lesson(course.Id, "Published", null, 0, teacher.Id, LessonStatus.Published);
+        var material = new Material(
+            lesson.Id,
+            "lesson.pdf",
+            "courses/course/material.pdf",
+            "application/pdf",
+            3,
+            teacher.Id);
+        var materials = new FakeMaterialRepository();
+        materials.Items.Add(material);
+        var storage = new FakeFileStorage();
+        var service = new LessonService(
+            new FakeLessonRepository(lesson),
+            materials,
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(new Enrollment(student.Id, course.Id, EnrollmentStatus.Accepted)),
+            storage,
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student));
+
+        var result = await service.GetMaterialContentAsync(material.Id);
+        await using var content = result.Content;
+
+        Assert.Equal("lesson.pdf", result.FileName);
+        Assert.Equal("application/pdf", result.ContentType);
+        Assert.Equal(material.ObjectKey, storage.LastOpenedObjectKey);
+    }
+
+    [Fact]
+    public async Task StudentCannotReadMaterialFromDraftLesson()
+    {
+        var teacher = CreateTeacher();
+        var student = CreateStudent();
+        var course = CreateCourse(teacher);
+        var lesson = new Lesson(course.Id, "Draft", null, 0, teacher.Id, LessonStatus.Draft);
+        var material = new Material(
+            lesson.Id,
+            "lesson.pdf",
+            "courses/course/material.pdf",
+            "application/pdf",
+            3,
+            teacher.Id);
+        var materials = new FakeMaterialRepository();
+        materials.Items.Add(material);
+        var storage = new FakeFileStorage();
+        var service = new LessonService(
+            new FakeLessonRepository(lesson),
+            materials,
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(new Enrollment(student.Id, course.Id, EnrollmentStatus.Accepted)),
+            storage,
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student));
+
+        await Assert.ThrowsAsync<LMS.Api.domain.exceptions.NotFoundException>(() =>
+            service.GetMaterialContentAsync(material.Id));
+
+        Assert.Null(storage.LastOpenedObjectKey);
+    }
+
     private static LessonService CreateLessonService(
         User teacher,
         Course course,
@@ -177,6 +243,15 @@ public class CourseContentApplicationTests
     {
         public int UploadCount { get; private set; }
         public List<string> DeletedObjectKeys { get; } = [];
+        public string? LastOpenedObjectKey { get; private set; }
+
+        public Task<Stream> OpenReadAsync(
+            string objectKey,
+            CancellationToken cancellationToken = default)
+        {
+            LastOpenedObjectKey = objectKey;
+            return Task.FromResult<Stream>(new MemoryStream([1, 2, 3]));
+        }
 
         public Task<StoredFile> UploadAsync(
             FileUpload upload,
