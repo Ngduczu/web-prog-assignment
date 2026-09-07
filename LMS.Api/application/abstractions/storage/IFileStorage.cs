@@ -2,6 +2,9 @@ namespace LMS.Api.application.abstractions.storage;
 
 public interface IFileStorage
 {
+    Task<Stream> OpenReadAsync(
+        string objectKey,
+        CancellationToken cancellationToken = default);
     Task<StoredFile> UploadAsync(
         FileUpload upload,
         string directory,
@@ -23,3 +26,8 @@ public sealed record StoredFile(
     string ObjectKey,
     string ContentType,
     long FileSize);
+
+public sealed record FileContent(
+    Stream Content,
+    string FileName,
+    string ContentType);
