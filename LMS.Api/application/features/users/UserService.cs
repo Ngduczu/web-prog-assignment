@@ -72,10 +72,16 @@ public sealed class UserService : IUserService
         if (userId == Guid.Empty || string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 100 || !Enum.IsDefined(request.Role))
             throw new BadRequestException("User id, full name or role is invalid.");
         var user = await _users.GetByIdAsync(userId, cancellationToken) ?? throw new NotFoundException("User was not found.");
+        var actorId = _currentUser.GetRequiredUserId();
+        if (user.Role == Role.Admin && user.Id != actorId)
+            throw new ForbiddenException("Administrator accounts cannot be modified.");
+        if (user.Role == Role.Admin && request.Role != Role.Admin &&
+            await _users.CountByRoleAsync(Role.Admin, cancellationToken) <= 1)
+            throw new ConflictException("The last administrator cannot be demoted.");
         user.SetFullName(request.FullName.Trim());
         user.SetPhone(request.Phone?.Trim() ?? string.Empty);
         user.SetRole(request.Role);
-        user.SetModifiedBy(_currentUser.GetRequiredUserId());
+        user.SetModifiedBy(actorId);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await InvalidateTokensAsync(user.Id, cancellationToken);
         return Map(user);
