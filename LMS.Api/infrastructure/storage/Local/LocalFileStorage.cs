@@ -77,6 +77,26 @@ public sealed class LocalFileStorage : IFileStorage
         }
     }
 
+    public Task<Stream> OpenReadAsync(
+        string objectKey,
+        CancellationToken cancellationToken = default)
+    {
+        var fullPath = GetFullPath(objectKey);
+        if (!File.Exists(fullPath))
+        {
+            throw new NotFoundException("Stored file was not found.");
+        }
+
+        Stream stream = new FileStream(
+            fullPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            81920,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return Task.FromResult(stream);
+    }
+
     public Task DeleteIfExistsAsync(
         string objectKey,
         CancellationToken cancellationToken = default)
