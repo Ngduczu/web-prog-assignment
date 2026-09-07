@@ -2,15 +2,51 @@
 
 ## Quy ước chung
 
-- Base URL: `/api`.
+- Base URL REST: `{API_ORIGIN}/api`. SignalR hub: `{API_ORIGIN}/hubs/chat`.
+- Local development mặc định: `https://localhost:7086` hoặc `http://localhost:5258`; Swagger chỉ bật ở môi trường `Development` tại `/swagger`.
 - JSON sử dụng `camelCase`.
 - UUID là chuỗi UUID, ví dụ: `"00000000-0000-0000-0000-000000000001"`.
 - Thời gian là UTC theo ISO-8601, ví dụ: `"2026-09-04T10:00:00Z"`.
-- Lỗi trả về dạng `ProblemDetails` với HTTP status `400`, `401`, `403`, `404`, `409` hoặc `500`.
+- Enum trong JSON dùng **tên dạng chuỗi**, phân biệt đúng tên khai báo, ví dụ `"Student"`, `"Open"`, `"Published"`.
+- Trừ các endpoint trong nhóm Authentication được ghi `Public`, mọi REST endpoint khác đều cần header `Authorization: Bearer <accessToken>`.
+- Lỗi nghiệp vụ trả về `ProblemDetails` với HTTP status `400`, `401`, `403`, `404`, `409` hoặc `500`. Rate limit có thể trả `429`.
 - Phân trang: `page` mặc định `1`, `pageSize` mặc định `20`, tối đa `100`.
-- Quyền được kiểm tra ở application service bằng claims `NameIdentifier` và `Role`.
+- Upload file dùng `multipart/form-data`; không gửi JSON cho các endpoint này.
 - Request không có body được ghi là `Không có body`.
 - Các ví dụ JSON dưới đây là JSON hợp lệ và có thể dùng làm mẫu request/response.
+
+Ví dụ lỗi để FrontEnd đọc `status`, `title`, `detail`:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Conflict",
+  "status": 409,
+  "detail": "Only waiting enrollments can change status."
+}
+```
+
+### Enum dùng ở FrontEnd
+
+- `Role`: `Student`, `Teacher`, `Admin`.
+- `AccountStatus`: `Active`, `Inactive`, `Disabled`, `Banned`.
+- `CourseStatus`: `Open`, `Closed`.
+- `EnrollmentStatus`: `Waiting`, `Accepted`, `Rejected`, `Cancelled`.
+- `LessonStatus`: `Draft`, `Published`.
+- `SubmissionStatus`: `Draft`, `Submitted`.
+- `QuestionType`: `MultipleChoice`, `FillInBlank`.
+- `QuestionDifficulty`: `Easy`, `Medium`, `Hard`.
+- `ExaminationStatus`: `Draft`, `Published`, `Closed`.
+- `ExaminationAttemptStatus`: `InProgress`, `Disconnected`, `Submitted`, `AutoSubmitted`.
+- `ExaminationSubmitReason`: `StudentSubmitted`, `DurationExpired`, `DisconnectTimeout`, `MaxViolationsExceeded`.
+- `ExaminationViolationType`: `ExitFullscreen`, `TabChanged`, `WindowBlurred`, `CopyAttempt`, `PasteAttempt`, `RightClickAttempt`, `DevToolsSuspected`.
+
+### Flow khởi tạo FrontEnd
+
+1. Gọi `POST /api/auth/login` và lưu token pair.
+2. Gửi access token bằng Bearer header. Khi API trả `401`, gọi `POST /api/auth/refresh` một lần rồi retry request cũ.
+3. Access token chứa claim user ID, email và role. Hiện chưa có endpoint `/me`; FrontEnd có thể đọc claim user ID rồi gọi `GET /api/users/{userId}/profile`.
+4. Dùng `role` để chọn màn hình; backend vẫn là nguồn quyết định cuối cùng cho các thao tác nghiệp vụ.
 
 ## Authentication
 
@@ -183,6 +219,14 @@ Reset code dùng namespace Redis riêng `auth:password-reset:*`, TTL 15 phút v�
 
 **Quyền:** Public. Bắt đầu luồng đăng nhập Google và trả `authorizationUrl`.
 
+```json
+{
+  "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth?..."
+}
+```
+
+Frontend browser phải gọi endpoint này với cookie credentials, sau đó điều hướng trang tới `authorizationUrl`.
+
 State có TTL 10 phút, dùng một lần, dùng PKCE và được gắn với cookie bảo mật của trình duyệt khởi tạo. Nếu Google trả về email đã thuộc một tài khoản local nhưng external identity chưa được liên kết, callback trả `409 Conflict`. Người dùng phải đăng nhập tài khoản local rồi dùng luồng liên kết bên dưới.
 
 ### `GET /api/auth/oauth/Google/link/authorize`
@@ -190,6 +234,8 @@ State có TTL 10 phút, dùng một lần, dùng PKCE và được gắn với c
 **Quyền:** User đã đăng nhập. Bắt đầu luồng liên kết Google với chính tài khoản lấy từ JWT. Client không được truyền `userId` cần liên kết.
 
 State lưu riêng mục đích `Link` và user ID đã xác thực. State đăng nhập không thể dùng để liên kết và state liên kết không thể dùng để đăng nhập.
+
+**Response `200 OK`:** `{ "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth?..." }`.
 
 ### `GET /api/auth/oauth/Google/callback?code={code}&state={state}`
 
@@ -204,7 +250,6 @@ State lưu riêng mục đích `Link` và user ID đã xác thực. State đăng
 }
 ```
 
-- Với state liên kết, response là:
 - Với state liên kết, response là:
 
 ```json
@@ -250,7 +295,7 @@ Các endpoint trả user profile dùng object sau:
 
 ### `GET /api/users/{userId}/profile`
 
-**Quyền:** Public. **Response `200 OK`:** User profile object.
+**Quyền:** User đã đăng nhập xem chính mình; Admin xem được mọi user. **Response `200 OK`:** User profile object.
 
 ### `GET /api/users?search=&page=1&pageSize=20`
 
@@ -311,6 +356,8 @@ Các endpoint trả user profile dùng object sau:
 
 **Response `200 OK`:** User profile object.
 
+Admin không được sửa admin khác. Admin cuối cùng không thể tự đổi role khỏi `Admin`; nếu còn admin khác thì được tự đổi role.
+
 ### `PATCH /api/users/{userId}/status`
 
 **Quyền:** Admin.
@@ -363,7 +410,7 @@ Các endpoint trả user profile dùng object sau:
 
 ### `GET /api/courses?search=&status=&teacherId=&includeDeleted=false&page=1&pageSize=20`
 
-**Quyền:** Public. Course đã xóa mềm chỉ được trả về khi Admin truyền `includeDeleted=true`.
+**Quyền:** User đã đăng nhập. Student luôn chỉ nhận course `Open`, kể cả khi gửi `status=Closed`. Teacher/Admin dùng được bộ lọc `status`. Course đã xóa mềm chỉ được trả về khi Admin truyền `includeDeleted=true`.
 
 **Response `200 OK`:**
 
@@ -391,7 +438,7 @@ Các endpoint trả user profile dùng object sau:
 
 ### `GET /api/courses/{courseId}`
 
-**Quyền:** Public. Query `includeDeleted=true` chỉ dành cho Admin. **Response `200 OK`:** Course object.
+**Quyền:** User đã đăng nhập. Student xem được course `Open`; course `Closed` chỉ xem được khi enrollment đã `Accepted`. Query `includeDeleted=true` chỉ dành cho Admin. **Response `200 OK`:** Course object.
 
 ### `PUT /api/courses/{courseId}`
 
@@ -520,7 +567,7 @@ Các endpoint trả user profile dùng object sau:
 
 ### `GET /api/question-banks?teacherId={teacherId}`
 
-**Quyền:** Teacher hoặc Admin. **Response `200 OK`:** Mảng question bank object.
+**Quyền:** Teacher hoặc Admin. Teacher bỏ `teacherId` để lấy bank của mình và không được xem bank của teacher khác. Admin nên truyền `teacherId`; nếu bỏ, backend tìm bank theo ID của chính admin và thường trả mảng rỗng. **Response `200 OK`:** Mảng question bank object.
 
 ```json
 [
@@ -641,7 +688,7 @@ Các endpoint trả user profile dùng object sau:
 
 ## Course Content
 
-**Quyền:** Lesson, exercise và material: Teacher sở hữu course hoặc Admin. Submission: Student sở hữu submission.
+Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student có enrollment `Accepted` được đọc nội dung dành cho học viên.
 
 ### Lesson object
 
@@ -660,6 +707,8 @@ Các endpoint trả user profile dùng object sau:
 
 ### `POST /api/courses/{courseId}/lessons`
 
+**Quyền:** Teacher sở hữu course hoặc Admin.
+
 **Request body:**
 
 ```json
@@ -675,9 +724,19 @@ Các endpoint trả user profile dùng object sau:
 
 ### `GET /api/courses/{courseId}/lessons`
 
-**Response `200 OK`:** Mảng lesson object.
+**Quyền:** Teacher sở hữu course, Admin hoặc student có enrollment `Accepted`.
+
+**Response `200 OK`:** Mảng lesson object, sắp theo `order`. Teacher/Admin thấy cả `Draft` và `Published`; student chỉ thấy `Published`.
+
+### `GET /api/lessons/{lessonId}`
+
+**Quyền:** Giống endpoint danh sách lesson. Student truy cập lesson `Draft` nhận `404`.
+
+**Response `200 OK`:** Lesson object.
 
 ### `PUT /api/lessons/{lessonId}`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Trong một course không được trùng `order`.
 
 **Request body:**
 
@@ -707,13 +766,29 @@ Các endpoint trả user profile dùng object sau:
 }
 ```
 
+`objectKey` là khóa lưu trữ nội bộ. FrontEnd không ghép URL từ trường này; dùng endpoint `content` bên dưới.
+
+### `GET /api/lessons/{lessonId}/materials`
+
+**Quyền:** Teacher sở hữu course, Admin hoặc student có enrollment `Accepted`. Student chỉ đọc material của lesson `Published`.
+
+**Response `200 OK`:** Mảng material object.
+
+### `GET /api/materials/{materialId}/content?download=false`
+
+**Quyền:** Giống endpoint danh sách material.
+
+**Response `200 OK`:** Binary stream với `Content-Type` của file. `download=false` hoặc bỏ query để browser mở inline; `download=true` để trả file với tên gốc trong `Content-Disposition`.
+
 ### `POST /api/lessons/{lessonId}/materials`
 
-**Request:** `multipart/form-data`, field bắt buộc là `file`. **Response `200 OK`:** Material object.
+**Quyền:** Teacher sở hữu course hoặc Admin.
+
+**Request:** `multipart/form-data`, field bắt buộc là `file` không rỗng. Material hiện không đặt giới hạn dung lượng riêng ở application service. **Response `200 OK`:** Material object.
 
 ### `DELETE /api/materials/{materialId}`
 
-**Response `204 No Content`:** Không có body.
+**Quyền:** Teacher sở hữu course hoặc Admin. **Response `204 No Content`:** Không có body.
 
 ### Exercise object
 
@@ -744,6 +819,8 @@ Các endpoint trả user profile dùng object sau:
 
 ### `POST /api/courses/{courseId}/exercises`
 
+**Quyền:** Teacher sở hữu course hoặc Admin.
+
 **Request body:**
 
 ```json
@@ -758,15 +835,27 @@ Các endpoint trả user profile dùng object sau:
 
 ### `GET /api/courses/{courseId}/exercises`
 
-**Response `200 OK`:** Mảng exercise object.
+**Quyền:** Teacher sở hữu course, Admin hoặc student có enrollment `Accepted`.
+
+**Response `200 OK`:** Mảng exercise object. Exercise hiện không có trạng thái draft/publish nên student đã được duyệt thấy ngay sau khi tạo.
+
+### `GET /api/exercises/{exerciseId}`
+
+**Quyền:** Giống endpoint danh sách exercise. **Response `200 OK`:** Exercise object.
+
+### `GET /api/exercises/{exerciseId}/attachment?download=false`
+
+**Quyền:** Giống endpoint xem exercise.
+
+**Response `200 OK`:** Binary stream. `download=false` hoặc bỏ query để mở inline; `download=true` để tải với tên file gốc. Trả `404` nếu exercise chưa có attachment.
 
 ### `PUT /api/exercises/{exerciseId}`
 
-**Request body:** Cùng shape với request tạo exercise. **Response `200 OK`:** Exercise object.
+**Quyền:** Teacher sở hữu course hoặc Admin. **Request body:** Cùng shape với request tạo exercise. **Response `200 OK`:** Exercise object.
 
 ### `POST /api/exercises/{exerciseId}/attachment`
 
-**Request:** `multipart/form-data`, field bắt buộc là `file`. **Response `200 OK`:** Exercise object.
+**Quyền:** Teacher sở hữu course hoặc Admin. **Request:** `multipart/form-data`, field bắt buộc là `file` nhỏ hơn 20 MB. Upload mới sẽ thay file cũ. **Response `200 OK`:** Exercise object.
 
 ### Submission object
 
@@ -791,17 +880,25 @@ Các endpoint trả user profile dùng object sau:
 
 ### `POST /api/exercises/{exerciseId}/submissions`
 
-**Request:** `multipart/form-data`, field bắt buộc là `file`. **Response `200 OK`:** Submission object với status `Draft`.
+**Quyền:** Student có enrollment `Accepted`.
+
+**Request:** `multipart/form-data`, field bắt buộc là `file` nhỏ hơn 20 MB. Tạo submission `Draft` nếu chưa có; upload lại sẽ thay file của draft hiện tại. Không được upload sau `dueAt` hoặc khi submission đang `Submitted`. **Response `200 OK`:** Submission object.
 
 ### `POST /api/submissions/{submissionId}/submit`
+
+**Quyền:** Student sở hữu submission. Chỉ submit draft đã có attachment và chưa quá `dueAt`.
 
 **Request body:** Không có body. **Response `200 OK`:** Submission object với status `Submitted` và `submittedAt` khác `null`.
 
 ### `POST /api/submissions/{submissionId}/unsubmit`
 
-**Request body:** Không có body. **Response `200 OK`:** Submission object với status `Draft`.
+**Quyền:** Student sở hữu submission. Chỉ unsubmit submission đang `Submitted` và chưa quá `dueAt`.
+
+**Request body:** Không có body. **Response `200 OK`:** Submission object với status `Draft` và `submittedAt: null`.
 
 ## Examination Authoring
+
+Luồng teacher: tạo exam `Draft` và snapshot câu hỏi → chỉnh cấu hình khi còn `Draft` → publish → close. Khi tạo, mỗi rule chọn ngẫu nhiên `questionCount` câu theo question bank và difficulty; question bank phải thuộc teacher của course và phải đủ số câu.
 
 ### Examination object
 
@@ -880,21 +977,39 @@ Các endpoint trả user profile dùng object sau:
 
 ### `GET /api/courses/{courseId}/examinations`
 
-**Response `200 OK`:** Mảng examination object.
+**Quyền:** Teacher sở hữu course hoặc Admin. **Response `200 OK`:** Mảng examination object, gồm cả `Draft`, `Published`, `Closed`.
 
 ### `GET /api/examinations/{examinationId}`
 
-**Response `200 OK`:** Examination object.
+**Quyền:** Teacher sở hữu course hoặc Admin. **Response `200 OK`:** Examination object.
+
+### `GET /api/courses/{courseId}/examinations/available`
+
+**Quyền:** Student có enrollment `Accepted`; teacher sở hữu course và Admin cũng dùng được.
+
+**Response `200 OK`:** Mảng student examination object. Với student, endpoint chỉ loại `Draft`; exam chưa tới giờ, đã quá hạn hoặc `Closed` vẫn có thể xuất hiện để hiển thị lịch sử/lịch thi. FrontEnd dùng `status`, `startAt`, `dueAt` để quyết định nhãn hiển thị; backend kiểm tra lại khi bắt đầu thi.
+
+Student examination object giống examination object nhưng không có `questionSelectionRules`; vẫn có `questionCount` và cấu hình `security`.
+
+### `GET /api/examinations/{examinationId}/student`
+
+**Quyền:** Student có enrollment `Accepted`; không trả exam `Draft` cho student.
+
+**Response `200 OK`:** Student examination object.
 
 ### `PUT /api/examinations/{examinationId}`
 
-**Quyền:** Teacher sở hữu course hoặc Admin. **Request body:** Giống request tạo examination nhưng không có `questionSelectionRules`. **Response `200 OK`:** Examination object.
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ exam `Draft` được sửa. **Request body:** Giống request tạo examination nhưng không có `questionSelectionRules`. **Response `200 OK`:** Examination object.
 
 ### `POST /api/examinations/{examinationId}/publish`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ publish exam `Draft`, phải có ít nhất một câu hỏi và `dueAt` còn ở tương lai.
 
 **Request body:** Không có body. **Response `200 OK`:** Examination object với status `Published`.
 
 ### `POST /api/examinations/{examinationId}/close`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ close exam `Published`.
 
 **Request body:** Không có body. **Response `200 OK`:** Examination object với status `Closed`.
 
@@ -925,7 +1040,33 @@ Các endpoint trả user profile dùng object sau:
 
 ### `POST /api/examination-attempts/{examinationId}/start`
 
-**Request body:** Không có body. **Response `200 OK`:** Examination attempt object.
+**Request body:** Không có body. Chỉ bắt đầu được exam `Published` trong khoảng `startAt <= now < dueAt`, student phải còn enrollment `Accepted`, và không được có attempt active của cùng exam.
+
+**Response `200 OK`:** Examination attempt object. FrontEnd phải lưu `attempt.id` để gọi các endpoint tiếp theo.
+
+### `GET /api/examination-attempts/{attemptId}/questions`
+
+**Response `200 OK`:** Mảng câu hỏi snapshot dành cho student, không chứa đáp án đúng:
+
+```json
+[
+  {
+    "id": "00000000-0000-0000-0000-000000000021",
+    "content": "2 + 2 = ?",
+    "type": "MultipleChoice",
+    "order": 0,
+    "options": [
+      {
+        "id": "00000000-0000-0000-0000-000000000008",
+        "content": "4",
+        "order": 0
+      }
+    ]
+  }
+]
+```
+
+Thứ tự shuffle ổn định theo `attemptId`; gọi lại endpoint vẫn nhận cùng thứ tự. `order` của câu hỏi/option là zero-based.
 
 ### Student answer object: multiple choice
 
@@ -979,23 +1120,33 @@ Các endpoint trả user profile dùng object sau:
 
 ### `POST /api/examination-attempts/{attemptId}/disconnect`
 
+Chỉ dùng khi attempt đang `InProgress`. Nếu hết thời gian, backend auto-submit; nếu chưa hết, status chuyển `Disconnected` và giữ `remainingSeconds`.
+
 **Request body:** Không có body. **Response `200 OK`:** Examination attempt object.
 
 ### `POST /api/examination-attempts/{attemptId}/reconnect`
+
+Chỉ dùng khi attempt đang `Disconnected`. Nếu quá thời gian disconnect hoặc hết giờ thi, backend auto-submit; nếu hợp lệ thì quay lại `InProgress`.
 
 **Request body:** Không có body. **Response `200 OK`:** Examination attempt object.
 
 ### `POST /api/examination-attempts/{attemptId}/violations?violationType=TabChanged`
 
+`violationType` dùng một giá trị trong enum `ExaminationViolationType`. Khi đạt `maxViolations` lớn hơn `0`, backend auto-submit.
+
 **Request body:** Không có body. **Response `200 OK`:** Examination attempt object.
 
 ### `POST /api/examination-attempts/{attemptId}/submit`
 
-**Request body:** Không có body. **Response `200 OK`:** Examination attempt object.
+Attempt phải đang active. Nếu đã hết giờ, submit reason trở thành `DurationExpired`; nếu chưa hết giờ là `StudentSubmitted`.
+
+**Request body:** Không có body. **Response `200 OK`:** Examination attempt object. Khi `showScoreImmediately=false`, các trường `correctAnswers`, `totalQuestions`, `score` là `null` sau khi nộp.
 
 ### `POST /api/examination-attempts/{attemptId}/auto-submit?reason=DurationExpired`
 
-**Request body:** Không có body. **Response `200 OK`:** Examination attempt object.
+**Quyền:** Admin/server. FrontEnd student không gọi endpoint này.
+
+**Request body:** Không có body. `reason` không được là `StudentSubmitted`. **Response `200 OK`:** Examination attempt object.
 
 ## Data Flow
 
@@ -1009,16 +1160,56 @@ Course room theo vòng đời course: chuyển sang archive khi course `Closed` 
 
 ### REST endpoints
 
-- `GET /api/chat/rooms`
-- `POST /api/chat/courses/{courseId}`
-- `POST /api/chat/direct/{userId}`
-- `GET /api/chat/rooms/{roomId}/messages?page=1&pageSize=20`
-- `POST /api/chat/rooms/{roomId}/messages`
-- `PATCH /api/chat/messages/{messageId}`
-- `DELETE /api/chat/messages/{messageId}`
-- `POST /api/chat/rooms/{roomId}/read/{messageId}`
+Chat room object:
 
-Message body:
+```json
+{
+  "id": "00000000-0000-0000-0000-000000000030",
+  "type": "Course",
+  "courseId": "00000000-0000-0000-0000-000000000003",
+  "participantIds": [
+    "00000000-0000-0000-0000-000000000001"
+  ],
+  "createdAt": "2026-09-04T10:00:00Z",
+  "archivedAt": null
+}
+```
+
+Chat message object:
+
+```json
+{
+  "id": "00000000-0000-0000-0000-000000000031",
+  "chatRoomId": "00000000-0000-0000-0000-000000000030",
+  "senderId": "00000000-0000-0000-0000-000000000001",
+  "content": "Hello",
+  "replyToMessageId": null,
+  "createdAt": "2026-09-04T10:00:00Z",
+  "editedAt": null,
+  "deletedAt": null,
+  "attachments": []
+}
+```
+
+### `GET /api/chat/rooms`
+
+**Response `200 OK`:** Mảng room mà user hiện còn quyền truy cập.
+
+### `POST /api/chat/courses/{courseId}`
+
+Lấy hoặc tạo course room. Course room dùng chung cho course. **Response `200 OK`:** Chat room object.
+
+### `POST /api/chat/direct/{userId}`
+
+Lấy hoặc tạo direct-message room với user đang `Active`. Không thể chat với chính mình. **Response `200 OK`:** Chat room object.
+
+### `GET /api/chat/rooms/{roomId}/messages?page=1&pageSize=20`
+
+**Response `200 OK`:** Mảng message, mới nhất trước. Đây không phải `PagedResult`; FrontEnd tăng `page` để tải lịch sử. Message đã xóa bị loại khỏi danh sách, bao gồm attachment của message đó.
+
+### `POST /api/chat/rooms/{roomId}/messages`
+
+Request body:
 
 ```json
 {
@@ -1027,9 +1218,33 @@ Message body:
 }
 ```
 
+`content` phải có nội dung. Nếu reply, `replyToMessageId` phải thuộc cùng room và chưa bị xóa. **Response `201 Created`:** Chat message object.
+
+### `POST /api/chat/rooms/{roomId}/messages/attachment`
+
+**Request:** `multipart/form-data`:
+
+- `file`: bắt buộc, nhỏ hơn 20 MB.
+- `content`: tùy chọn.
+- `replyToMessageId`: tùy chọn.
+
+**Response `201 Created`:** Chat message object có phần tử trong `attachments`.
+
+### `PATCH /api/chat/messages/{messageId}`
+
+**Request body:** `{ "content": "Updated message" }`. Chỉ sender được sửa; message đã xóa hoặc room archived không sửa được. **Response `200 OK`:** Chat message object.
+
+### `DELETE /api/chat/messages/{messageId}`
+
+Sender hoặc moderator course room được xóa. **Response `204 No Content`:** message không còn xuất hiện trong endpoint danh sách.
+
+### `POST /api/chat/rooms/{roomId}/read/{messageId}`
+
+Đánh dấu participant đã đọc tới message. **Response `204 No Content`**.
+
 ### Realtime WebSocket
 
-SignalR hub: `/hubs/chat`. Client cần JWT và có thể gọi `JoinRoom`, `LeaveRoom`, `SendMessage`. Server broadcast event `MessageReceived` tới các connection trong room.
+SignalR hub: `/hubs/chat`. Client cần JWT và có thể gọi `JoinRoom(roomId)`, `LeaveRoom(roomId)`, `SendMessage(roomId, request)`. Server broadcast event `MessageReceived` với payload Chat message object tới các connection trong room.
 
 `JoinRoom`/reconnect và `SendMessage` kiểm tra lại quyền course hiện tại. Room archived không được join hoặc gửi; connection đã tham gia trước đó cũng bị từ chối ở lần ghi tiếp theo nếu enrollment bị revoke hoặc course đã archive.
 
@@ -1046,7 +1261,27 @@ const connection = new signalR.HubConnectionBuilder()
   .build();
 ```
 
+Frontend nên tải lịch sử bằng REST, sau đó `JoinRoom`, lắng nghe `MessageReceived`, và gửi text qua hub. Endpoint REST gửi attachment hiện chỉ trả message cho request gọi nó, chưa broadcast event SignalR.
+
+## Khoảng trống backend cần biết khi nối FrontEnd
+
+Đây là các thiếu hụt chức năng hiện tại, không phải yêu cầu hardening bảo mật:
+
+- Backend chưa cấu hình CORS. Khi chạy FrontEnd ở origin khác, dùng dev proxy về API hoặc bổ sung origin FrontEnd vào cấu hình backend.
+- Chưa có `GET /api/users/me`; FrontEnd phải đọc user ID từ JWT rồi gọi profile.
+- Chưa có endpoint “enrollments của tôi”, nên sau khi reload student không lấy được danh sách course đã đăng ký và trạng thái `Waiting/Accepted` từ một API riêng.
+- Danh sách course của student luôn chỉ trả course `Open`; course `Closed` đã enroll vẫn xem được bằng endpoint chi tiết nhưng không xuất hiện trong danh sách.
+- Submission chỉ có upload/submit/unsubmit; chưa có GET submission hiện tại, danh sách bài nộp cho teacher, chấm điểm hoặc endpoint tải submission attachment.
+- Examination attempt chưa có endpoint lấy attempt active/result theo exam. Nếu reload giữa lúc thi, FrontEnd không có API để tìm lại `attemptId`; gọi start lại sẽ nhận `409`.
+- Chat attachment mới chỉ trả `objectKey`, chưa có endpoint tải/xem file. REST upload attachment cũng chưa broadcast `MessageReceived`.
+- Exercise chưa có draft/publish; student có enrollment `Accepted` thấy bài tập ngay sau khi teacher tạo.
+- Chưa có endpoint xóa lesson/exercise hoặc cập nhật/xóa question. FrontEnd không nên hiển thị các nút này cho tới khi backend bổ sung.
+
+Các khoảng trống này nên được ưu tiên theo màn hình FrontEnd thực tế; không cần thêm abstraction hoặc hệ thống phức tạp cho đồ án.
+
 ## OAuth provider contract
+
+Phần này mô tả interface nội bộ backend, FrontEnd không gọi trực tiếp. FrontEnd chỉ dùng các endpoint OAuth trong nhóm Authentication.
 
 `IOAuthProvider` hiện chuẩn hóa các hàm nội bộ sau:
 
