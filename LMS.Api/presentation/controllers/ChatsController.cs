@@ -40,7 +40,14 @@ public sealed class ChatsController : ControllerBase
         Guid roomId,
         [FromBody] SendChatMessageRequest request,
         [FromServices] IChatService service,
-        CancellationToken cancellationToken) => StatusCode(StatusCodes.Status201Created, await service.SendMessageAsync(roomId, request, cancellationToken));
+        [FromServices] IHubContext<ChatHub> hub,
+        CancellationToken cancellationToken)
+    {
+        var message = await service.SendMessageAsync(roomId, request, cancellationToken);
+        await hub.Clients.Group(ChatHub.GroupName(roomId))
+            .SendAsync("MessageReceived", message, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, message);
+    }
 
     [HttpPost("rooms/{roomId:guid}/messages/attachment")]
     [RequestSizeLimit(20_000_000)]

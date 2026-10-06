@@ -1352,7 +1352,7 @@ Request body:
 }
 ```
 
-`content` phải có nội dung. Nếu reply, `replyToMessageId` phải thuộc cùng room và chưa bị xóa. **Response `201 Created`:** Chat message object.
+`content` phải có nội dung. Nếu reply, `replyToMessageId` phải thuộc cùng room và chưa bị xóa. Sau khi lưu thành công, server broadcast `MessageReceived` tới SignalR group của room. **Response `201 Created`:** Chat message object.
 
 ### `POST /api/chat/rooms/{roomId}/messages/attachment`
 
@@ -1362,7 +1362,7 @@ Request body:
 - `content`: tùy chọn.
 - `replyToMessageId`: tùy chọn.
 
-**Response `201 Created`:** Chat message object có phần tử trong `attachments`.
+**Response `201 Created`:** Chat message object có phần tử trong `attachments`; server cũng broadcast `MessageReceived` sau khi lưu thành công.
 
 REST upload cũng broadcast SignalR event `MessageReceived` tới các client đã join room.
 
@@ -1401,7 +1401,7 @@ const connection = new signalR.HubConnectionBuilder()
   .build();
 ```
 
-Frontend nên tải lịch sử bằng REST, sau đó `JoinRoom`, lắng nghe `MessageReceived`, và gửi text qua hub. Endpoint REST gửi attachment hiện chỉ trả message cho request gọi nó, chưa broadcast event SignalR.
+Frontend nên tải lịch sử bằng REST, sau đó `JoinRoom` và lắng nghe `MessageReceived`. Gửi text qua hub hoặc hai endpoint REST (text/attachment) đều phát cùng event sau khi lưu thành công.
 
 ## Khoảng trống backend cần biết khi nối FrontEnd
 
