@@ -1,4 +1,5 @@
 using LMS.Api.application.features.examinations;
+using LMS.Api.application.features.examinationattempts;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 
@@ -22,6 +23,9 @@ public sealed class ExaminationsController : ControllerBase
 
     [HttpGet("examinations/{id:guid}/student")]
     public async Task<ActionResult<StudentExaminationDto>> GetForStudent(Guid id, IExaminationService service, CancellationToken ct) => Ok(await service.GetForStudentAsync(id, ct));
+
+    [HttpGet("examinations/{id:guid}/my-attempt")]
+    public async Task<ActionResult<ExaminationAttemptDto>> GetMyAttempt(Guid id, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.GetMineAsync(id, ct));
 
     [HttpPut("examinations/{id:guid}")]
     public async Task<ActionResult<ExaminationDto>> Update(Guid id, UpdateExaminationRequest request, IExaminationService service, CancellationToken ct) => Ok(await service.UpdateAsync(id, request, ct));
