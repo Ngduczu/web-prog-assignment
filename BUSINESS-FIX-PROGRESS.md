@@ -10,9 +10,9 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 13 |
+| Hoàn thành | 14 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 2 |
+| Chưa thực hiện | 1 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
@@ -29,7 +29,8 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 | RF-11 | Hoàn thành | Mail lỗi rollback code/cooldown; register account inactive có thể retry idempotent |
 | RF-12 | Hoàn thành | File cleanup chuyển sang PostgreSQL outbox bền vững; chat attachment dùng chung queue |
 | RF-13 | Hoàn thành | Attempt active luôn trả result field `null` |
-| RF-14..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+| RF-14 | Hoàn thành | Read receipt chỉ tiến, từ chối target đã xóa và được clear khi target bị xóa |
+| RF-15 | Chưa thực hiện | Xử lý tiếp theo theo báo cáo tái rà soát |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -130,6 +131,14 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Chỉ attempt `Submitted`/`AutoSubmitted` mới xét rule công bố ngay, examination `Closed` hoặc qua `DueAt`.
 - Cập nhật example/semantics trong `API.md` và thêm test cho cả cấu hình phát hành điểm bật/tắt.
 - Xác minh: **190 passed, 0 failed, 0 skipped**.
+
+### RF-14 — Read receipt đơn điệu và không trỏ message đã xóa
+
+- Mark-as-read so sánh `(CreatedAt, Id)` với target hiện tại; request cũ đến trễ trở thành no-op.
+- Target đã soft-delete bị từ chối; khi xóa message, mọi participant đang trỏ tới message đó được clear receipt trong cùng save.
+- Production chạy transition mark-as-read trong transaction serializable để hai request đồng thời không ghi lùi con trỏ.
+- Cập nhật contract và thêm test cho request đảo thứ tự cùng target đã xóa.
+- Xác minh: **192 passed, 0 failed, 0 skipped**.
 
 ## Tổng quan
 

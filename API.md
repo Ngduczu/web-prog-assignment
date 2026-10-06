@@ -1385,7 +1385,7 @@ Sender hoặc moderator course room được xóa. **Response `204 No Content`:*
 
 ### `POST /api/chat/rooms/{roomId}/read/{messageId}`
 
-Đánh dấu participant đã đọc tới message. **Response `204 No Content`**.
+Đánh dấu participant đã đọc tới message chưa bị xóa. Receipt chỉ tiến theo `(createdAt, id)`; request cũ đến trễ được bỏ qua và không làm unread tăng ngược. Khi message đang là receipt target bị xóa, receipt đó được xóa. **Response `204 No Content`**.
 
 ### Realtime WebSocket
 

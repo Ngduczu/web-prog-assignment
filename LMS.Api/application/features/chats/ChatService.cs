@@ -22,6 +22,7 @@ public sealed class ChatService : IChatService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorage _fileStorage;
     private readonly IFileCleanupQueue? _fileCleanup;
+    private readonly ITransactionManager? _transactionManager;
 
     public ChatService(
         ICurrentUser currentUser,
@@ -32,7 +33,8 @@ public sealed class ChatService : IChatService
         IUserRepository users,
         IUnitOfWork unitOfWork,
         IFileStorage fileStorage,
-        IFileCleanupQueue? fileCleanup = null)
+        IFileCleanupQueue? fileCleanup = null,
+        ITransactionManager? transactionManager = null)
     {
         _currentUser = currentUser;
         _rooms = rooms;
@@ -43,6 +45,7 @@ public sealed class ChatService : IChatService
         _unitOfWork = unitOfWork;
         _fileStorage = fileStorage;
         _fileCleanup = fileCleanup;
+        _transactionManager = transactionManager;
     }
 
     public async Task<IReadOnlyList<ChatRoomDto>> ListRoomsAsync(CancellationToken cancellationToken)
@@ -337,6 +340,10 @@ public sealed class ChatService : IChatService
         }
 
         message.Delete();
+        foreach (var participant in room.Participants.Where(item => item.LastReadMessageId == message.Id))
+        {
+            participant.ClearReadReceipt();
+        }
         await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
@@ -351,19 +358,44 @@ public sealed class ChatService : IChatService
 
     public async Task MarkAsReadAsync(Guid roomId, Guid messageId, CancellationToken cancellationToken)
     {
-        var userId = _currentUser.GetRequiredUserId();
-        var room = await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
-        var message = await _messages.GetByIdAsync(messageId, cancellationToken)
-            ?? throw new NotFoundException("The chat message was not found.");
-        if (message.ChatRoomId != roomId)
+        async Task MarkAsReadCore(CancellationToken transactionCancellationToken)
         {
-            throw new BadRequestException("The message does not belong to this room.");
+            var userId = _currentUser.GetRequiredUserId();
+            var room = await EnsureRoomAccessInternalAsync(roomId, transactionCancellationToken);
+            var message = await _messages.GetByIdAsync(messageId, transactionCancellationToken)
+                ?? throw new NotFoundException("The chat message was not found.");
+            if (message.ChatRoomId != roomId || message.IsDeleted)
+            {
+                throw new BadRequestException("The read receipt target is invalid for this room.");
+            }
+
+            var participant = room.Participants.SingleOrDefault(item => item.UserId == userId)
+                ?? throw new ConflictException("You are not a participant in this chat room.");
+            if (participant.LastReadMessageId is not null)
+            {
+                var current = await _messages.GetByIdAsync(
+                    participant.LastReadMessageId.Value,
+                    transactionCancellationToken);
+                if (current is not null &&
+                    (current.CreatedAt > message.CreatedAt ||
+                     current.CreatedAt == message.CreatedAt && current.Id.CompareTo(message.Id) >= 0))
+                {
+                    return;
+                }
+            }
+
+            participant.MarkAsRead(messageId);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
         }
 
-        var participant = room.Participants.SingleOrDefault(participant => participant.UserId == userId)
-            ?? throw new ConflictException("You are not a participant in this chat room.");
-        participant.MarkAsRead(messageId);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        if (_transactionManager is null)
+        {
+            await MarkAsReadCore(cancellationToken);
+        }
+        else
+        {
+            await _transactionManager.ExecuteSerializableAsync(MarkAsReadCore, cancellationToken);
+        }
     }
 
     private async Task<Course> GetAccessibleCourseAsync(Guid courseId, CancellationToken cancellationToken)

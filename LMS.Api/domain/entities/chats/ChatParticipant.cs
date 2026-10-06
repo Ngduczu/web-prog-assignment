@@ -23,4 +23,9 @@ public class ChatParticipant
     {
         LastReadMessageId = messageId;
     }
+
+    public void ClearReadReceipt()
+    {
+        LastReadMessageId = null;
+    }
 }

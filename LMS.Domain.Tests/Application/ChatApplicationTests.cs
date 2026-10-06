@@ -338,6 +338,57 @@ public class ChatApplicationTests
         Assert.Empty(returnedMessage.Attachments);
     }
 
+    [Fact]
+    public async Task ReadReceiptNeverMovesBackward()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var course = new Course("Course", null, otherUserId, 30, CourseStatus.Open, otherUserId);
+        var room = ChatRoom.CreateDirectMessage(userId, otherUserId);
+        var older = ChatMessage.CreateText(room.Id, otherUserId, "older");
+        var newer = ChatMessage.CreateText(room.Id, otherUserId, "newer");
+        SetCreatedAt(older, new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        SetCreatedAt(newer, new DateTime(2030, 1, 1, 0, 1, 0, DateTimeKind.Utc));
+        var fixture = CreateFixture(userId, Role.Student, course, room);
+        fixture.Messages.Setup(repository => repository.GetByIdAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid id, CancellationToken _) => id == older.Id ? older : newer);
+
+        await fixture.Service.MarkAsReadAsync(room.Id, newer.Id, CancellationToken.None);
+        await fixture.Service.MarkAsReadAsync(room.Id, older.Id, CancellationToken.None);
+
+        Assert.Equal(
+            newer.Id,
+            room.Participants.Single(participant => participant.UserId == userId).LastReadMessageId);
+        fixture.UnitOfWork.Verify(unitOfWork =>
+            unitOfWork.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeletedMessageCannotBecomeReadReceiptTarget()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var course = new Course("Course", null, otherUserId, 30, CourseStatus.Open, otherUserId);
+        var room = ChatRoom.CreateDirectMessage(userId, otherUserId);
+        var deleted = ChatMessage.CreateText(room.Id, otherUserId, "deleted");
+        deleted.Delete();
+        var fixture = CreateFixture(userId, Role.Student, course, room);
+        fixture.Messages.Setup(repository => repository.GetByIdAsync(
+                deleted.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(deleted);
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            fixture.Service.MarkAsReadAsync(room.Id, deleted.Id, CancellationToken.None));
+
+        Assert.Null(room.Participants.Single(participant => participant.UserId == userId).LastReadMessageId);
+    }
+
+    private static void SetCreatedAt(ChatMessage message, DateTime createdAt) =>
+        typeof(ChatMessage).GetProperty(nameof(ChatMessage.CreatedAt))!.SetValue(message, createdAt);
+
     private static Fixture CreateFixture(
         Guid userId,
         Role role,
