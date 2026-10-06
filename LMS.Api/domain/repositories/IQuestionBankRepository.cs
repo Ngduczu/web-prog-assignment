@@ -9,5 +9,8 @@ public interface IQuestionBankRepository
         IReadOnlyCollection<Guid> questionBankIds,
         CancellationToken cancellationToken);
     Task<IReadOnlyList<QuestionBank>> ListByTeacherAsync(Guid teacherId, CancellationToken cancellationToken);
+    Task<bool> IsReferencedByExaminationAsync(Guid questionBankId, CancellationToken cancellationToken) =>
+        Task.FromResult(false);
     void Add(QuestionBank questionBank);
+    void Remove(QuestionBank questionBank) => throw new NotSupportedException();
 }
