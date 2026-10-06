@@ -60,6 +60,30 @@ public class CourseContentApplicationTests
     }
 
     [Fact]
+    public async Task MaterialLargerThanCourseLimitIsRejectedBeforeStorageUpload()
+    {
+        var teacher = CreateTeacher();
+        var course = CreateCourse(teacher);
+        var lesson = new Lesson(course.Id, "Lesson", null, 0, teacher.Id);
+        var storage = new FakeFileStorage();
+        var service = CreateLessonService(
+            teacher,
+            course,
+            lesson,
+            new FakeMaterialRepository(),
+            storage,
+            new FakeUnitOfWork());
+        await using var content = new MemoryStream([1]);
+
+        await Assert.ThrowsAsync<LMS.Api.domain.exceptions.BadRequestException>(() =>
+            service.UploadMaterialAsync(
+                lesson.Id,
+                new FileUpload("large.pdf", "application/pdf", 20_000_001, content)));
+
+        Assert.Equal(0, storage.UploadCount);
+    }
+
+    [Fact]
     public async Task StudentListsOnlyPublishedLessonsWhenEnrolled()
     {
         var teacher = CreateTeacher();
@@ -103,6 +127,35 @@ public class CourseContentApplicationTests
 
         await Assert.ThrowsAsync<LMS.Api.domain.exceptions.NotFoundException>(() =>
             service.GetAsync(draft.Id));
+    }
+
+    [Fact]
+    public async Task StudentListsOnlyPublishedExercisesWhenEnrolled()
+    {
+        var teacher = CreateTeacher();
+        var student = CreateStudent();
+        var course = CreateCourse(teacher);
+        var draft = new Exercise(course.Id, "Draft", null, null, teacher.Id);
+        var published = new Exercise(
+            course.Id,
+            "Published",
+            null,
+            DateTime.UtcNow.AddDays(1),
+            teacher.Id,
+            ExerciseStatus.Published);
+        var service = new ExerciseService(
+            new FakeExerciseRepository(draft, published),
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(new Enrollment(student.Id, course.Id, EnrollmentStatus.Accepted)),
+            new FakeFileStorage(),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student));
+
+        var result = await service.ListAsync(course.Id);
+
+        var item = Assert.Single(result);
+        Assert.Equal(published.Id, item.Id);
+        Assert.Equal(ExerciseStatus.Published, item.Status);
     }
 
     [Fact]
@@ -169,6 +222,52 @@ public class CourseContentApplicationTests
             service.GetMaterialContentAsync(material.Id));
 
         Assert.Null(storage.LastOpenedObjectKey);
+    }
+
+    [Fact]
+    public async Task DeleteLessonRemovesLessonAndStoredMaterials()
+    {
+        var teacher = CreateTeacher();
+        var course = CreateCourse(teacher);
+        var lesson = new Lesson(course.Id, "Lesson", null, 0, teacher.Id);
+        var lessons = new FakeLessonRepository(lesson);
+        var materials = new FakeMaterialRepository();
+        materials.Items.Add(new Material(lesson.Id, "lesson.pdf", "lesson/key", "application/pdf", 3, teacher.Id));
+        var storage = new FakeFileStorage();
+        var service = new LessonService(
+            lessons,
+            materials,
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(),
+            storage,
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher));
+
+        await service.DeleteAsync(lesson.Id);
+
+        Assert.Empty(lessons.Items);
+        Assert.Equal(["lesson/key"], storage.DeletedObjectKeys);
+    }
+
+    [Fact]
+    public async Task PublishedExerciseCannotBeDeleted()
+    {
+        var teacher = CreateTeacher();
+        var course = CreateCourse(teacher);
+        var exercise = new Exercise(course.Id, "Published", null, null, teacher.Id, ExerciseStatus.Published);
+        var exercises = new FakeExerciseRepository(exercise);
+        var service = new ExerciseService(
+            exercises,
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(),
+            new FakeFileStorage(),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher));
+
+        await Assert.ThrowsAsync<LMS.Api.domain.exceptions.ConflictException>(() =>
+            service.DeleteAsync(exercise.Id));
+
+        Assert.Single(exercises.Items);
     }
 
     private static LessonService CreateLessonService(
@@ -355,21 +454,21 @@ public class CourseContentApplicationTests
 
     private sealed class FakeLessonRepository : ILessonRepository
     {
-        private readonly IReadOnlyList<Lesson> _lessons;
+        public List<Lesson> Items { get; }
 
         public FakeLessonRepository(params Lesson[] lessons)
         {
-            _lessons = lessons;
+            Items = [.. lessons];
         }
 
         public Task<Lesson?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
-            Task.FromResult(_lessons.SingleOrDefault(lesson => lesson.Id == id));
+            Task.FromResult(Items.SingleOrDefault(lesson => lesson.Id == id));
 
         public Task<IReadOnlyList<Lesson>> ListByCourseAsync(
             Guid courseId,
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<Lesson>>(
-                _lessons.Where(lesson => lesson.CourseId == courseId).ToArray());
+                Items.Where(lesson => lesson.CourseId == courseId).ToArray());
 
         public Task<bool> OrderExistsAsync(
             Guid courseId,
@@ -381,6 +480,29 @@ public class CourseContentApplicationTests
         public void Add(Lesson lesson)
         {
         }
+
+        public void Remove(Lesson lesson) => Items.Remove(lesson);
+    }
+
+    private sealed class FakeExerciseRepository : IExerciseRepository
+    {
+        public List<Exercise> Items { get; }
+
+        public FakeExerciseRepository(params Exercise[] exercises)
+        {
+            Items = [.. exercises];
+        }
+
+        public Task<Exercise?> GetByIdAsync(Guid id, bool includeAttachment, CancellationToken cancellationToken) =>
+            Task.FromResult(Items.SingleOrDefault(exercise => exercise.Id == id));
+
+        public Task<IReadOnlyList<Exercise>> ListByCourseAsync(Guid courseId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Exercise>>(
+                Items.Where(exercise => exercise.CourseId == courseId).ToArray());
+
+        public void Add(Exercise exercise) { }
+        public void AddAttachment(ExerciseAttachment attachment) { }
+        public void Remove(Exercise exercise) => Items.Remove(exercise);
     }
 
     private sealed class FakeCourseRepository : ICourseRepository
