@@ -41,4 +41,6 @@ public sealed class LessonRepository : ILessonRepository
     {
         _dbContext.Lessons.Add(lesson);
     }
+
+    public void Remove(Lesson lesson) => _dbContext.Lessons.Remove(lesson);
 }
