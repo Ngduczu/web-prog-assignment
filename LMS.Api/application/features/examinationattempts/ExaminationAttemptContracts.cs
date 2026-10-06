@@ -37,6 +37,9 @@ public interface IExaminationAttemptService
     Task<ExaminationAttemptDto> StartAsync(
         Guid examinationId,
         CancellationToken cancellationToken = default);
+    Task<ExaminationAttemptDto> GetMineAsync(
+        Guid examinationId,
+        CancellationToken cancellationToken = default);
     Task<IReadOnlyList<StudentExamQuestionDto>> GetQuestionsAsync(
         Guid attemptId,
         CancellationToken cancellationToken = default);
@@ -59,6 +62,7 @@ public interface IExaminationAttemptService
     Task<ExaminationAttemptDto> RecordViolationAsync(
         Guid attemptId,
         ExaminationViolationType violationType,
+        int? durationSeconds = null,
         CancellationToken cancellationToken = default);
     Task<ExaminationAttemptDto> SubmitAsync(
         Guid attemptId,
