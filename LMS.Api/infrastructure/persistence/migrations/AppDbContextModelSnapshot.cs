@@ -357,6 +357,12 @@ namespace LMS.Api.infrastructure.persistence.migrations
                         .HasColumnType("uuid")
                         .HasColumnName("modified_by_id");
 
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("status");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -370,6 +376,8 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasIndex("CreatedById");
 
                     b.HasIndex("ModifiedById");
+
+                    b.HasIndex("CourseId", "Status");
 
                     b.ToTable("exercises", (string)null);
                 });
@@ -578,6 +586,24 @@ namespace LMS.Api.infrastructure.persistence.migrations
                         .HasColumnType("uuid")
                         .HasColumnName("exercise_id");
 
+                    b.Property<string>("Feedback")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("feedback");
+
+                    b.Property<decimal?>("Grade")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("grade");
+
+                    b.Property<DateTime?>("GradedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("graded_at");
+
+                    b.Property<Guid?>("GradedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("graded_by_id");
+
                     b.Property<DateTime>("ModifiedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("modified_at");
@@ -597,6 +623,8 @@ namespace LMS.Api.infrastructure.persistence.migrations
                         .HasColumnName("submitted_at");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("GradedById");
 
                     b.HasIndex("StudentId");
 
@@ -1629,6 +1657,11 @@ namespace LMS.Api.infrastructure.persistence.migrations
                         .HasForeignKey("ExerciseId")
                         .OnDelete(DeleteBehavior.Cascade);
 
+                    b.HasOne("LMS.Api.domain.Entities.Users.User", "GradedBy")
+                        .WithMany()
+                        .HasForeignKey("GradedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "Student")
                         .WithMany()
                         .HasForeignKey("StudentId")
@@ -1636,6 +1669,8 @@ namespace LMS.Api.infrastructure.persistence.migrations
                         .IsRequired();
 
                     b.Navigation("Exercise");
+
+                    b.Navigation("GradedBy");
 
                     b.Navigation("Student");
                 });
