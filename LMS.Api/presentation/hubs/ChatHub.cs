@@ -29,5 +29,5 @@ public sealed class ChatHub : Hub
         await Clients.Group(GroupName(roomId)).SendAsync("MessageReceived", message, Context.ConnectionAborted);
     }
 
-    private static string GroupName(Guid roomId) => $"chat-room:{roomId:N}";
+    public static string GroupName(Guid roomId) => $"chat-room:{roomId:N}";
 }
