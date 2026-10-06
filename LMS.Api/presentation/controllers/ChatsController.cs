@@ -1,6 +1,8 @@
 using LMS.Api.application.features.chats;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using LMS.Api.presentation.hubs;
 
 namespace LMS.Api.presentation.controllers;
 
@@ -48,10 +50,27 @@ public sealed class ChatsController : ControllerBase
         [FromForm] Guid? replyToMessageId,
         IFormFile file,
         [FromServices] IChatService service,
+        [FromServices] IHubContext<ChatHub> hub,
         CancellationToken cancellationToken)
     {
         if (file is null || file.Length == 0) return BadRequest("A non-empty file is required.");
-        return StatusCode(StatusCodes.Status201Created, await service.SendMessageWithAttachmentAsync(roomId, content, replyToMessageId, file.FileName, file.ContentType, file.Length, file.OpenReadStream(), cancellationToken));
+        var message = await service.SendMessageWithAttachmentAsync(roomId, content, replyToMessageId, file.FileName, file.ContentType, file.Length, file.OpenReadStream(), cancellationToken);
+        await hub.Clients.Group(ChatHub.GroupName(roomId)).SendAsync("MessageReceived", message, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, message);
+    }
+
+    [HttpGet("messages/{messageId:guid}/attachments/{attachmentId:guid}/content")]
+    public async Task<FileStreamResult> GetAttachmentContent(
+        Guid messageId,
+        Guid attachmentId,
+        [FromQuery] bool download,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken)
+    {
+        var file = await service.GetAttachmentContentAsync(messageId, attachmentId, cancellationToken);
+        return download
+            ? File(file.Content, file.ContentType, file.FileName, enableRangeProcessing: true)
+            : File(file.Content, file.ContentType, enableRangeProcessing: true);
     }
 
     [HttpPatch("messages/{messageId:guid}")]
