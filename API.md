@@ -33,7 +33,8 @@ Ví dụ lỗi để FrontEnd đọc `status`, `title`, `detail`:
 - `CourseStatus`: `Open`, `Closed`.
 - `EnrollmentStatus`: `Waiting`, `Accepted`, `Rejected`, `Cancelled`.
 - `LessonStatus`: `Draft`, `Published`.
-- `SubmissionStatus`: `Draft`, `Submitted`.
+- `ExerciseStatus`: `Draft`, `Published`, `Closed`.
+- `SubmissionStatus`: `Draft`, `Submitted`, `Graded`.
 - `QuestionType`: `MultipleChoice`, `FillInBlank`.
 - `QuestionDifficulty`: `Easy`, `Medium`, `Hard`.
 - `ExaminationStatus`: `Draft`, `Published`, `Closed`.
@@ -152,6 +153,8 @@ Flow: validate → hash password → PostgreSQL → Redis mã 6 ký tự với T
 
 Chỉ account đang `Inactive` được redeem mã. Account `Active`, `Disabled`, `Banned` hoặc trạng thái không hợp lệ bị từ chối, kể cả khi mã được phát hành trước lúc trạng thái thay đổi. Mã sai/hết hạn trả `400`, mã chỉ dùng một lần và được consume atomically. Vượt quá 5 lần thử trả `409`.
 
+Nếu cập nhật PostgreSQL thất bại sau khi consume, backend khôi phục mã và trạng thái account để client có thể thử lại.
+
 ### `POST /api/auth/resend-verification`
 
 **Quyền:** Public, chỉ áp dụng cho local account đang `Inactive`.
@@ -214,6 +217,7 @@ Chỉ account đang `Inactive` được redeem mã. Account `Active`, `Disabled`
 ```
 
 Reset code dùng namespace Redis riêng `auth:password-reset:*`, TTL 15 phút và tối đa 5 lần thử.
+Nếu cập nhật mật khẩu trong PostgreSQL thất bại, backend khôi phục password hash cũ và reset code để client có thể thử lại.
 
 ### `GET /api/auth/oauth/Google/authorize`
 
@@ -358,6 +362,8 @@ Các endpoint trả user profile dùng object sau:
 
 Admin không được sửa admin khác. Admin cuối cùng không thể tự đổi role khỏi `Admin`; nếu còn admin khác thì được tự đổi role.
 
+Teacher đang sở hữu course hoặc question bank không thể đổi sang role khác cho tới khi tài nguyên được chuyển quyền.
+
 ### `PATCH /api/users/{userId}/status`
 
 **Quyền:** Admin.
@@ -371,6 +377,10 @@ Admin không được sửa admin khác. Admin cuối cùng không thể tự đ
 ```
 
 **Response `200 OK`:** User profile object.
+
+Admin active cuối cùng không thể tự chuyển sang `Inactive`, `Disabled` hoặc `Banned`. Việc kiểm tra chạy trong transaction serializable.
+
+Teacher đang sở hữu course hoặc question bank không thể bị chuyển khỏi trạng thái `Active`; phải chuyển quyền sở hữu tài nguyên trước.
 
 ## Courses
 
@@ -440,9 +450,15 @@ Admin không được sửa admin khác. Admin cuối cùng không thể tự đ
 
 **Quyền:** User đã đăng nhập. Student xem được course `Open`; course `Closed` chỉ xem được khi enrollment đã `Accepted`. Query `includeDeleted=true` chỉ dành cho Admin. **Response `200 OK`:** Course object.
 
+### `GET /api/courses/mine`
+
+**Quyền:** Student. Trả các course có enrollment `Accepted` của chính student, bao gồm cả course `Closed`, phục vụ màn hình lớp đang học và lịch sử. Course đã soft-delete không được trả.
+
 ### `PUT /api/courses/{courseId}`
 
 **Quyền:** Teacher sở hữu course hoặc Admin.
+
+`maxStudents` không được nhỏ hơn số enrollment đang `Accepted`.
 
 **Request body:**
 
@@ -475,6 +491,7 @@ Admin không được sửa admin khác. Admin cuối cùng không thể tự đ
   "studentId": "00000000-0000-0000-0000-000000000001",
   "courseId": "00000000-0000-0000-0000-000000000003",
   "status": "Waiting",
+  "student": null,
   "createdAt": "2026-09-04T10:00:00Z",
   "modifiedAt": "2026-09-04T10:00:00Z"
 }
@@ -482,7 +499,11 @@ Admin không được sửa admin khác. Admin cuối cùng không thể tự đ
 
 ### `POST /api/courses/{courseId}/enrollments`
 
-**Quyền:** Student đang `Active`. **Response `201 Created`:** Enrollment object với `status: "Waiting"`.
+**Quyền:** Student đang `Active`. Nếu enrollment cũ là `Rejected` hoặc `Cancelled`, backend chuyển lại chính record đó về `Waiting`; không tạo duplicate. **Response `201 Created`:** Enrollment object với `status: "Waiting"`.
+
+### `GET /api/enrollments/mine`
+
+**Quyền:** Student. Trả toàn bộ enrollment hiện tại của chính student, gồm `Waiting`, `Accepted`, `Rejected`, `Cancelled`, để khôi phục trạng thái sau reload.
 
 ### `GET /api/courses/{courseId}/enrollments?page=1&pageSize=20`
 
@@ -496,6 +517,11 @@ Admin không được sửa admin khác. Admin cuối cùng không thể tự đ
       "studentId": "00000000-0000-0000-0000-000000000001",
       "courseId": "00000000-0000-0000-0000-000000000003",
       "status": "Waiting",
+      "student": {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "fullName": "Student",
+        "email": "student@example.com"
+      },
       "createdAt": "2026-09-04T10:00:00Z",
       "modifiedAt": "2026-09-04T10:00:00Z"
     }
@@ -507,9 +533,11 @@ Admin không được sửa admin khác. Admin cuối cùng không thể tự đ
 }
 ```
 
+Trường `student` được điền trong endpoint danh sách để teacher nhận diện người đăng ký mà không cần quyền đọc toàn bộ user profile. Các response thao tác đơn lẻ có thể trả `student: null`.
+
 ### `POST /api/enrollments/{enrollmentId}/accept`
 
-**Quyền:** Teacher sở hữu course hoặc Admin. **Response `200 OK`:** Enrollment object với `status: "Accepted"`.
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ accept khi course còn `Open` và chưa đủ `maxStudents`. **Response `200 OK`:** Enrollment object với `status: "Accepted"`.
 
 ### `POST /api/enrollments/{enrollmentId}/reject`
 
@@ -517,7 +545,11 @@ Admin không được sửa admin khác. Admin cuối cùng không thể tự đ
 
 ### `POST /api/enrollments/{enrollmentId}/cancel`
 
-**Quyền:** Student sở hữu enrollment và enrollment đang `Waiting`. **Response `200 OK`:** Enrollment object với `status: "Cancelled"`.
+**Quyền:** Student sở hữu enrollment đang `Waiting` hoặc `Accepted`. Với `Accepted`, thao tác này có nghĩa rời course. **Response `200 OK`:** Enrollment object với `status: "Cancelled"`.
+
+### `POST /api/enrollments/{enrollmentId}/revoke`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ áp dụng cho enrollment `Accepted`; dùng để loại student khỏi course. **Response `200 OK`:** Enrollment object với `status: "Cancelled"`.
 
 ## Question Banks
 
@@ -564,6 +596,10 @@ Admin không được sửa admin khác. Admin cuối cùng không thể tự đ
 ```
 
 **Response `200 OK`:** Question bank object.
+
+### `DELETE /api/question-banks/{questionBankId}`
+
+**Quyền:** Teacher sở hữu question bank hoặc Admin. Trả `409` nếu bank đang được selection rule của examination tham chiếu; nếu không, xóa cả source questions trong bank. **Response `204 No Content`**.
 
 ### `GET /api/question-banks?teacherId={teacherId}`
 
@@ -686,6 +722,23 @@ Admin không được sửa admin khác. Admin cuối cùng không thể tự đ
 
 **Quyền:** Teacher sở hữu question bank hoặc Admin. **Response `200 OK`:** Mảng question object. Mỗi phần tử có shape của một trong hai question object ở trên.
 
+### `PUT /api/questions/{questionId}`
+
+**Quyền:** Teacher sở hữu question bank hoặc Admin. Chỉ sửa `content` và `difficulty`; loại câu hỏi, options và answer keys không đổi.
+
+```json
+{
+  "content": "Updated question",
+  "difficulty": "Medium"
+}
+```
+
+**Response `200 OK`:** Question object. Examination đã tạo dùng snapshot nên không bị thay đổi.
+
+### `DELETE /api/questions/{questionId}`
+
+**Quyền:** Teacher sở hữu question bank hoặc Admin. Xóa source question; snapshot trong examination đã tạo vẫn giữ nguyên. **Response `204 No Content`**.
+
 ## Course Content
 
 Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student có enrollment `Accepted` được đọc nội dung dành cho học viên.
@@ -751,6 +804,10 @@ Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student 
 
 **Response `200 OK`:** Lesson object.
 
+### `DELETE /api/lessons/{lessonId}`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Xóa lesson, metadata material và đưa file vật lý vào hàng đợi cleanup. **Response `204 No Content`**.
+
 ### Material object
 
 ```json
@@ -784,7 +841,7 @@ Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student 
 
 **Quyền:** Teacher sở hữu course hoặc Admin.
 
-**Request:** `multipart/form-data`, field bắt buộc là `file` không rỗng. Material hiện không đặt giới hạn dung lượng riêng ở application service. **Response `200 OK`:** Material object.
+**Request:** `multipart/form-data`, field bắt buộc là `file` không rỗng và nhỏ hơn 20 MB. **Response `200 OK`:** Material object.
 
 ### `DELETE /api/materials/{materialId}`
 
@@ -799,6 +856,7 @@ Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student 
   "title": "Assignment 1",
   "description": "...",
   "dueAt": "2026-09-20T23:59:00Z",
+  "status": "Draft",
   "attachment": null,
   "createdAt": "2026-09-04T10:00:00Z",
   "modifiedAt": "2026-09-04T10:00:00Z"
@@ -831,13 +889,13 @@ Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student 
 }
 ```
 
-**Response `201 Created`:** Exercise object.
+Exercise luôn được tạo ở trạng thái `Draft`; `dueAt` nếu có phải là UTC. **Response `201 Created`:** Exercise object.
 
 ### `GET /api/courses/{courseId}/exercises`
 
 **Quyền:** Teacher sở hữu course, Admin hoặc student có enrollment `Accepted`.
 
-**Response `200 OK`:** Mảng exercise object. Exercise hiện không có trạng thái draft/publish nên student đã được duyệt thấy ngay sau khi tạo.
+**Response `200 OK`:** Mảng exercise object. Teacher/Admin thấy mọi trạng thái; student chỉ thấy exercise `Published`.
 
 ### `GET /api/exercises/{exerciseId}`
 
@@ -857,6 +915,18 @@ Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student 
 
 **Quyền:** Teacher sở hữu course hoặc Admin. **Request:** `multipart/form-data`, field bắt buộc là `file` nhỏ hơn 20 MB. Upload mới sẽ thay file cũ. **Response `200 OK`:** Exercise object.
 
+### `DELETE /api/exercises/{exerciseId}`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ exercise `Draft` được xóa để không làm mất submission đã phát hành; attachment được đưa vào hàng đợi cleanup. **Response `204 No Content`**.
+
+### `POST /api/exercises/{exerciseId}/publish`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ exercise `Draft` được publish; nếu có `dueAt` thì deadline phải còn ở tương lai. **Response `200 OK`:** Exercise object với status `Published`.
+
+### `POST /api/exercises/{exerciseId}/close`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ exercise `Published` được close. Student vẫn xem submission/điểm cũ nhưng không thể upload, submit hoặc unsubmit. **Response `200 OK`:** Exercise object với status `Closed`.
+
 ### Submission object
 
 ```json
@@ -866,6 +936,10 @@ Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student 
   "studentId": "00000000-0000-0000-0000-000000000001",
   "status": "Draft",
   "submittedAt": null,
+  "grade": null,
+  "feedback": null,
+  "gradedAt": null,
+  "gradedById": null,
   "attachment": {
     "id": "00000000-0000-0000-0000-000000000016",
     "fileName": "answer.pdf",
@@ -882,7 +956,25 @@ Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student 
 
 **Quyền:** Student có enrollment `Accepted`.
 
-**Request:** `multipart/form-data`, field bắt buộc là `file` nhỏ hơn 20 MB. Tạo submission `Draft` nếu chưa có; upload lại sẽ thay file của draft hiện tại. Không được upload sau `dueAt` hoặc khi submission đang `Submitted`. **Response `200 OK`:** Submission object.
+**Request:** `multipart/form-data`, field bắt buộc là `file` nhỏ hơn 20 MB. Tạo submission `Draft` nếu chưa có; upload lại chỉ thay file của draft hiện tại. Không được upload sau `dueAt` hoặc khi submission không còn là `Draft`. **Response `200 OK`:** Submission object.
+
+### `GET /api/exercises/{exerciseId}/my-submission`
+
+**Quyền:** Student có enrollment `Accepted`. Trả submission hiện tại của chính student để khôi phục trạng thái sau reload; trả `404` nếu chưa từng upload.
+
+**Response `200 OK`:** Submission object, bao gồm điểm và nhận xét khi status là `Graded`.
+
+### `GET /api/exercises/{exerciseId}/submissions?page=1&pageSize=20`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ trả submission đã `Submitted` hoặc `Graded`; không hiển thị draft của student.
+
+**Response `200 OK`:** Paged result chứa các Submission object.
+
+### `GET /api/submissions/{submissionId}/content?download=false`
+
+**Quyền:** Student sở hữu submission, teacher sở hữu course hoặc Admin.
+
+**Response `200 OK`:** Binary stream của attachment bài nộp. `download=true` trả kèm tên file gốc.
 
 ### `POST /api/submissions/{submissionId}/submit`
 
@@ -895,6 +987,21 @@ Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student 
 **Quyền:** Student sở hữu submission. Chỉ unsubmit submission đang `Submitted` và chưa quá `dueAt`.
 
 **Request body:** Không có body. **Response `200 OK`:** Submission object với status `Draft` và `submittedAt: null`.
+
+Submission đã `Graded` không thể unsubmit hoặc thay file.
+
+### `PUT /api/submissions/{submissionId}/grade`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ chấm submission đã `Submitted`; cho phép cập nhật lại điểm của submission `Graded`.
+
+```json
+{
+  "grade": 8.5,
+  "feedback": "Good work"
+}
+```
+
+`grade` nằm trong khoảng `0..10`; `feedback` tối đa 4000 ký tự. **Response `200 OK`:** Submission object với status `Graded`.
 
 ## Examination Authoring
 
@@ -1044,6 +1151,14 @@ Student examination object giống examination object nhưng không có `questio
 
 **Response `200 OK`:** Examination attempt object. FrontEnd phải lưu `attempt.id` để gọi các endpoint tiếp theo.
 
+### `GET /api/examinations/{examinationId}/my-attempt`
+
+**Quyền:** Student có enrollment `Accepted` của course chứa examination.
+
+Ưu tiên trả attempt đang `InProgress`/`Disconnected` của chính student; nếu không còn attempt active thì trả attempt hoàn thành gần nhất. FrontEnd gọi endpoint này khi reload để lấy lại `attempt.id`; nếu attempt đang `Disconnected` thì gọi tiếp endpoint `reconnect`. Trả `404` nếu student chưa từng bắt đầu examination.
+
+**Response `200 OK`:** Examination attempt object.
+
 ### `GET /api/examination-attempts/{attemptId}/questions`
 
 **Response `200 OK`:** Mảng câu hỏi snapshot dành cho student, không chứa đáp án đúng:
@@ -1130,9 +1245,9 @@ Chỉ dùng khi attempt đang `Disconnected`. Nếu quá thời gian disconnect 
 
 **Request body:** Không có body. **Response `200 OK`:** Examination attempt object.
 
-### `POST /api/examination-attempts/{attemptId}/violations?violationType=TabChanged`
+### `POST /api/examination-attempts/{attemptId}/violations?violationType=TabChanged&durationSeconds=`
 
-`violationType` dùng một giá trị trong enum `ExaminationViolationType`. Khi đạt `maxViolations` lớn hơn `0`, backend auto-submit.
+`violationType` dùng một giá trị trong enum `ExaminationViolationType`. Backend chỉ ghi nhận loại violation đã được bật bởi cấu hình tương ứng của examination. Với `ExitFullscreen`, `durationSeconds` là bắt buộc; thời gian nhỏ hơn hoặc bằng `fullscreenGraceSeconds` không bị tính vi phạm. Khi đạt `maxViolations` lớn hơn `0`, backend auto-submit.
 
 **Request body:** Không có body. **Response `200 OK`:** Examination attempt object.
 
@@ -1141,6 +1256,8 @@ Chỉ dùng khi attempt đang `Disconnected`. Nếu quá thời gian disconnect 
 Attempt phải đang active. Nếu đã hết giờ, submit reason trở thành `DurationExpired`; nếu chưa hết giờ là `StudentSubmitted`.
 
 **Request body:** Không có body. **Response `200 OK`:** Examination attempt object. Khi `showScoreImmediately=false`, các trường `correctAnswers`, `totalQuestions`, `score` là `null` sau khi nộp.
+
+Nếu `showScoreImmediately=false`, điểm được phát hành khi examination chuyển sang `Closed` hoặc thời gian hiện tại đạt `dueAt`. Sau thời điểm đó student gọi `GET /api/examinations/{examinationId}/my-attempt` để lấy kết quả.
 
 ### `POST /api/examination-attempts/{attemptId}/auto-submit?reason=DurationExpired`
 
@@ -1187,9 +1304,18 @@ Chat message object:
   "createdAt": "2026-09-04T10:00:00Z",
   "editedAt": null,
   "deletedAt": null,
-  "attachments": []
+  "attachments": [
+    {
+      "id": "00000000-0000-0000-0000-000000000032",
+      "fileName": "notes.pdf",
+      "contentType": "application/pdf",
+      "fileSize": 12345
+    }
+  ]
 }
 ```
+
+Chat attachment không lộ storage `objectKey`; client dùng endpoint `content` để đọc file.
 
 ### `GET /api/chat/rooms`
 
@@ -1229,6 +1355,12 @@ Request body:
 - `replyToMessageId`: tùy chọn.
 
 **Response `201 Created`:** Chat message object có phần tử trong `attachments`.
+
+REST upload cũng broadcast SignalR event `MessageReceived` tới các client đã join room.
+
+### `GET /api/chat/messages/{messageId}/attachments/{attachmentId}/content?download=false`
+
+Chỉ user hiện còn quyền truy cập room mới tải được. `download=false` hoặc bỏ query để mở inline; `download=true` để tải bằng tên file gốc. Message đã xóa trả `404`. **Response `200 OK`:** Binary stream.
 
 ### `PATCH /api/chat/messages/{messageId}`
 
