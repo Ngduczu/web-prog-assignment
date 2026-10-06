@@ -2,6 +2,7 @@ namespace LMS.Api.domain.Entities.Chats;
 
 public class ChatMessage
 {
+    public const int MaximumContentLength = 4000;
     private readonly List<ChatAttachment> _attachments = new();
 
     public Guid Id { get; private set; }
@@ -105,6 +106,18 @@ public class ChatMessage
 
     private static string? NormalizeContent(string? content)
     {
-        return string.IsNullOrWhiteSpace(content) ? null : content;
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return null;
+        }
+
+        if (content.Length > MaximumContentLength)
+        {
+            throw new ArgumentException(
+                $"Message content cannot exceed {MaximumContentLength} characters.",
+                nameof(content));
+        }
+
+        return content;
     }
 }

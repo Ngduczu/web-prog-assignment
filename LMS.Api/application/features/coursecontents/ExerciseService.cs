@@ -47,7 +47,7 @@ public sealed class ExerciseService : IExerciseService
         CancellationToken cancellationToken = default)
     {
         ValidateId(courseId, "Course id");
-        ValidateExercise(request.Title, request.DueAt);
+        ValidateExercise(request.Title, request.Description, request.DueAt);
         var course = await GetCourseAsync(courseId, cancellationToken);
         var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);
         var exercise = new Exercise(
@@ -104,7 +104,7 @@ public sealed class ExerciseService : IExerciseService
         CancellationToken cancellationToken = default)
     {
         ValidateId(exerciseId, "Exercise id");
-        ValidateExercise(request.Title, request.DueAt);
+        ValidateExercise(request.Title, request.Description, request.DueAt);
         var exercise = await GetExerciseAsync(exerciseId, false, cancellationToken);
         var course = await GetCourseAsync(exercise.CourseId, cancellationToken);
         var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);
@@ -279,11 +279,16 @@ public sealed class ExerciseService : IExerciseService
         await _exercises.GetByIdAsync(exerciseId, includeAttachment, cancellationToken)
         ?? throw new NotFoundException("Exercise was not found.");
 
-    private static void ValidateExercise(string title, DateTime? dueAt)
+    private static void ValidateExercise(string title, string? description, DateTime? dueAt)
     {
         if (string.IsNullOrWhiteSpace(title) || title.Trim().Length > 200)
         {
             throw new BadRequestException("Exercise title must contain between 1 and 200 characters.");
+        }
+
+        if (description?.Trim().Length > 4000)
+        {
+            throw new BadRequestException("Exercise description cannot exceed 4000 characters.");
         }
 
         if (dueAt is not null && dueAt.Value.Kind != DateTimeKind.Utc)

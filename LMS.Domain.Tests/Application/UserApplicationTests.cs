@@ -150,6 +150,21 @@ public class UserApplicationTests
                 Role.Student)));
     }
 
+    [Fact]
+    public async Task AdminCreateRejectsEmailLongerThanDatabaseColumn()
+    {
+        var actor = CreateAdmin();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => fixture.Service.CreateByAdminAsync(
+            new AdminCreateUserRequest(
+                $"{new string('a', 244)}@example.com",
+                "New user",
+                null,
+                "password123",
+                Role.Student)));
+    }
+
     private static Fixture CreateFixture(User actor, User target, int adminCount)
     {
         var users = new Mock<IUserManagementRepository>();

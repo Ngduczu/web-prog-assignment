@@ -238,6 +238,7 @@ public sealed class ChatService : IChatService
         var userId = _currentUser.GetRequiredUserId();
         var room = await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
         if (room.IsArchived) throw new ConflictException("Archived chat rooms do not accept new messages.");
+        ValidateMessageContent(content);
         if (replyToMessageId is not null)
         {
             var reply = await _messages.GetByIdAsync(replyToMessageId.Value, cancellationToken);
@@ -302,7 +303,7 @@ public sealed class ChatService : IChatService
         {
             message.EditContent(request.Content);
         }
-        catch (InvalidOperationException exception)
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {
             throw new BadRequestException(exception.Message);
         }
@@ -325,6 +326,15 @@ public sealed class ChatService : IChatService
 
         message.Delete();
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    private static void ValidateMessageContent(string? content)
+    {
+        if (content is not null && content.Length > ChatMessage.MaximumContentLength)
+        {
+            throw new BadRequestException(
+                $"Message content cannot exceed {ChatMessage.MaximumContentLength} characters.");
+        }
     }
 
     public async Task MarkAsReadAsync(Guid roomId, Guid messageId, CancellationToken cancellationToken)

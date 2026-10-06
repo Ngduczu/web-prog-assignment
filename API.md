@@ -891,6 +891,8 @@ Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student 
 
 Exercise luôn được tạo ở trạng thái `Draft`; `dueAt` nếu có phải là UTC. **Response `201 Created`:** Exercise object.
 
+`title` tối đa 200 ký tự; `description` tối đa 4000 ký tự. Input vượt giới hạn trả `400` trước khi ghi DB.
+
 ### `GET /api/courses/{courseId}/exercises`
 
 **Quyền:** Teacher sở hữu course, Admin hoặc student có enrollment `Accepted`.
@@ -1338,6 +1340,8 @@ Lấy hoặc tạo direct-message room với user đang `Active`. Không thể c
 **Response `200 OK`:** Mảng message, mới nhất trước. Đây không phải `PagedResult`; FrontEnd tăng `page` để tải lịch sử. Message đã xóa bị loại khỏi danh sách, bao gồm attachment của message đó.
 
 ### `POST /api/chat/rooms/{roomId}/messages`
+
+Nội dung text tối đa 4000 ký tự cho cả gửi mới và chỉnh sửa; input vượt giới hạn trả `400`.
 
 Request body:
 

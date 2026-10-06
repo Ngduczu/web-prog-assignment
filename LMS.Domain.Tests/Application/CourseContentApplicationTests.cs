@@ -331,6 +331,28 @@ public class CourseContentApplicationTests
         Assert.Equal(0, storage.UploadCount);
     }
 
+    [Fact]
+    public async Task ExerciseDescriptionLongerThanDatabaseColumnIsRejected()
+    {
+        var teacher = CreateTeacher();
+        var course = CreateCourse(teacher);
+        var exercises = new FakeExerciseRepository();
+        var service = new ExerciseService(
+            exercises,
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(),
+            new FakeFileStorage(),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher));
+
+        await Assert.ThrowsAsync<LMS.Api.domain.exceptions.BadRequestException>(() =>
+            service.CreateAsync(
+                course.Id,
+                new CreateExerciseRequest("Exercise", new string('x', 4001), null)));
+
+        Assert.Empty(exercises.Items);
+    }
+
     private static LessonService CreateLessonService(
         User teacher,
         Course course,

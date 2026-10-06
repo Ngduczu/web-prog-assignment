@@ -87,6 +87,24 @@ public sealed class AuthenticationApplicationTests
     }
 
     [Fact]
+    public async Task OAuthLoginBoundsProviderFullNameToDatabaseColumn()
+    {
+        var fixture = CreateOAuthFixture(
+            [],
+            new OAuthUserInfo(
+                "google-user",
+                "new-user@example.com",
+                new string('x', 101),
+                null,
+                true));
+
+        await fixture.Service.LoginWithOAuthAsync(
+            new OAuthLoginRequest("Google", "code", "https://localhost/callback", "verifier"));
+
+        Assert.Equal(100, Assert.Single(fixture.Users.Users).FullName.Length);
+    }
+
+    [Fact]
     public async Task OAuthLoginCodeCanOnlyBeRedeemedOnce()
     {
         var fixture = CreateOAuthFixture(

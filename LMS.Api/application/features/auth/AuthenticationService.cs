@@ -75,7 +75,7 @@ public sealed class AuthenticationService : IAuthenticationService
 
             user = new User(
                 email,
-                string.IsNullOrWhiteSpace(externalInfo.FullName) ? email[..email.IndexOf('@')] : externalInfo.FullName.Trim(),
+                NormalizeExternalFullName(externalInfo.FullName, email),
                 null,
                 null,
                 Role.Student,
@@ -204,6 +204,14 @@ public sealed class AuthenticationService : IAuthenticationService
         }
 
         return normalized;
+    }
+
+    private static string NormalizeExternalFullName(string? fullName, string normalizedEmail)
+    {
+        var value = string.IsNullOrWhiteSpace(fullName)
+            ? normalizedEmail[..normalizedEmail.IndexOf('@')]
+            : fullName.Trim();
+        return value.Length <= 100 ? value : value[..100];
     }
 
     private async Task<LoginResponse> IssueTokensAsync(Guid userId, string email, string role, CancellationToken cancellationToken)

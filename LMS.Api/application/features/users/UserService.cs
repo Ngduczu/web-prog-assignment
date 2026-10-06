@@ -140,6 +140,6 @@ public sealed class UserService : IUserService
         }
     }
     private static void ValidatePage(int page, int size) { if (page <= 0 || size is < 1 or > 100) throw new BadRequestException("Invalid pagination."); }
-    private static string NormalizeEmail(string email) { var value = email?.Trim().ToLowerInvariant(); if (string.IsNullOrWhiteSpace(value) || !MailAddress.TryCreate(value, out var address) || address.Address != value) throw new BadRequestException("Email address is invalid."); return value; }
+    private static string NormalizeEmail(string email) { var value = email?.Trim().ToLowerInvariant(); if (string.IsNullOrWhiteSpace(value) || value.Length > 255 || !MailAddress.TryCreate(value, out var address) || address.Address != value) throw new BadRequestException("Email address is invalid."); return value; }
     private static UserProfileDto Map(User u) => new(u.Id, u.Email, u.FullName, u.Phone, u.Role, u.Status, u.AvatarUrl, u.CreatedAt);
 }

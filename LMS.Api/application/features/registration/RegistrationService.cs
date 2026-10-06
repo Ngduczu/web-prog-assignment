@@ -56,7 +56,7 @@ public sealed class RegistrationService : IRegistrationService
 
         var user = new User(
             normalizedEmail,
-            normalizedEmail[..normalizedEmail.IndexOf('@')],
+            NormalizeGeneratedFullName(normalizedEmail[..normalizedEmail.IndexOf('@')]),
             null,
             _passwordHasher.Hash(request.Password),
             Role.Student,
@@ -252,6 +252,9 @@ public sealed class RegistrationService : IRegistrationService
 
         return normalizedEmail;
     }
+
+    private static string NormalizeGeneratedFullName(string value) =>
+        value.Length <= 100 ? value : value[..100];
 
     private static string GetVerificationKey(Guid userId) => $"auth:email-verification:{userId:N}";
     private static string GetAttemptsKey(Guid userId) => $"auth:email-verification-attempts:{userId:N}";

@@ -60,4 +60,16 @@ public class ChatMessageTests
 
         Assert.Throws<InvalidOperationException>(() => message.EditContent("Updated"));
     }
+
+    [Fact]
+    public void ContentLongerThanDatabaseColumnIsRejectedForCreateAndEdit()
+    {
+        var content = new string('x', ChatMessage.MaximumContentLength + 1);
+        var message = ChatMessage.CreateText(Guid.NewGuid(), Guid.NewGuid(), "Message");
+
+        Assert.Throws<ArgumentException>(() =>
+            ChatMessage.CreateText(Guid.NewGuid(), Guid.NewGuid(), content));
+        Assert.Throws<ArgumentException>(() => message.EditContent(content));
+        Assert.Equal("Message", message.Content);
+    }
 }

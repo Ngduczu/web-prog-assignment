@@ -33,6 +33,22 @@ public class RegistrationApplicationTests
     }
 
     [Fact]
+    public async Task RegisterBoundsGeneratedFullNameForLongEmailLocalPart()
+    {
+        var fixture = CreateFixture();
+        var localPart = new string('a', 101);
+
+        await fixture.Service.RegisterAsync(new RegisterAccountRequest(
+            $"{localPart}@example.com",
+            "password123",
+            "password123"));
+
+        var user = Assert.Single(fixture.Users.Items);
+        Assert.Equal(100, user.FullName.Length);
+        Assert.Equal(localPart[..100], user.FullName);
+    }
+
+    [Fact]
     public async Task CorrectCodeActivatesAccountAndRemovesVerificationState()
     {
         var fixture = CreateFixture();
