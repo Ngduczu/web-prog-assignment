@@ -255,6 +255,55 @@ public class ChatApplicationTests
     }
 
     [Fact]
+    public async Task RoomListOmitsCourseRoomForTeacherWhoDoesNotOwnCourse()
+    {
+        var ownerId = Guid.NewGuid();
+        var otherTeacherId = Guid.NewGuid();
+        var course = new Course("Course", null, ownerId, 30, CourseStatus.Open, ownerId);
+        var room = ChatRoom.CreateForCourse(course.Id, ownerId);
+        room.AddCourseParticipant(otherTeacherId);
+        var fixture = CreateFixture(otherTeacherId, Role.Teacher, course, room);
+
+        var result = await fixture.Service.ListRoomsAsync(CancellationToken.None);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task AuthorizedParticipantCanDownloadMessageAttachment()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var course = new Course("Course", null, otherUserId, 30, CourseStatus.Open, otherUserId);
+        var room = ChatRoom.CreateDirectMessage(userId, otherUserId);
+        var message = ChatMessage.CreateWithAttachment(
+            room.Id,
+            otherUserId,
+            null,
+            "notes.pdf",
+            "chat/notes.pdf",
+            "application/pdf",
+            3);
+        var attachment = Assert.Single(message.Attachments);
+        var fixture = CreateFixture(userId, Role.Student, course, room);
+        fixture.Messages.Setup(repository => repository.GetByIdAsync(message.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(message);
+        fixture.FileStorage.Setup(storage => storage.OpenReadAsync(attachment.ObjectKey, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MemoryStream([1, 2, 3]));
+
+        var result = await fixture.Service.GetAttachmentContentAsync(
+            message.Id,
+            attachment.Id,
+            CancellationToken.None);
+
+        Assert.Equal("notes.pdf", result.FileName);
+        Assert.Equal("application/pdf", result.ContentType);
+        fixture.FileStorage.Verify(storage => storage.OpenReadAsync(
+            attachment.ObjectKey,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task MessageListOmitsDeletedMessagesAndTheirAttachments()
     {
         var userId = Guid.NewGuid();
@@ -333,6 +382,7 @@ public class ChatApplicationTests
 
         var messages = new Mock<IChatMessageRepository>();
 
+        var fileStorage = new Mock<IFileStorage>();
         var service = new ChatService(
             currentUser.Object,
             rooms.Object,
@@ -341,9 +391,9 @@ public class ChatApplicationTests
             enrollments.Object,
             Mock.Of<IUserRepository>(),
             unitOfWork.Object,
-            Mock.Of<IFileStorage>());
+            fileStorage.Object);
 
-        return new Fixture(service, courses, enrollments, messages, unitOfWork);
+        return new Fixture(service, courses, enrollments, messages, unitOfWork, fileStorage);
     }
 
     private sealed record Fixture(
@@ -351,5 +401,6 @@ public class ChatApplicationTests
         Mock<ICourseRepository> Courses,
         Mock<IEnrollmentRepository> Enrollments,
         Mock<IChatMessageRepository> Messages,
-        Mock<IUnitOfWork> UnitOfWork);
+        Mock<IUnitOfWork> UnitOfWork,
+        Mock<IFileStorage> FileStorage);
 }
