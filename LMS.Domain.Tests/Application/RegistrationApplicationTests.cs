@@ -49,6 +49,24 @@ public class RegistrationApplicationTests
     }
 
     [Fact]
+    public async Task RegisterCanBeRetriedAfterMailFailureWithoutDuplicatingAccount()
+    {
+        var fixture = CreateFixture();
+        fixture.Mail.FailNext = true;
+        var request = new RegisterAccountRequest(
+            "user@example.com",
+            "password123",
+            "password123");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.RegisterAsync(request));
+
+        var result = await fixture.Service.RegisterAsync(request);
+        Assert.Equal(Assert.Single(fixture.Users.Items).Id, result.UserId);
+        Assert.False(string.IsNullOrWhiteSpace(fixture.Mail.LastCode));
+    }
+
+    [Fact]
     public async Task CorrectCodeActivatesAccountAndRemovesVerificationState()
     {
         var fixture = CreateFixture();
@@ -217,6 +235,7 @@ public class RegistrationApplicationTests
 
     private sealed class FakeMailSender : IMailSender
     {
+        public bool FailNext { get; set; }
         public string LastEmail { get; private set; } = string.Empty;
         public string LastCode { get; private set; } = string.Empty;
 
@@ -226,6 +245,12 @@ public class RegistrationApplicationTests
             string verificationCode,
             CancellationToken cancellationToken = default)
         {
+            if (FailNext)
+            {
+                FailNext = false;
+                throw new InvalidOperationException("SMTP failure");
+            }
+
             LastEmail = email;
             LastCode = verificationCode;
             return Task.CompletedTask;

@@ -10,9 +10,9 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 10 |
+| Hoàn thành | 11 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 5 |
+| Chưa thực hiện | 4 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
@@ -26,7 +26,8 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 | RF-08 | Hoàn thành | Validation application/domain khớp giới hạn schema cho exercise, chat và user |
 | RF-09 | Hoàn thành | REST text message broadcast `MessageReceived` giống hub và attachment REST |
 | RF-10 | Hoàn thành | Refresh token, OAuth login code/state được phục hồi ngắn hạn sau lỗi downstream tạm thời |
-| RF-11..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+| RF-11 | Hoàn thành | Mail lỗi rollback code/cooldown; register account inactive có thể retry idempotent |
+| RF-12..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -103,6 +104,14 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Nếu chính Redis phục hồi lỗi, hệ thống giữ exception gốc thay vì che khuất nguyên nhân.
 - Thêm fault-injection tests xác nhận refresh token và OAuth login code cũ retry thành công sau lỗi DB tạm thời.
 - Xác minh: **186 passed, 0 failed, 0 skipped**.
+
+### RF-11 — Khôi phục workflow khi gửi mail lỗi
+
+- Register retry trên local account `Inactive` sẽ phát lại verification code cho cùng user thay vì trả conflict hoặc tạo account mới.
+- Mọi lỗi gửi verification mail xóa verification code, attempts và cooldown vừa tạo để lần sau retry sạch.
+- Forgot password xóa reset code và cooldown khi SMTP lỗi, vẫn giữ cơ chế không tiết lộ email tồn tại.
+- Cập nhật `API.md` và thêm fault-injection tests cho register/forgot-password retry sau SMTP failure.
+- Xác minh: **188 passed, 0 failed, 0 skipped**.
 
 ## Tổng quan
 

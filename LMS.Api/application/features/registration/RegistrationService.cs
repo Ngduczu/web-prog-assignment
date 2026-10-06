@@ -49,8 +49,19 @@ public sealed class RegistrationService : IRegistrationService
         ValidateRegistration(request);
         var normalizedEmail = NormalizeEmail(request.Email);
 
-        if (await _users.GetByEmailAsync(normalizedEmail, cancellationToken) is not null)
+        var existingUser = await _users.GetByEmailAsync(normalizedEmail, cancellationToken);
+        if (existingUser is not null)
         {
+            if (existingUser.Status == AccountStatus.Inactive && existingUser.PasswordHash is not null)
+            {
+                await CreateAndSendVerificationCodeAsync(existingUser, cancellationToken);
+                return new RegistrationDto(
+                    existingUser.Id,
+                    existingUser.Email,
+                    existingUser.Status,
+                    _clock.UtcNow.Add(VerificationTimeToLive));
+            }
+
             throw new ConflictException("An account with this email already exists.");
         }
 
@@ -188,11 +199,19 @@ public sealed class RegistrationService : IRegistrationService
             await _cache.SetAsync(GetCooldownKey(user.Id), true, ResendCooldown, cancellationToken);
         }
 
-        await _mailSender.SendEmailVerificationAsync(
-            user.Email,
-            user.FullName,
-            verificationCode,
-            cancellationToken);
+        try
+        {
+            await _mailSender.SendEmailVerificationAsync(
+                user.Email,
+                user.FullName,
+                verificationCode,
+                cancellationToken);
+        }
+        catch
+        {
+            await RemoveVerificationStateAsync(user.Id, CancellationToken.None);
+            throw;
+        }
     }
 
     private async Task RemoveVerificationStateAsync(Guid userId, CancellationToken cancellationToken)

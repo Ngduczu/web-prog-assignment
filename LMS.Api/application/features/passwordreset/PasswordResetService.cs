@@ -36,7 +36,16 @@ public sealed class PasswordResetService : IPasswordResetService
             return new PasswordResetRequestedDto(true, expires);
         var code = GenerateCode();
         await _cache.SetAsync(Key(user.Id), new ResetEntry(user.Id, user.Email, _hasher.Hash(code)), Ttl, cancellationToken);
-        await _mail.SendPasswordResetCodeAsync(user.Email, user.FullName, code, cancellationToken);
+        try
+        {
+            await _mail.SendPasswordResetCodeAsync(user.Email, user.FullName, code, cancellationToken);
+        }
+        catch
+        {
+            await _cache.RemoveAsync(Key(user.Id), CancellationToken.None);
+            await _cache.RemoveAsync(CooldownKey(user.Id), CancellationToken.None);
+            throw;
+        }
         return new PasswordResetRequestedDto(true, expires);
     }
 

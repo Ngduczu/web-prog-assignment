@@ -72,6 +72,24 @@ public sealed class PasswordResetApplicationTests
         Assert.Equal("hash:new-password123", fixture.User.PasswordHash);
     }
 
+    [Fact]
+    public async Task ForgotPasswordCanBeRetriedImmediatelyAfterMailFailure()
+    {
+        var fixture = CreateFixture();
+        fixture.Mail.FailNext = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.RequestAsync(new ForgotPasswordRequest("user@example.com")));
+
+        await fixture.Service.RequestAsync(new ForgotPasswordRequest("user@example.com"));
+        Assert.Equal(1, fixture.Mail.PasswordResetMessagesSent);
+        await fixture.Service.ResetAsync(new ResetPasswordRequest(
+            "user@example.com",
+            fixture.Mail.LastCode,
+            "new-password123",
+            "new-password123"));
+    }
+
     private static string DifferentCode(string code) =>
         $"{(code[0] == 'A' ? 'B' : 'A')}{code[1..]}";
 
@@ -118,6 +136,7 @@ public sealed class PasswordResetApplicationTests
 
     private sealed class FakeMailSender : IMailSender
     {
+        public bool FailNext { get; set; }
         public int PasswordResetMessagesSent { get; private set; }
         public string LastCode { get; private set; } = string.Empty;
 
@@ -133,6 +152,12 @@ public sealed class PasswordResetApplicationTests
             string resetCode,
             CancellationToken cancellationToken = default)
         {
+            if (FailNext)
+            {
+                FailNext = false;
+                throw new InvalidOperationException("SMTP failure");
+            }
+
             PasswordResetMessagesSent++;
             LastCode = resetCode;
             return Task.CompletedTask;

@@ -125,7 +125,7 @@ Refresh token cũ bị xoá ngay khi dùng (rotation), hash được lưu Redis 
 }
 ```
 
-Flow: validate → hash password → PostgreSQL → Redis mã 6 ký tự với TTL 15 phút → SMTP.
+Flow: validate → hash password → PostgreSQL → Redis mã 6 ký tự với TTL 15 phút → SMTP. Nếu SMTP lỗi, verification state/cooldown được dọn và cùng request đăng ký có thể retry trên account local `Inactive` mà không tạo user trùng.
 
 ### `POST /api/auth/verify-email`
 
@@ -167,7 +167,7 @@ Nếu cập nhật PostgreSQL thất bại sau khi consume, backend khôi phục
 }
 ```
 
-**Response `204 No Content`:** Không có body. Cooldown gửi lại là 1 phút.
+**Response `204 No Content`:** Không có body. Cooldown gửi lại là 1 phút; lỗi SMTP giải phóng code/cooldown để request có thể retry ngay.
 
 ### `POST /api/auth/forgot-password`
 
@@ -189,6 +189,8 @@ Nếu cập nhật PostgreSQL thất bại sau khi consume, backend khôi phục
   "codeExpiresAt": "2026-09-04T12:15:00Z"
 }
 ```
+
+Nếu SMTP lỗi, reset code và cooldown vừa tạo được xóa để request có thể retry ngay; API vẫn giữ response che giấu việc email có tồn tại hay không.
 
 ### `POST /api/auth/reset-password`
 
