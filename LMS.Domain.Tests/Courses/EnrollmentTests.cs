@@ -32,11 +32,13 @@ public class EnrollmentTests
     }
 
     [Fact]
-    public void TerminalEnrollmentCannotTransitionAgain()
+    public void AcceptedEnrollmentCanBeCancelledAndRequestedAgain()
     {
         var enrollment = new Enrollment(Guid.NewGuid(), Guid.NewGuid());
         enrollment.Accept();
+        enrollment.Cancel();
+        enrollment.RequestAgain();
 
-        Assert.Throws<ConflictException>(() => enrollment.Cancel());
+        Assert.Equal(EnrollmentStatus.Waiting, enrollment.Status);
     }
 }
