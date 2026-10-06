@@ -17,9 +17,12 @@ public sealed class UserService : IUserService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
     private readonly ICache _cache;
+    private readonly ICourseRepository _courses;
+    private readonly IQuestionBankRepository _questionBanks;
+    private readonly ITransactionManager? _transactionManager;
 
-    public UserService(IUserManagementRepository users, IPasswordHasher hasher, IUnitOfWork unitOfWork, ICurrentUser currentUser, ICache cache)
-    { _users = users; _hasher = hasher; _unitOfWork = unitOfWork; _currentUser = currentUser; _cache = cache; }
+    public UserService(IUserManagementRepository users, IPasswordHasher hasher, IUnitOfWork unitOfWork, ICurrentUser currentUser, ICache cache, ICourseRepository courses, IQuestionBankRepository questionBanks, ITransactionManager? transactionManager = null)
+    { _users = users; _hasher = hasher; _unitOfWork = unitOfWork; _currentUser = currentUser; _cache = cache; _courses = courses; _questionBanks = questionBanks; _transactionManager = transactionManager; }
 
     public async Task<UserProfileDto> GetProfileAsync(Guid userId, CancellationToken cancellationToken = default)
     {
@@ -49,7 +52,9 @@ public sealed class UserService : IUserService
         var email = NormalizeEmail(request.Email);
         if (await _users.GetByEmailAsync(email, cancellationToken) is not null) throw new ConflictException("An account with this email already exists.");
         if (string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 100) throw new BadRequestException("Full name is invalid.");
-        if (request.Password.Length is < 8 or > 128) throw new BadRequestException("Password must contain between 8 and 128 characters.");
+        if (string.IsNullOrEmpty(request.Password) || request.Password.Length is < 8 or > 128) throw new BadRequestException("Password must contain between 8 and 128 characters.");
+        if (!Enum.IsDefined(request.Role)) throw new BadRequestException("Role is invalid.");
+        if (request.Phone?.Trim().Length > 20) throw new BadRequestException("Phone cannot exceed 20 characters.");
         var user = new User(email, request.FullName.Trim(), request.Phone?.Trim(), _hasher.Hash(request.Password), request.Role, AccountStatus.Active, _currentUser.GetRequiredUserId());
         _users.Add(user); await _unitOfWork.SaveChangesAsync(cancellationToken); return Map(user);
     }
@@ -58,33 +63,55 @@ public sealed class UserService : IUserService
     {
         EnsureAdmin();
         if (userId == Guid.Empty || !Enum.IsDefined(request.Status)) throw new BadRequestException("User id or status is invalid.");
-        var user = await _users.GetByIdAsync(userId, cancellationToken) ?? throw new NotFoundException("User was not found.");
-        if (user.Role == Role.Admin && user.Id != _currentUser.GetRequiredUserId()) throw new ForbiddenException("Administrator accounts cannot be modified.");
-        user.SetStatus(request.Status); user.SetModifiedBy(_currentUser.GetRequiredUserId());
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await InvalidateTokensAsync(user.Id, cancellationToken);
-        return Map(user);
+        UserProfileDto? result = null;
+        async Task UpdateCore(CancellationToken transactionCancellationToken)
+        {
+            var user = await _users.GetByIdAsync(userId, transactionCancellationToken) ?? throw new NotFoundException("User was not found.");
+            var actorId = _currentUser.GetRequiredUserId();
+            if (user.Role == Role.Admin && user.Id != actorId) throw new ForbiddenException("Administrator accounts cannot be modified.");
+            if (user.Role == Role.Admin && user.Status == AccountStatus.Active && request.Status != AccountStatus.Active &&
+                await _users.CountActiveByRoleAsync(Role.Admin, transactionCancellationToken) <= 1)
+                throw new ConflictException("The last active administrator cannot be disabled.");
+            if (user.Role == Role.Teacher && request.Status != AccountStatus.Active)
+                await EnsureTeacherHasNoOwnedResourcesAsync(user.Id, transactionCancellationToken);
+            user.SetStatus(request.Status); user.SetModifiedBy(actorId);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            result = Map(user);
+        }
+
+        await ExecuteSerializableAsync(UpdateCore, cancellationToken);
+        await InvalidateTokensAsync(userId, cancellationToken);
+        return result!;
     }
 
     public async Task<UserProfileDto> UpdateByAdminAsync(Guid userId, AdminUpdateUserRequest request, CancellationToken cancellationToken = default)
     {
         EnsureAdmin();
-        if (userId == Guid.Empty || string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 100 || !Enum.IsDefined(request.Role))
+        if (userId == Guid.Empty || string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 100 || !Enum.IsDefined(request.Role) || request.Phone?.Trim().Length > 20)
             throw new BadRequestException("User id, full name or role is invalid.");
-        var user = await _users.GetByIdAsync(userId, cancellationToken) ?? throw new NotFoundException("User was not found.");
-        var actorId = _currentUser.GetRequiredUserId();
-        if (user.Role == Role.Admin && user.Id != actorId)
-            throw new ForbiddenException("Administrator accounts cannot be modified.");
-        if (user.Role == Role.Admin && request.Role != Role.Admin &&
-            await _users.CountByRoleAsync(Role.Admin, cancellationToken) <= 1)
-            throw new ConflictException("The last administrator cannot be demoted.");
-        user.SetFullName(request.FullName.Trim());
-        user.SetPhone(request.Phone?.Trim() ?? string.Empty);
-        user.SetRole(request.Role);
-        user.SetModifiedBy(actorId);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await InvalidateTokensAsync(user.Id, cancellationToken);
-        return Map(user);
+        UserProfileDto? result = null;
+        async Task UpdateCore(CancellationToken transactionCancellationToken)
+        {
+            var user = await _users.GetByIdAsync(userId, transactionCancellationToken) ?? throw new NotFoundException("User was not found.");
+            var actorId = _currentUser.GetRequiredUserId();
+            if (user.Role == Role.Admin && user.Id != actorId)
+                throw new ForbiddenException("Administrator accounts cannot be modified.");
+            if (user.Role == Role.Admin && user.Status == AccountStatus.Active && request.Role != Role.Admin &&
+                await _users.CountActiveByRoleAsync(Role.Admin, transactionCancellationToken) <= 1)
+                throw new ConflictException("The last active administrator cannot be demoted.");
+            if (user.Role == Role.Teacher && request.Role != Role.Teacher)
+                await EnsureTeacherHasNoOwnedResourcesAsync(user.Id, transactionCancellationToken);
+            user.SetFullName(request.FullName.Trim());
+            user.SetPhone(request.Phone?.Trim() ?? string.Empty);
+            user.SetRole(request.Role);
+            user.SetModifiedBy(actorId);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            result = Map(user);
+        }
+
+        await ExecuteSerializableAsync(UpdateCore, cancellationToken);
+        await InvalidateTokensAsync(userId, cancellationToken);
+        return result!;
     }
 
     private void EnsureAdmin() { if (_currentUser.GetRequiredRole() != Role.Admin) throw new ForbiddenException("Only administrators can manage users."); }
@@ -92,6 +119,25 @@ public sealed class UserService : IUserService
     {
         await _cache.SetIfNotExistsAsync($"auth:version:{userId:N}", 1L, TimeSpan.FromDays(365), cancellationToken);
         await _cache.IncrementAsync($"auth:version:{userId:N}", TimeSpan.FromDays(365), cancellationToken);
+    }
+    private Task ExecuteSerializableAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken) =>
+        _transactionManager is null
+            ? action(cancellationToken)
+            : _transactionManager.ExecuteSerializableAsync(action, cancellationToken);
+    private async Task EnsureTeacherHasNoOwnedResourcesAsync(Guid teacherId, CancellationToken cancellationToken)
+    {
+        var courseCount = await _courses.CountAsync(
+            null,
+            null,
+            teacherId,
+            true,
+            cancellationToken);
+        var questionBanks = await _questionBanks.ListByTeacherAsync(teacherId, cancellationToken);
+        if (courseCount > 0 || questionBanks.Count > 0)
+        {
+            throw new ConflictException(
+                "Transfer the teacher's courses and question banks before changing their role or active status.");
+        }
     }
     private static void ValidatePage(int page, int size) { if (page <= 0 || size is < 1 or > 100) throw new BadRequestException("Invalid pagination."); }
     private static string NormalizeEmail(string email) { var value = email?.Trim().ToLowerInvariant(); if (string.IsNullOrWhiteSpace(value) || !MailAddress.TryCreate(value, out var address) || address.Address != value) throw new BadRequestException("Email address is invalid."); return value; }
