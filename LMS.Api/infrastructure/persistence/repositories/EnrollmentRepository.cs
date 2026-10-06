@@ -40,6 +40,7 @@ public sealed class EnrollmentRepository : IEnrollmentRepository
         CancellationToken cancellationToken) =>
         await _dbContext.Enrollments
             .AsNoTracking()
+            .Include(enrollment => enrollment.Student)
             .Where(enrollment => enrollment.CourseId == courseId)
             .OrderByDescending(enrollment => enrollment.CreatedAt)
             .ThenBy(enrollment => enrollment.Id)
