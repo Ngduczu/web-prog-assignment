@@ -42,6 +42,33 @@ public sealed class ExaminationAttemptRepository : IExaminationAttemptRepository
                         attempt.Status == ExaminationAttemptStatus.Disconnected),
             cancellationToken);
 
+    public Task<ExaminationAttempt?> GetLatestAsync(
+        Guid examinationId,
+        Guid studentId,
+        bool includeAnswers,
+        CancellationToken cancellationToken)
+    {
+        IQueryable<ExaminationAttempt> query = _dbContext.ExaminationAttempts;
+        if (includeAnswers)
+        {
+            query = query
+                .Include(attempt => attempt.Answers)
+                    .ThenInclude(answer => answer.FillInBlankAnswers)
+                .AsSplitQuery();
+        }
+
+        return query
+            .Where(attempt =>
+                attempt.ExaminationId == examinationId &&
+                attempt.StudentId == studentId)
+            .OrderByDescending(attempt =>
+                attempt.Status == ExaminationAttemptStatus.InProgress ||
+                attempt.Status == ExaminationAttemptStatus.Disconnected)
+            .ThenByDescending(attempt => attempt.StartedAt)
+            .ThenByDescending(attempt => attempt.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public Task<StudentAnswer?> GetAnswerAsync(
         Guid attemptId,
         Guid examinationQuestionId,
@@ -80,7 +107,9 @@ public sealed class ExaminationAttemptRepository : IExaminationAttemptRepository
                   attempt.Examination!.DueAt <= now)) ||
                 (attempt.Status == ExaminationAttemptStatus.Disconnected &&
                  attempt.DisconnectedAt != null &&
-                 attempt.DisconnectedAt.Value.AddMinutes(attempt.Examination!.MaxDisconnectMinutes) <= now))
+                 (attempt.DisconnectedAt.Value.AddMinutes(attempt.Examination!.MaxDisconnectMinutes) <= now ||
+                  attempt.StartedAt.AddMinutes(attempt.Examination!.DurationMinutes) <= now ||
+                  attempt.Examination!.DueAt <= now)))
             .OrderBy(attempt => attempt.LastActivityAt)
             .Take(take)
             .ToListAsync(cancellationToken);
