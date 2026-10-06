@@ -122,6 +122,22 @@ public class RegistrationApplicationTests
     }
 
     [Fact]
+    public async Task VerificationCodeIsRestoredWhenDatabaseSaveFails()
+    {
+        var fixture = CreateFixture();
+        await fixture.Service.RegisterAsync(new RegisterAccountRequest(
+            "user@example.com", "password123", "password123"));
+        var user = Assert.Single(fixture.Users.Items);
+        fixture.UnitOfWork.FailNext = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.VerifyEmailAsync(new VerifyEmailRequest(user.Email, fixture.Mail.LastCode)));
+
+        Assert.Equal(AccountStatus.Inactive, user.Status);
+        Assert.True(fixture.Cache.Values.ContainsKey(fixture.Cache.LastVerificationKey));
+    }
+
+    [Fact]
     public async Task ConcurrentVerificationCodeRedemptionHasExactlyOneWinner()
     {
         var fixture = CreateFixture();
@@ -154,21 +170,23 @@ public class RegistrationApplicationTests
         var users = new FakeUserRepository();
         var cache = new FakeCache();
         var mail = new FakeMailSender();
+        var unitOfWork = new FakeUnitOfWork();
         var service = new RegistrationService(
             users,
             new FakePasswordHasher(),
             cache,
             mail,
-            new FakeUnitOfWork(),
+            unitOfWork,
             new FakeClock());
-        return new Fixture(service, users, cache, mail);
+        return new Fixture(service, users, cache, mail, unitOfWork);
     }
 
     private sealed record Fixture(
         RegistrationService Service,
         FakeUserRepository Users,
         FakeCache Cache,
-        FakeMailSender Mail);
+        FakeMailSender Mail,
+        FakeUnitOfWork UnitOfWork);
 
     private sealed class FakeClock : IClock
     {
@@ -207,7 +225,18 @@ public class RegistrationApplicationTests
 
     private sealed class FakeUnitOfWork : IUnitOfWork
     {
-        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+        public bool FailNext { get; set; }
+
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            if (!FailNext)
+            {
+                return Task.FromResult(1);
+            }
+
+            FailNext = false;
+            return Task.FromException<int>(new InvalidOperationException("Database failure"));
+        }
     }
 
     private sealed class FakeUserRepository : IUserRepository
