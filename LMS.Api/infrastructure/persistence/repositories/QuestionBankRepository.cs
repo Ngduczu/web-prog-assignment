@@ -42,8 +42,17 @@ public sealed class QuestionBankRepository : IQuestionBankRepository
             .ThenBy(questionBank => questionBank.Id)
             .ToListAsync(cancellationToken);
 
+    public Task<bool> IsReferencedByExaminationAsync(
+        Guid questionBankId,
+        CancellationToken cancellationToken) =>
+        _dbContext.ExaminationQuestionSelectionRules.AnyAsync(
+            rule => rule.QuestionBankId == questionBankId,
+            cancellationToken);
+
     public void Add(QuestionBank questionBank)
     {
         _dbContext.QuestionBanks.Add(questionBank);
     }
+
+    public void Remove(QuestionBank questionBank) => _dbContext.QuestionBanks.Remove(questionBank);
 }
