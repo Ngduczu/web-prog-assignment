@@ -25,13 +25,15 @@ public sealed class PasswordResetService : IPasswordResetService
         var email = NormalizeEmail(request.Email);
         var expires = _clock.UtcNow.Add(Ttl);
         var user = await _users.GetByEmailAsync(email, cancellationToken);
-        if (user is null || user.PasswordHash is null || user.Status != AccountStatus.Active) return new PasswordResetRequestedDto(true, expires);
+        if (user is null || user.PasswordHash is null || user.Status != AccountStatus.Active)
+            return new PasswordResetRequestedDto(true, expires);
         var cooldownAcquired = await _cache.SetIfNotExistsAsync(
             CooldownKey(user.Id),
             true,
             RequestCooldown,
             cancellationToken);
-        if (!cooldownAcquired) return new PasswordResetRequestedDto(true, expires);
+        if (!cooldownAcquired)
+            return new PasswordResetRequestedDto(true, expires);
         var code = GenerateCode();
         await _cache.SetAsync(Key(user.Id), new ResetEntry(user.Id, user.Email, _hasher.Hash(code)), Ttl, cancellationToken);
         await _mail.SendPasswordResetCodeAsync(user.Email, user.FullName, code, cancellationToken);
@@ -47,7 +49,18 @@ public sealed class PasswordResetService : IPasswordResetService
         if (await _cache.IncrementAsync(AttemptsKey(user.Id), Ttl, cancellationToken) > MaxAttempts) { await _cache.RemoveAsync(Key(user.Id), cancellationToken); throw new ConflictException("Too many reset attempts. Try again later."); }
         if (entry.UserId != user.Id || entry.Email != user.Email || !_hasher.Verify(request.ResetCode.Trim().ToUpperInvariant(), entry.CodeHash)) throw new BadRequestException("Reset code is invalid or expired.");
         if (await _cache.ConsumeAsync<ResetEntry>(Key(user.Id), cancellationToken) is null) throw new ConflictException("Reset code has already been used. Request a new code.");
-        user.SetPasswordHash(_hasher.Hash(request.NewPassword)); await _uow.SaveChangesAsync(cancellationToken);
+        var oldPasswordHash = user.PasswordHash;
+        user.SetPasswordHash(_hasher.Hash(request.NewPassword));
+        try
+        {
+            await _uow.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            user.SetPasswordHash(oldPasswordHash);
+            await _cache.SetAsync(Key(user.Id), entry, Ttl, CancellationToken.None);
+            throw;
+        }
         await _cache.SetIfNotExistsAsync($"auth:version:{user.Id:N}", 1L, TimeSpan.FromDays(365), cancellationToken);
         await _cache.IncrementAsync($"auth:version:{user.Id:N}", TimeSpan.FromDays(365), cancellationToken);
         await _cache.RemoveAsync(AttemptsKey(user.Id), cancellationToken);
