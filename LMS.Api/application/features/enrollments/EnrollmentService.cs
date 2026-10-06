@@ -53,9 +53,17 @@ public sealed class EnrollmentService : IEnrollmentService
             throw new ConflictException("Enrollment is only available for open courses.");
         }
 
-        if (await _enrollments.GetByStudentAndCourseAsync(studentId, courseId, cancellationToken) is not null)
+        var existing = await _enrollments.GetByStudentAndCourseAsync(studentId, courseId, cancellationToken);
+        if (existing is not null)
         {
-            throw new ConflictException("An enrollment for this student and course already exists.");
+            if (existing.Status is EnrollmentStatus.Rejected or EnrollmentStatus.Cancelled)
+            {
+                existing.RequestAgain();
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return Map(existing);
+            }
+
+            throw new ConflictException("An active enrollment for this student and course already exists.");
         }
 
         var enrollment = new Enrollment(studentId, courseId);
@@ -97,6 +105,20 @@ public sealed class EnrollmentService : IEnrollmentService
         CancellationToken cancellationToken = default) =>
         TransitionAsync(enrollmentId, EnrollmentStatus.Rejected, cancellationToken);
 
+    public async Task<IReadOnlyList<EnrollmentDto>> ListMineAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (_currentUser.GetRequiredRole() != Role.Student)
+        {
+            throw new ForbiddenException("Only students can list their enrollments.");
+        }
+
+        var items = await _enrollments.ListByStudentAsync(
+            _currentUser.GetRequiredUserId(),
+            cancellationToken);
+        return items.Select(Map).ToArray();
+    }
+
     public async Task<EnrollmentDto> CancelAsync(
         Guid enrollmentId,
         CancellationToken cancellationToken = default)
@@ -111,7 +133,24 @@ public sealed class EnrollmentService : IEnrollmentService
             throw new ForbiddenException("Students can only cancel their own enrollment requests.");
         }
 
-        EnsureWaiting(enrollment);
+        enrollment.Cancel();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(enrollment);
+    }
+
+    public async Task<EnrollmentDto> RevokeAsync(
+        Guid enrollmentId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(enrollmentId, "Enrollment id");
+        var enrollment = await _enrollments.GetByIdAsync(enrollmentId, cancellationToken)
+            ?? throw new NotFoundException("Enrollment was not found.");
+        _ = await GetManagedCourseAsync(enrollment.CourseId, cancellationToken);
+        if (enrollment.Status != EnrollmentStatus.Accepted)
+        {
+            throw new ConflictException("Only accepted enrollments can be revoked.");
+        }
+
         enrollment.Cancel();
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Map(enrollment);
@@ -148,6 +187,11 @@ public sealed class EnrollmentService : IEnrollmentService
 
         if (targetStatus == EnrollmentStatus.Accepted)
         {
+            if (course.Status != CourseStatus.Open)
+            {
+                throw new ConflictException("Enrollments can only be accepted for open courses.");
+            }
+
             var acceptedCount = await _enrollments.CountAcceptedByCourseAsync(course.Id, cancellationToken);
             if (acceptedCount >= course.MaxStudents)
             {
@@ -202,6 +246,12 @@ public sealed class EnrollmentService : IEnrollmentService
         enrollment.StudentId,
         enrollment.CourseId,
         enrollment.Status,
+        enrollment.Student is null
+            ? null
+            : new EnrollmentStudentDto(
+                enrollment.Student.Id,
+                enrollment.Student.FullName,
+                enrollment.Student.Email),
         enrollment.CreatedAt,
         enrollment.ModifiedAt);
 }
