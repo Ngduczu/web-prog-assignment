@@ -10,9 +10,9 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 4 |
+| Hoàn thành | 5 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 11 |
+| Chưa thực hiện | 10 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
@@ -20,7 +20,8 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 | RF-02 | Hoàn thành | Student có enrollment accepted xem được exercise `Published` và `Closed`, nhưng không thấy `Draft` |
 | RF-03 | Hoàn thành | Close examination auto-submit và chấm mọi attempt active trong cùng transaction |
 | RF-04 | Hoàn thành | Admin auto-submit chỉ chấp nhận reason khi điều kiện server tương ứng đã xảy ra |
-| RF-05..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+| RF-05 | Hoàn thành | Transaction retry toàn khối cho PostgreSQL serialization/deadlock, hết retry trả `409` |
+| RF-06..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -52,6 +53,14 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Với hai deadline trùng nhau hoặc examination hết trước, reason chuẩn là `DurationExpired`, không phải `DisconnectTimeout`.
 - Cập nhật enum/contract và thêm test cho mọi reason gửi sớm cùng trường hợp duration thực sự đã hết.
 - Xác minh: **171 passed, 0 failed, 0 skipped**.
+
+### RF-05 — Xử lý serialization conflict và deadlock
+
+- Transaction manager retry tối đa ba lần cho PostgreSQL `40001` (serialization failure) và `40P01` (deadlock), bao phủ lại toàn bộ callback nghiệp vụ chứ không chỉ câu lệnh commit.
+- Xóa change tracker trước mỗi lần chạy lại để không tái sử dụng entity đã bị mutate trong transaction thất bại.
+- Sau lần thử cuối, chuyển lỗi thành domain conflict `409` với thông báo có thể retry thay vì rơi thành `500`.
+- Thêm test phân loại SQL state để chỉ retry đúng hai lỗi concurrency, không nuốt unique violation.
+- Xác minh: **174 passed, 0 failed, 0 skipped**.
 
 ## Tổng quan
 

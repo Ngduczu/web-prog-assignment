@@ -13,6 +13,7 @@ namespace LMS.Api.infrastructure.Persistence;
 
 public class AppDbContext : DbContext, IUnitOfWork, ITransactionManager
 {
+    private const int MaximumTransactionAttempts = 3;
     public  AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {}
 
@@ -91,12 +92,41 @@ public class AppDbContext : DbContext, IUnitOfWork, ITransactionManager
         IsolationLevel isolationLevel,
         CancellationToken cancellationToken)
     {
-        var executionStrategy = Database.CreateExecutionStrategy();
-        await executionStrategy.ExecuteAsync(async () =>
+        for (var attempt = 1; attempt <= MaximumTransactionAttempts; attempt++)
         {
-            await using var transaction = await Database.BeginTransactionAsync(isolationLevel, cancellationToken);
-            await action(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        });
+            try
+            {
+                await using var transaction = await Database.BeginTransactionAsync(isolationLevel, cancellationToken);
+                await action(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return;
+            }
+            catch (Exception exception) when (IsRetryableTransactionFailure(exception))
+            {
+                ChangeTracker.Clear();
+                if (attempt == MaximumTransactionAttempts)
+                {
+                    throw new ConflictException(
+                        "The transaction conflicted with another request. Please retry.",
+                        exception);
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(25 * attempt), cancellationToken);
+            }
+        }
+    }
+
+    internal static bool IsRetryableTransactionFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException postgresException &&
+                postgresException.SqlState is PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

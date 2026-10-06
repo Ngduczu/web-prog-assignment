@@ -5,6 +5,7 @@ using LMS.Api.domain.Entities.Questions;
 using LMS.Api.domain.Entities.Users;
 using LMS.Api.infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace LMS.Domain.Tests.Persistence;
 
@@ -85,6 +86,24 @@ public class AppDbContextModelTests
         Assert.Contains("CREATE TABLE examinations", script);
         Assert.Contains("CREATE TABLE chat_rooms", script);
         Assert.Contains("CREATE TABLE chat_messages", script);
+    }
+
+    [Theory]
+    [InlineData(PostgresErrorCodes.SerializationFailure, true)]
+    [InlineData(PostgresErrorCodes.DeadlockDetected, true)]
+    [InlineData(PostgresErrorCodes.UniqueViolation, false)]
+    public void TransactionRetryOnlyHandlesConcurrencySqlStates(string sqlState, bool expected)
+    {
+        var postgresException = new PostgresException(
+            "database error",
+            "ERROR",
+            "ERROR",
+            sqlState);
+        var wrapped = new DbUpdateException("save failed", postgresException);
+
+        var result = AppDbContext.IsRetryableTransactionFailure(wrapped);
+
+        Assert.Equal(expected, result);
     }
 
     private static void AssertUniqueIndex<TEntity>(AppDbContext context, params string[] propertyNames)
