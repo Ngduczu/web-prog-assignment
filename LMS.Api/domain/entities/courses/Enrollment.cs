@@ -60,10 +60,18 @@ public class Enrollment
 
     public void Cancel()
     {
-        if (Status != EnrollmentStatus.Waiting)
+        if (Status is not EnrollmentStatus.Waiting and not EnrollmentStatus.Accepted)
             throw new ConflictException(
-                "Only waiting enrollment can be cancelled.");
+                "Only waiting or accepted enrollment can be cancelled.");
         Status = EnrollmentStatus.Cancelled;
+        Touch();
+    }
+
+    public void RequestAgain()
+    {
+        if (Status is not EnrollmentStatus.Rejected and not EnrollmentStatus.Cancelled)
+            throw new ConflictException("Only rejected or cancelled enrollment can be requested again.");
+        Status = EnrollmentStatus.Waiting;
         Touch();
     }
 }
