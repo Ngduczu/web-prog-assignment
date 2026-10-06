@@ -374,6 +374,13 @@ public class ExaminationAttemptApplicationTests
                 .ThenByDescending(attempt => attempt.Id)
                 .FirstOrDefault());
 
+        public Task<IReadOnlyList<ExaminationAttempt>> ListActiveByExaminationAsync(
+            Guid examinationId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ExaminationAttempt>>(Items.Where(attempt =>
+                attempt.ExaminationId == examinationId &&
+                attempt.Status is ExaminationAttemptStatus.InProgress or ExaminationAttemptStatus.Disconnected).ToArray());
+
         public Task<StudentAnswer?> GetAnswerAsync(
             Guid attemptId,
             Guid examinationQuestionId,

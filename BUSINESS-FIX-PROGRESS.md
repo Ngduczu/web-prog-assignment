@@ -10,15 +10,16 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 2 |
+| Hoàn thành | 3 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 13 |
+| Chưa thực hiện | 12 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
 | RF-01 | Hoàn thành | Global filter dùng quan hệ course bắt buộc; `courses/mine` loại course soft-delete ở cả repository và service |
 | RF-02 | Hoàn thành | Student có enrollment accepted xem được exercise `Published` và `Closed`, nhưng không thấy `Draft` |
-| RF-03..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+| RF-03 | Hoàn thành | Close examination auto-submit và chấm mọi attempt active trong cùng transaction |
+| RF-04..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -34,6 +35,14 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Endpoint chi tiết và tải attachment áp dụng cùng quy tắc để student có thể mở lại bài đã đóng sau reload.
 - Cập nhật contract `API.md` và thêm test cho cả list lẫn get exercise `Closed`.
 - Xác minh: **165 passed, 0 failed, 0 skipped**.
+
+### RF-03 — Đóng examination kết thúc attempt đang hoạt động
+
+- Chốt semantics: đóng examination có hiệu lực kết thúc ngay, không chỉ ngăn attempt mới.
+- Thêm submit reason `ExaminationClosed` để audit không bị gán nhầm thành hết giờ hoặc mất kết nối.
+- Khi đóng, tải mọi attempt `InProgress`/`Disconnected`, chấm và auto-submit trước khi chuyển examination sang `Closed`, tất cả trong cùng transaction serializable.
+- Cập nhật `API.md` và thêm test bao phủ cả attempt đang làm lẫn disconnected.
+- Xác minh: **166 passed, 0 failed, 0 skipped**.
 
 ## Tổng quan
 

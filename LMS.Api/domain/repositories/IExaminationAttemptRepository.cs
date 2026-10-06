@@ -17,6 +17,9 @@ public interface IExaminationAttemptRepository
         Guid studentId,
         bool includeAnswers,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<ExaminationAttempt>> ListActiveByExaminationAsync(
+        Guid examinationId,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<ExaminationAttempt>> ListExpiredAsync(
         DateTime now,
         int take,

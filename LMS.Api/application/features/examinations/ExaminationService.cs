@@ -2,6 +2,7 @@ using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.abstractions.time;
 using LMS.Api.application.features.courses;
+using LMS.Api.application.features.examinationattempts;
 using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Entities.Examinations;
 using LMS.Api.domain.Entities.Questions;
@@ -19,6 +20,7 @@ public sealed class ExaminationService : IExaminationService
     private readonly IEnrollmentRepository _enrollments;
     private readonly IQuestionBankRepository _questionBanks;
     private readonly IQuestionRepository _questions;
+    private readonly IExaminationAttemptRepository _attempts;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITransactionManager _transactionManager;
     private readonly ICurrentUser _currentUser;
@@ -30,6 +32,7 @@ public sealed class ExaminationService : IExaminationService
         IEnrollmentRepository enrollments,
         IQuestionBankRepository questionBanks,
         IQuestionRepository questions,
+        IExaminationAttemptRepository attempts,
         IUnitOfWork unitOfWork,
         ITransactionManager transactionManager,
         ICurrentUser currentUser,
@@ -40,6 +43,7 @@ public sealed class ExaminationService : IExaminationService
         _enrollments = enrollments;
         _questionBanks = questionBanks;
         _questions = questions;
+        _attempts = attempts;
         _unitOfWork = unitOfWork;
         _transactionManager = transactionManager;
         _currentUser = currentUser;
@@ -289,18 +293,34 @@ public sealed class ExaminationService : IExaminationService
         CancellationToken cancellationToken = default)
     {
         ValidateId(examinationId, "Examination id");
-        var examination = await GetExaminationAsync(examinationId, true, cancellationToken);
-        var actorId = await EnsureCanManageAsync(examination, cancellationToken);
-
-        if (examination.Status != ExaminationStatus.Published)
+        Examination? examination = null;
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
-            throw new ConflictException("Only published examinations can be closed.");
-        }
+            examination = await GetExaminationAsync(examinationId, true, transactionCancellationToken);
+            var actorId = await EnsureCanManageAsync(examination, transactionCancellationToken);
 
-        examination.SetStatus(ExaminationStatus.Closed);
-        examination.SetModifiedBy(actorId);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(examination);
+            if (examination.Status != ExaminationStatus.Published)
+            {
+                throw new ConflictException("Only published examinations can be closed.");
+            }
+
+            var activeAttempts = await _attempts.ListActiveByExaminationAsync(
+                examination.Id,
+                transactionCancellationToken);
+            foreach (var attempt in activeAttempts)
+            {
+                AttemptGrader.CompleteAndGrade(
+                    attempt,
+                    examination,
+                    ExaminationSubmitReason.ExaminationClosed,
+                    autoSubmit: true);
+            }
+
+            examination.SetStatus(ExaminationStatus.Closed);
+            examination.SetModifiedBy(actorId);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
+        return Map(examination!);
     }
 
     private async Task<Guid> EnsureCanManageAsync(

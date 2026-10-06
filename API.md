@@ -1118,6 +1118,8 @@ Student examination object giống examination object nhưng không có `questio
 
 **Quyền:** Teacher sở hữu course hoặc Admin. Chỉ close exam `Published`.
 
+Khi đóng, backend chấm và auto-submit ngay mọi attempt `InProgress`/`Disconnected` với `submitReason=ExaminationClosed` trong cùng transaction.
+
 **Request body:** Không có body. **Response `200 OK`:** Examination object với status `Closed`.
 
 ## Examination Attempt

@@ -87,6 +87,19 @@ public sealed class ExaminationAttemptRepository : IExaminationAttemptRepository
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ExaminationAttempt>> ListActiveByExaminationAsync(
+        Guid examinationId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.ExaminationAttempts
+            .Include(attempt => attempt.Answers)
+                .ThenInclude(answer => answer.FillInBlankAnswers)
+            .Where(attempt =>
+                attempt.ExaminationId == examinationId &&
+                (attempt.Status == ExaminationAttemptStatus.InProgress ||
+                 attempt.Status == ExaminationAttemptStatus.Disconnected))
+            .AsSplitQuery()
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<ExaminationAttempt>> ListExpiredAsync(
         DateTime now,
         int take,

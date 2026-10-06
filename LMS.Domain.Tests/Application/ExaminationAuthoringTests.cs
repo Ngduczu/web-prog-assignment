@@ -65,6 +65,28 @@ public class ExaminationAuthoringTests
         await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.PublishAsync(created.Id));
     }
 
+    [Fact]
+    public async Task ClosingExaminationAutoSubmitsEveryActiveAttempt()
+    {
+        var fixture = CreateFixture();
+        var created = await fixture.Service.CreateAsync(fixture.Course.Id, fixture.CreateRequest(questionCount: 2));
+        await fixture.Service.PublishAsync(created.Id);
+        var inProgress = new ExaminationAttempt(created.Id, Guid.NewGuid(), DateTime.UtcNow, 2);
+        var disconnected = new ExaminationAttempt(created.Id, Guid.NewGuid(), DateTime.UtcNow, 2);
+        disconnected.Disconnect(DateTime.UtcNow, 30);
+        fixture.Attempts.Items.AddRange([inProgress, disconnected]);
+
+        var closed = await fixture.Service.CloseAsync(created.Id);
+
+        Assert.Equal(ExaminationStatus.Closed, closed.Status);
+        Assert.All(fixture.Attempts.Items, attempt =>
+        {
+            Assert.Equal(ExaminationAttemptStatus.AutoSubmitted, attempt.Status);
+            Assert.Equal(ExaminationSubmitReason.ExaminationClosed, attempt.SubmitReason);
+            Assert.Equal(2, attempt.TotalQuestions);
+        });
+    }
+
     private static CreateExaminationRequest CreateRequest(int questionCount)
     {
         var now = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -112,6 +134,7 @@ public class ExaminationAuthoringTests
             teacher.Id);
         fillInBlank.FillInBlankAnswerKeys.Add(new FillInBlankAnswerKey(fillInBlank.Id, 0, "Hanoi"));
         var examinations = new FakeExaminationRepository();
+        var attempts = new FakeExaminationAttemptRepository();
         var unitOfWork = new FakeUnitOfWork();
         var transactionManager = new FakeTransactionManager();
         var service = new ExaminationService(
@@ -120,11 +143,12 @@ public class ExaminationAuthoringTests
             new FakeEnrollmentRepository(),
             new FakeQuestionBankRepository(questionBank),
             new FakeQuestionRepository(multipleChoice, fillInBlank),
+            attempts,
             unitOfWork,
             transactionManager,
             new FakeCurrentUser(teacher),
             new FakeClock(new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
-        return new Fixture(service, course, questionBank, examinations, unitOfWork, transactionManager);
+        return new Fixture(service, course, questionBank, examinations, attempts, unitOfWork, transactionManager);
     }
 
     private sealed record Fixture(
@@ -132,6 +156,7 @@ public class ExaminationAuthoringTests
         Course Course,
         QuestionBank QuestionBank,
         FakeExaminationRepository Examinations,
+        FakeExaminationAttemptRepository Attempts,
         FakeUnitOfWork UnitOfWork,
         FakeTransactionManager TransactionManager)
     {
@@ -210,6 +235,40 @@ public class ExaminationAuthoringTests
         {
             Items.Add(examination);
         }
+    }
+
+    private sealed class FakeExaminationAttemptRepository : IExaminationAttemptRepository
+    {
+        public List<ExaminationAttempt> Items { get; } = [];
+
+        public Task<ExaminationAttempt?> GetByIdAsync(Guid id, bool includeAnswers, CancellationToken cancellationToken) =>
+            Task.FromResult(Items.SingleOrDefault(attempt => attempt.Id == id));
+
+        public Task<ExaminationAttempt?> GetActiveAsync(Guid examinationId, Guid studentId, CancellationToken cancellationToken) =>
+            Task.FromResult(Items.SingleOrDefault(attempt =>
+                attempt.ExaminationId == examinationId && attempt.StudentId == studentId &&
+                attempt.Status is ExaminationAttemptStatus.InProgress or ExaminationAttemptStatus.Disconnected));
+
+        public Task<ExaminationAttempt?> GetLatestAsync(Guid examinationId, Guid studentId, bool includeAnswers, CancellationToken cancellationToken) =>
+            Task.FromResult(Items.LastOrDefault(attempt =>
+                attempt.ExaminationId == examinationId && attempt.StudentId == studentId));
+
+        public Task<IReadOnlyList<ExaminationAttempt>> ListActiveByExaminationAsync(Guid examinationId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ExaminationAttempt>>(Items.Where(attempt =>
+                attempt.ExaminationId == examinationId &&
+                attempt.Status is ExaminationAttemptStatus.InProgress or ExaminationAttemptStatus.Disconnected).ToArray());
+
+        public Task<IReadOnlyList<ExaminationAttempt>> ListExpiredAsync(DateTime now, int take, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ExaminationAttempt>>([]);
+
+        public Task<StudentAnswer?> GetAnswerAsync(Guid attemptId, Guid examinationQuestionId, bool includeFillInBlankAnswers, CancellationToken cancellationToken) =>
+            Task.FromResult<StudentAnswer?>(null);
+
+        public void Add(ExaminationAttempt attempt) => Items.Add(attempt);
+        public void AddAnswer(StudentAnswer answer) { }
+        public void AddFillInBlankAnswer(StudentFillInBlankAnswer answer) { }
+        public void RemoveFillInBlankAnswer(StudentFillInBlankAnswer answer) { }
+        public void AddViolation(ExaminationViolation violation) { }
     }
 
     private sealed class FakeCourseRepository : ICourseRepository
