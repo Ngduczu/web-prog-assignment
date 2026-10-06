@@ -1,4 +1,5 @@
 using LMS.Api.domain.Entities.Users;
+using LMS.Api.domain.Enums.Courses;
 
 namespace LMS.Api.domain.Entities.Courses;
 
@@ -13,6 +14,7 @@ public class Exercise
     public string? Description { get; private set; }
 
     public DateTime? DueAt { get; private set; }
+    public ExerciseStatus Status { get; private set; }
     public ExerciseAttachment? Attachment { get; private set; }
 
     public DateTime CreatedAt { get; private set; }
@@ -32,7 +34,8 @@ public class Exercise
         string title,
         string? description,
         DateTime? dueAt,
-        Guid createdById)
+        Guid createdById,
+        ExerciseStatus status = ExerciseStatus.Draft)
     {
         Id = Guid.NewGuid();
 
@@ -40,6 +43,7 @@ public class Exercise
         Title = title;
         Description = description;
         DueAt = dueAt;
+        Status = status;
 
         CreatedAt = DateTime.UtcNow;
         ModifiedAt = DateTime.UtcNow;
@@ -68,6 +72,12 @@ public class Exercise
     public void SetDueAt(DateTime? dueAt)
     {
         DueAt = dueAt;
+        Touch();
+    }
+
+    public void SetStatus(ExerciseStatus status)
+    {
+        Status = status;
         Touch();
     }
 
