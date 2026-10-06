@@ -24,7 +24,7 @@ public class UserApplicationTests
             new AdminUpdateUserRequest(target.FullName, target.Phone, Role.Student)));
 
         Assert.Equal(Role.Admin, target.Role);
-        fixture.Users.Verify(repository => repository.CountByRoleAsync(
+        fixture.Users.Verify(repository => repository.CountActiveByRoleAsync(
             It.IsAny<Role>(),
             It.IsAny<CancellationToken>()), Times.Never);
         fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
@@ -65,12 +65,97 @@ public class UserApplicationTests
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task LastActiveAdministratorCannotDisableSelf()
+    {
+        var actor = CreateAdmin();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.UpdateStatusAsync(
+            actor.Id,
+            new UpdateUserStatusRequest(AccountStatus.Disabled)));
+
+        Assert.Equal(AccountStatus.Active, actor.Status);
+        fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task TeacherWithOwnedCourseCannotBeDisabled()
+    {
+        var actor = CreateAdmin();
+        var teacher = new User(
+            $"{Guid.NewGuid():N}@example.com",
+            "Teacher",
+            null,
+            "hash",
+            Role.Teacher,
+            AccountStatus.Active);
+        var users = new Mock<IUserManagementRepository>();
+        users.Setup(repository => repository.GetByIdAsync(teacher.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(teacher);
+        var courses = new Mock<ICourseRepository>();
+        courses.Setup(repository => repository.CountAsync(
+                null, null, teacher.Id, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+        var currentUser = new Mock<ICurrentUser>();
+        currentUser.SetupGet(user => user.IsAuthenticated).Returns(true);
+        currentUser.SetupGet(user => user.UserId).Returns(actor.Id);
+        currentUser.SetupGet(user => user.Role).Returns(actor.Role);
+        var unitOfWork = new Mock<IUnitOfWork>();
+        var service = new UserService(
+            users.Object,
+            Mock.Of<IPasswordHasher>(),
+            unitOfWork.Object,
+            currentUser.Object,
+            Mock.Of<ICache>(),
+            courses.Object,
+            Mock.Of<IQuestionBankRepository>());
+
+        await Assert.ThrowsAsync<ConflictException>(() => service.UpdateStatusAsync(
+            teacher.Id,
+            new UpdateUserStatusRequest(AccountStatus.Disabled)));
+
+        Assert.Equal(AccountStatus.Active, teacher.Status);
+        unitOfWork.Verify(item => item.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AdminCreateRejectsUndefinedRole()
+    {
+        var actor = CreateAdmin();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => fixture.Service.CreateByAdminAsync(
+            new AdminCreateUserRequest(
+                "new@example.com",
+                "New user",
+                null,
+                "password123",
+                (Role)999)));
+    }
+
+    [Fact]
+    public async Task AdminCreateRejectsPhoneLongerThanDatabaseColumn()
+    {
+        var actor = CreateAdmin();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => fixture.Service.CreateByAdminAsync(
+            new AdminCreateUserRequest(
+                "new@example.com",
+                "New user",
+                new string('1', 21),
+                "password123",
+                Role.Student)));
+    }
+
     private static Fixture CreateFixture(User actor, User target, int adminCount)
     {
         var users = new Mock<IUserManagementRepository>();
         users.Setup(repository => repository.GetByIdAsync(target.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(target);
-        users.Setup(repository => repository.CountByRoleAsync(Role.Admin, It.IsAny<CancellationToken>()))
+        users.Setup(repository => repository.CountActiveByRoleAsync(Role.Admin, It.IsAny<CancellationToken>()))
             .ReturnsAsync(adminCount);
 
         var currentUser = new Mock<ICurrentUser>();
@@ -100,7 +185,9 @@ public class UserApplicationTests
             Mock.Of<IPasswordHasher>(),
             unitOfWork.Object,
             currentUser.Object,
-            cache.Object);
+            cache.Object,
+            Mock.Of<ICourseRepository>(),
+            Mock.Of<IQuestionBankRepository>());
         return new Fixture(service, users, unitOfWork, cache);
     }
 
