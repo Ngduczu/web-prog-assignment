@@ -96,6 +96,21 @@ public sealed class QuestionService : IQuestionService
         return questionBanks.Select(Map).ToArray();
     }
 
+    public async Task DeleteQuestionBankAsync(
+        Guid questionBankId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(questionBankId, "Question bank id");
+        var questionBank = await GetManagedQuestionBankAsync(questionBankId, cancellationToken);
+        if (await _questionBanks.IsReferencedByExaminationAsync(questionBankId, cancellationToken))
+        {
+            throw new ConflictException("Question bank is referenced by an examination and cannot be deleted.");
+        }
+
+        _questionBanks.Remove(questionBank);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<QuestionDto> CreateMultipleChoiceAsync(
         Guid questionBankId,
         CreateMultipleChoiceQuestionRequest request,
@@ -176,6 +191,35 @@ public sealed class QuestionService : IQuestionService
         _ = await GetManagedQuestionBankAsync(questionBankId, cancellationToken);
         var questions = await _questions.ListByQuestionBankAsync(questionBankId, cancellationToken);
         return questions.Select(Map).ToArray();
+    }
+
+    public async Task<QuestionDto> UpdateQuestionAsync(
+        Guid questionId,
+        UpdateQuestionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(questionId, "Question id");
+        ValidateQuestion(request.Content, request.Difficulty);
+        var question = await _questions.GetByIdAsync(questionId, true, cancellationToken)
+            ?? throw new NotFoundException("Question was not found.");
+        _ = await GetManagedQuestionBankAsync(question.QuestionBankId, cancellationToken);
+        question.SetContent(request.Content.Trim());
+        question.SetDifficulty(request.Difficulty);
+        question.SetModifiedBy(_currentUser.GetRequiredUserId());
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(question);
+    }
+
+    public async Task DeleteQuestionAsync(
+        Guid questionId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(questionId, "Question id");
+        var question = await _questions.GetByIdAsync(questionId, true, cancellationToken)
+            ?? throw new NotFoundException("Question was not found.");
+        _ = await GetManagedQuestionBankAsync(question.QuestionBankId, cancellationToken);
+        _questions.Remove(question);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<QuestionBank> GetManagedQuestionBankAsync(
