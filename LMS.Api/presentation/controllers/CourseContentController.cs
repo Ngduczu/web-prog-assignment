@@ -1,5 +1,6 @@
 using LMS.Api.application.abstractions.storage;
 using LMS.Api.application.features.coursecontents;
+using LMS.Api.application.common;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 
@@ -21,6 +22,9 @@ public sealed class CourseContentController : ControllerBase
     [HttpPut("lessons/{lessonId:guid}")]
     public async Task<ActionResult<LessonDto>> UpdateLesson(Guid lessonId, UpdateLessonRequest request, ILessonService service, CancellationToken ct) => Ok(await service.UpdateAsync(lessonId, request, ct));
 
+    [HttpDelete("lessons/{lessonId:guid}")]
+    public async Task<IActionResult> DeleteLesson(Guid lessonId, ILessonService service, CancellationToken ct) { await service.DeleteAsync(lessonId, ct); return NoContent(); }
+
     [HttpGet("lessons/{lessonId:guid}/materials")]
     public async Task<ActionResult<IReadOnlyList<MaterialDto>>> ListMaterials(Guid lessonId, ILessonService service, CancellationToken ct) => Ok(await service.ListMaterialsAsync(lessonId, ct));
 
@@ -29,6 +33,7 @@ public sealed class CourseContentController : ControllerBase
         ToFileResult(await service.GetMaterialContentAsync(materialId, ct), download);
 
     [HttpPost("lessons/{lessonId:guid}/materials")]
+    [RequestSizeLimit(20_000_000)]
     public async Task<ActionResult<MaterialDto>> UploadMaterial(Guid lessonId, IFormFile file, ILessonService service, CancellationToken ct) => Ok(await service.UploadMaterialAsync(lessonId, ToUpload(file), ct));
 
     [HttpDelete("materials/{materialId:guid}")]
@@ -50,17 +55,41 @@ public sealed class CourseContentController : ControllerBase
     [HttpPut("exercises/{exerciseId:guid}")]
     public async Task<ActionResult<ExerciseDto>> UpdateExercise(Guid exerciseId, UpdateExerciseRequest request, IExerciseService service, CancellationToken ct) => Ok(await service.UpdateAsync(exerciseId, request, ct));
 
+    [HttpDelete("exercises/{exerciseId:guid}")]
+    public async Task<IActionResult> DeleteExercise(Guid exerciseId, IExerciseService service, CancellationToken ct) { await service.DeleteAsync(exerciseId, ct); return NoContent(); }
+
     [HttpPost("exercises/{exerciseId:guid}/attachment")]
+    [RequestSizeLimit(20_000_000)]
     public async Task<ActionResult<ExerciseDto>> UploadAttachment(Guid exerciseId, IFormFile file, IExerciseService service, CancellationToken ct) => Ok(await service.UploadAttachmentAsync(exerciseId, ToUpload(file), ct));
 
+    [HttpPost("exercises/{exerciseId:guid}/publish")]
+    public async Task<ActionResult<ExerciseDto>> PublishExercise(Guid exerciseId, IExerciseService service, CancellationToken ct) => Ok(await service.PublishAsync(exerciseId, ct));
+
+    [HttpPost("exercises/{exerciseId:guid}/close")]
+    public async Task<ActionResult<ExerciseDto>> CloseExercise(Guid exerciseId, IExerciseService service, CancellationToken ct) => Ok(await service.CloseAsync(exerciseId, ct));
+
     [HttpPost("exercises/{exerciseId:guid}/submissions")]
+    [RequestSizeLimit(20_000_000)]
     public async Task<ActionResult<SubmissionDto>> UploadSubmission(Guid exerciseId, IFormFile file, ISubmissionService service, CancellationToken ct) => Ok(await service.UploadAsync(exerciseId, ToUpload(file), ct));
+
+    [HttpGet("exercises/{exerciseId:guid}/my-submission")]
+    public async Task<ActionResult<SubmissionDto>> GetMySubmission(Guid exerciseId, ISubmissionService service, CancellationToken ct) => Ok(await service.GetMineAsync(exerciseId, ct));
+
+    [HttpGet("exercises/{exerciseId:guid}/submissions")]
+    public async Task<ActionResult<PagedResult<SubmissionDto>>> ListSubmissions(Guid exerciseId, [FromQuery] SubmissionQuery query, ISubmissionService service, CancellationToken ct) => Ok(await service.ListByExerciseAsync(exerciseId, query, ct));
+
+    [HttpGet("submissions/{submissionId:guid}/content")]
+    public async Task<IActionResult> GetSubmissionContent(Guid submissionId, [FromQuery] bool download, ISubmissionService service, CancellationToken ct) =>
+        ToFileResult(await service.GetContentAsync(submissionId, ct), download);
 
     [HttpPost("submissions/{submissionId:guid}/submit")]
     public async Task<ActionResult<SubmissionDto>> Submit(Guid submissionId, ISubmissionService service, CancellationToken ct) => Ok(await service.SubmitAsync(submissionId, ct));
 
     [HttpPost("submissions/{submissionId:guid}/unsubmit")]
     public async Task<ActionResult<SubmissionDto>> Unsubmit(Guid submissionId, ISubmissionService service, CancellationToken ct) => Ok(await service.UnsubmitAsync(submissionId, ct));
+
+    [HttpPut("submissions/{submissionId:guid}/grade")]
+    public async Task<ActionResult<SubmissionDto>> Grade(Guid submissionId, GradeSubmissionRequest request, ISubmissionService service, CancellationToken ct) => Ok(await service.GradeAsync(submissionId, request, ct));
 
     private static FileUpload ToUpload(IFormFile? file) => file is null
         ? throw new LMS.Api.domain.exceptions.BadRequestException("A file is required.")
