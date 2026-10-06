@@ -29,7 +29,6 @@ public sealed class CourseRepository : ICourseRepository
         IReadOnlyCollection<Guid> courseIds,
         CancellationToken cancellationToken) =>
         await _dbContext.Courses
-            .IgnoreQueryFilters()
             .Where(course => courseIds.Contains(course.Id))
             .ToListAsync(cancellationToken);
 

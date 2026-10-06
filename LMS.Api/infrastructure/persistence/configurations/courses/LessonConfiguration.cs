@@ -25,9 +25,9 @@ public class LessonConfiguration : IEntityTypeConfiguration<Lesson>
         builder.Property(x => x.ModifiedById).HasColumnName("modified_by_id");
 
         builder.HasIndex(x => new { x.CourseId, x.Order }).IsUnique();
-        builder.HasQueryFilter(x => x.Course == null || x.Course.DeletedAt == null);
+        builder.HasQueryFilter(x => x.Course != null && x.Course.DeletedAt == null);
 
-        builder.HasOne(x => x.Course).WithMany(x => x.Lessons).HasForeignKey(x => x.CourseId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Course).WithMany(x => x.Lessons).HasForeignKey(x => x.CourseId).IsRequired().OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.CreatedBy).WithMany().HasForeignKey(x => x.CreatedById).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(x => x.ModifiedBy).WithMany().HasForeignKey(x => x.ModifiedById).OnDelete(DeleteBehavior.Restrict);
     }

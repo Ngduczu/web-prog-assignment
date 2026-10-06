@@ -6,6 +6,27 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 > Bảng 18/18 bên dưới chỉ phản ánh phạm vi audit đầu tiên. Lần tái rà soát đã phát hiện thêm các lỗi và khoảng trống mới; xem `BUSINESS-FUNCTIONAL-REAUDIT.md`. Các mục mới chưa được tính là đã sửa trong bảng này.
 
+## Tiến độ tái rà soát
+
+| Trạng thái | Số lượng |
+|---|---:|
+| Hoàn thành | 1 |
+| Đang thực hiện | 0 |
+| Chưa thực hiện | 14 |
+
+| Mã | Trạng thái | Ghi chú |
+|---|---|---|
+| RF-01 | Hoàn thành | Global filter dùng quan hệ course bắt buộc; `courses/mine` loại course soft-delete ở cả repository và service |
+| RF-02..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+
+### RF-01 — Loại dữ liệu con của course đã soft-delete
+
+- Sửa global query filter của enrollment, lesson, exercise và examination để bản ghi chỉ hợp lệ khi course liên quan còn tồn tại và chưa bị xóa.
+- Khai báo bốn quan hệ course là bắt buộc, đúng với FK `Guid` không nullable và schema hiện có.
+- `CourseRepository.ListByIdsAsync` không còn vô hiệu global filter; `CourseService.ListMineAsync` vẫn loại `IsDeleted` phòng thủ cho mọi repository implementation.
+- Thêm test hồi quy xác nhận course đã soft-delete không xuất hiện trong danh sách course của student.
+- Xác minh: **164 passed, 0 failed, 0 skipped**.
+
 ## Tổng quan
 
 | Trạng thái | Số lượng |

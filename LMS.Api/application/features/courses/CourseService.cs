@@ -172,6 +172,7 @@ public sealed class CourseService : ICourseService
 
         var courses = await _courses.ListByIdsAsync(courseIds, cancellationToken);
         return courses
+            .Where(course => !course.IsDeleted)
             .OrderBy(course => course.Name)
             .ThenBy(course => course.Id)
             .Select(Map)

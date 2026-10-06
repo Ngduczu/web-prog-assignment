@@ -158,6 +158,27 @@ public class CourseApplicationTests
     }
 
     [Fact]
+    public async Task StudentMyCoursesExcludesSoftDeletedCourse()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var deletedCourse = CreateCourse(teacher);
+        deletedCourse.Delete(teacher.Id);
+        var accepted = new Enrollment(student.Id, deletedCourse.Id, EnrollmentStatus.Accepted);
+        var service = new CourseService(
+            new FakeCourseRepository(deletedCourse),
+            new FakeUserRepository(teacher),
+            new FakeEnrollmentRepository(accepted),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student),
+            new FakeChatRoomRepository());
+
+        var result = await service.ListMineAsync();
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
     public async Task CourseChangesSynchronizeTheCourseRoomLifecycle()
     {
         var teacher = CreateUser(Role.Teacher);

@@ -25,9 +25,9 @@ public class ExerciseConfiguration : IEntityTypeConfiguration<Exercise>
 
         builder.HasIndex(x => x.CourseId);
         builder.HasIndex(x => new { x.CourseId, x.Status });
-        builder.HasQueryFilter(x => x.Course == null || x.Course.DeletedAt == null);
+        builder.HasQueryFilter(x => x.Course != null && x.Course.DeletedAt == null);
 
-        builder.HasOne(x => x.Course).WithMany(x => x.Exercises).HasForeignKey(x => x.CourseId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Course).WithMany(x => x.Exercises).HasForeignKey(x => x.CourseId).IsRequired().OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.CreatedBy).WithMany().HasForeignKey(x => x.CreatedById).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(x => x.ModifiedBy).WithMany().HasForeignKey(x => x.ModifiedById).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(x => x.Attachment).WithOne(x => x.Exercise).HasForeignKey<ExerciseAttachment>(x => x.ExerciseId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
