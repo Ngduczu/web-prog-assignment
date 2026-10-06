@@ -10,6 +10,12 @@ public interface ISubmissionRepository
         Guid studentId,
         bool includeAttachment,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<Submission>> ListSubmittedByExerciseAsync(
+        Guid exerciseId,
+        int skip,
+        int take,
+        CancellationToken cancellationToken);
+    Task<int> CountSubmittedByExerciseAsync(Guid exerciseId, CancellationToken cancellationToken);
     void Add(Submission submission);
     void AddAttachment(SubmissionAttachment attachment);
 }
