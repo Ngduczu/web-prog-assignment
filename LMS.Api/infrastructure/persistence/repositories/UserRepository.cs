@@ -59,6 +59,11 @@ public sealed class UserRepository : IUserManagementRepository
     public Task<int> CountByRoleAsync(Role role, CancellationToken cancellationToken) =>
         _dbContext.Users.CountAsync(user => user.Role == role, cancellationToken);
 
+    public Task<int> CountActiveByRoleAsync(Role role, CancellationToken cancellationToken) =>
+        _dbContext.Users.CountAsync(
+            user => user.Role == role && user.Status == AccountStatus.Active,
+            cancellationToken);
+
     private IQueryable<User> Filter(string? search)
     {
         var query = _dbContext.Users.AsQueryable();
