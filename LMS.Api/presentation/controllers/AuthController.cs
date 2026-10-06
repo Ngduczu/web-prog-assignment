@@ -17,6 +17,7 @@ namespace LMS.Api.presentation.controllers;
 public class AuthController : ControllerBase
 {
     private static readonly TimeSpan OAuthStateLifetime = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan OAuthStateRecoveryLifetime = TimeSpan.FromMinutes(1);
     private const string OAuthBindingCookiePrefix = "__Host-LMS.OAuth.";
 
     [AllowAnonymous]
@@ -146,27 +147,51 @@ public class AuthController : ControllerBase
 
         storedState = await cache.ConsumeAsync<OAuthState>(stateKey, ct)
             ?? throw new BadRequestException("OAuth state is invalid or expired.");
-        Response.Cookies.Delete(bindingCookieName, CreateOAuthBindingCookieOptions(TimeSpan.Zero));
         SetNoStoreHeaders();
-        if (storedState.Purpose == OAuthFlowPurpose.Login && storedState.UserId is null)
+        object result;
+        try
         {
-            return Ok(await service.LoginWithOAuthAsync(
-                new OAuthLoginRequest(provider, code, storedState.RedirectUri, storedState.CodeVerifier), ct));
+            if (storedState.Purpose == OAuthFlowPurpose.Login && storedState.UserId is null)
+            {
+                result = await service.LoginWithOAuthAsync(
+                    new OAuthLoginRequest(provider, code, storedState.RedirectUri, storedState.CodeVerifier), ct);
+            }
+            else if (storedState.Purpose == OAuthFlowPurpose.Link && storedState.UserId is not null)
+            {
+                result = await service.LinkOAuthAsync(
+                    new OAuthLinkRequest(
+                        storedState.UserId.Value,
+                        provider,
+                        code,
+                        storedState.RedirectUri,
+                        storedState.CodeVerifier),
+                    ct);
+            }
+            else
+            {
+                throw new BadRequestException("OAuth state has an invalid flow purpose.");
+            }
+        }
+        catch (Exception exception) when (IsCredentialRestorableFailure(exception))
+        {
+            try
+            {
+                await cache.SetIfNotExistsAsync(
+                    stateKey,
+                    storedState,
+                    OAuthStateRecoveryLifetime,
+                    CancellationToken.None);
+            }
+            catch
+            {
+                // Preserve the original provider/application failure.
+            }
+
+            throw;
         }
 
-        if (storedState.Purpose == OAuthFlowPurpose.Link && storedState.UserId is not null)
-        {
-            return Ok(await service.LinkOAuthAsync(
-                new OAuthLinkRequest(
-                    storedState.UserId.Value,
-                    provider,
-                    code,
-                    storedState.RedirectUri,
-                    storedState.CodeVerifier),
-                ct));
-        }
-
-        throw new BadRequestException("OAuth state has an invalid flow purpose.");
+        Response.Cookies.Delete(bindingCookieName, CreateOAuthBindingCookieOptions(TimeSpan.Zero));
+        return Ok(result);
     }
 
     private async Task<ActionResult<object>> BeginOAuthAsync(
@@ -257,6 +282,12 @@ public class AuthController : ControllerBase
         CryptographicOperations.FixedTimeEquals(
             System.Text.Encoding.ASCII.GetBytes(expected),
             System.Text.Encoding.ASCII.GetBytes(actual));
+    private static bool IsCredentialRestorableFailure(Exception exception) =>
+        exception is not BadRequestException
+            and not UnauthorizeException
+            and not ForbiddenException
+            and not NotFoundException
+            and not ConflictException;
     private sealed record OAuthState(
         string Provider,
         string RedirectUri,

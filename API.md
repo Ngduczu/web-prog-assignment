@@ -98,7 +98,7 @@ Flow: Controller → tìm user theo email → verify password hash → kiểm tr
   "refreshTokenExpiresAt": "2026-10-04T12:00:00Z"
 }
 ```
-Refresh token cũ bị xoá ngay khi dùng (rotation), hash được lưu Redis TTL 30 ngày.
+Refresh token cũ bị xoá ngay khi dùng (rotation), hash được lưu Redis TTL 30 ngày. Nếu request lỗi do downstream tạm thời sau khi consume, token cũ được phục hồi trong một phút để retry; lỗi xác thực hoặc trạng thái account hợp lệ không phục hồi token.
 
 ### `POST /api/auth/register`
 
@@ -268,7 +268,7 @@ Một external identity chỉ được thuộc một tài khoản; mỗi tài kh
 
 ### `POST /api/auth/login-code`
 
-**Quyền:** Public. Đổi application login code lấy token pair. Code được lưu bằng key SHA-256, hết hạn sau 2 phút và được consume atomically nên chỉ một request đồng thời có thể thành công.
+**Quyền:** Public. Đổi application login code lấy token pair. Code được lưu bằng key SHA-256, hết hạn sau 2 phút và được consume atomically nên chỉ một request đồng thời có thể thành công. Lỗi downstream tạm thời sau consume phục hồi code trong một phút để client retry.
 
 ```json
 {

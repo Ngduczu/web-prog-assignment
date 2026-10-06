@@ -44,6 +44,20 @@ public sealed class AuthenticationApplicationTests
     }
 
     [Fact]
+    public async Task RefreshTokenCanBeRetriedAfterTransientUserLookupFailure()
+    {
+        var fixture = CreateFixture(AccountStatus.Active);
+        var login = await fixture.Service.LoginAsync(new LoginRequest("user@example.com", "password123"));
+        fixture.Users.FailNextGetById = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.RefreshAsync(new RefreshTokenRequest(login.RefreshToken)));
+
+        var refreshed = await fixture.Service.RefreshAsync(new RefreshTokenRequest(login.RefreshToken));
+        Assert.False(string.IsNullOrWhiteSpace(refreshed.AccessToken));
+    }
+
+    [Fact]
     public async Task InactiveAccountCannotLogin()
     {
         var fixture = CreateFixture(AccountStatus.Inactive);
@@ -119,6 +133,24 @@ public sealed class AuthenticationApplicationTests
         Assert.False(string.IsNullOrWhiteSpace(login.AccessToken));
         await Assert.ThrowsAsync<UnauthorizeException>(() =>
             fixture.Service.RedeemOAuthLoginCodeAsync(new OAuthLoginCodeRequest(callback.LoginCode)));
+    }
+
+    [Fact]
+    public async Task OAuthLoginCodeCanBeRetriedAfterTransientUserLookupFailure()
+    {
+        var fixture = CreateOAuthFixture(
+            [],
+            new OAuthUserInfo("google-user", "new-user@example.com", "New User", null, true));
+        var callback = await fixture.Service.LoginWithOAuthAsync(
+            new OAuthLoginRequest("Google", "code", "https://localhost/callback", "verifier"));
+        fixture.Users.FailNextGetById = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.RedeemOAuthLoginCodeAsync(new OAuthLoginCodeRequest(callback.LoginCode)));
+
+        var login = await fixture.Service.RedeemOAuthLoginCodeAsync(
+            new OAuthLoginCodeRequest(callback.LoginCode));
+        Assert.False(string.IsNullOrWhiteSpace(login.AccessToken));
     }
 
     [Fact]
@@ -359,8 +391,18 @@ public sealed class AuthenticationApplicationTests
         public List<User> Users { get; } = [];
         public List<ExternalUser> ExternalUsers { get; } = [];
 
-        public Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
-            Task.FromResult(Users.SingleOrDefault(user => user.Id == id));
+        public bool FailNextGetById { get; set; }
+
+        public Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
+        {
+            if (FailNextGetById)
+            {
+                FailNextGetById = false;
+                throw new InvalidOperationException("Transient database failure");
+            }
+
+            return Task.FromResult(Users.SingleOrDefault(user => user.Id == id));
+        }
 
         public Task<User?> GetByEmailAsync(string normalizedEmail, CancellationToken cancellationToken) =>
             Task.FromResult(Users.SingleOrDefault(user => user.Email == normalizedEmail));

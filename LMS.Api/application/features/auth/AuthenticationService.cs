@@ -24,6 +24,7 @@ public sealed class AuthenticationService : IAuthenticationService
     private readonly IUnitOfWork _unitOfWork;
     private static readonly TimeSpan RefreshLifetime = TimeSpan.FromDays(30);
     private static readonly TimeSpan OAuthLoginCodeLifetime = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan CredentialRecoveryLifetime = TimeSpan.FromMinutes(1);
     private static string AuthVersionKey(Guid userId) => $"auth:version:{userId:N}";
     public AuthenticationService(IUserRepository users, IPasswordHasher hasher, ITokenProvider tokens, ICache cache, IClock clock, OAuthResolver oauthResolver, IUnitOfWork unitOfWork) { _users = users; _hasher = hasher; _tokens = tokens; _cache = cache; _clock = clock; _oauthResolver = oauthResolver; _unitOfWork = unitOfWork; }
     public async Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
@@ -43,12 +44,21 @@ public sealed class AuthenticationService : IAuthenticationService
     {
         if (string.IsNullOrWhiteSpace(request.RefreshToken)) throw new BadRequestException("Refresh token is required.");
         var hash = HashRefreshToken(request.RefreshToken.Trim());
-        var session = await _cache.ConsumeAsync<RefreshSession>($"auth:refresh:{hash}", cancellationToken) ?? throw new UnauthorizeException("Refresh token is invalid or expired.");
-        var currentVersion = await _cache.GetAsync<long?>($"auth:version:{session.UserId:N}", cancellationToken) ?? 1;
-        if (session.AuthVersion != currentVersion) throw new UnauthorizeException("Refresh token is invalid or expired.");
-        var user = await _users.GetByIdAsync(session.UserId, cancellationToken) ?? throw new UnauthorizeException("Refresh token is invalid or expired.");
-        if (user.Status != AccountStatus.Active) throw new UnauthorizeException("Account is not active.");
-        return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
+        var key = $"auth:refresh:{hash}";
+        var session = await _cache.ConsumeAsync<RefreshSession>(key, cancellationToken) ?? throw new UnauthorizeException("Refresh token is invalid or expired.");
+        try
+        {
+            var currentVersion = await _cache.GetAsync<long?>($"auth:version:{session.UserId:N}", cancellationToken) ?? 1;
+            if (session.AuthVersion != currentVersion) throw new UnauthorizeException("Refresh token is invalid or expired.");
+            var user = await _users.GetByIdAsync(session.UserId, cancellationToken) ?? throw new UnauthorizeException("Refresh token is invalid or expired.");
+            if (user.Status != AccountStatus.Active) throw new UnauthorizeException("Account is not active.");
+            return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
+        }
+        catch (Exception exception) when (IsCredentialRestorableFailure(exception))
+        {
+            await TryRestoreCredentialAsync(key, session);
+            throw;
+        }
     }
 
     public async Task<OAuthLoginCodeResponse> LoginWithOAuthAsync(
@@ -106,14 +116,22 @@ public sealed class AuthenticationService : IAuthenticationService
         var entry = await _cache.ConsumeAsync<OAuthLoginCodeEntry>(
             OAuthLoginCodeKey(loginCode),
             cancellationToken) ?? throw new UnauthorizeException("OAuth login code is invalid or expired.");
-        var user = await _users.GetByIdAsync(entry.UserId, cancellationToken)
-            ?? throw new UnauthorizeException("OAuth login code is invalid or expired.");
-        if (user.Status != AccountStatus.Active)
+        try
         {
-            throw new UnauthorizeException("Account is not active.");
-        }
+            var user = await _users.GetByIdAsync(entry.UserId, cancellationToken)
+                ?? throw new UnauthorizeException("OAuth login code is invalid or expired.");
+            if (user.Status != AccountStatus.Active)
+            {
+                throw new UnauthorizeException("Account is not active.");
+            }
 
-        return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
+            return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
+        }
+        catch (Exception exception) when (IsCredentialRestorableFailure(exception))
+        {
+            await TryRestoreCredentialAsync(OAuthLoginCodeKey(loginCode), entry);
+            throw;
+        }
     }
 
     public async Task<OAuthLinkResponse> LinkOAuthAsync(
@@ -224,6 +242,29 @@ public sealed class AuthenticationService : IAuthenticationService
         await _cache.SetAsync($"auth:refresh:{HashRefreshToken(refresh)}", new RefreshSession(userId, version), RefreshLifetime, cancellationToken);
         return new LoginResponse(access.Token, access.ExpiresAt, refresh, refreshExpires);
     }
+
+    private async Task TryRestoreCredentialAsync<T>(string key, T value)
+    {
+        try
+        {
+            await _cache.SetIfNotExistsAsync(
+                key,
+                value,
+                CredentialRecoveryLifetime,
+                CancellationToken.None);
+        }
+        catch
+        {
+            // Preserve the original downstream failure when recovery storage is unavailable too.
+        }
+    }
+
+    private static bool IsCredentialRestorableFailure(Exception exception) =>
+        exception is not BadRequestException
+            and not UnauthorizeException
+            and not ForbiddenException
+            and not NotFoundException
+            and not ConflictException;
 
     private async Task<OAuthLoginCodeResponse> CreateOAuthLoginCodeAsync(
         Guid userId,

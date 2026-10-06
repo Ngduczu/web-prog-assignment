@@ -10,9 +10,9 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 9 |
+| Hoàn thành | 10 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 6 |
+| Chưa thực hiện | 5 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
@@ -25,7 +25,8 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 | RF-07 | Hoàn thành | Create/update examination từ chối `StartAt`/`DueAt` không phải UTC |
 | RF-08 | Hoàn thành | Validation application/domain khớp giới hạn schema cho exercise, chat và user |
 | RF-09 | Hoàn thành | REST text message broadcast `MessageReceived` giống hub và attachment REST |
-| RF-10..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+| RF-10 | Hoàn thành | Refresh token, OAuth login code/state được phục hồi ngắn hạn sau lỗi downstream tạm thời |
+| RF-11..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -93,6 +94,15 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Payload và event name đồng nhất với gửi qua `ChatHub` và upload attachment REST.
 - Sửa mô tả realtime đã cũ trong `API.md` và thêm controller test xác nhận response `201` cùng broadcast.
 - Xác minh: **184 passed, 0 failed, 0 skipped**.
+
+### RF-10 — Phục hồi one-time credential sau lỗi tạm thời
+
+- Refresh token và OAuth login code được phục hồi bằng `SetIfNotExists` trong một phút nếu DB/Redis/token issuance lỗi sau consume.
+- Không phục hồi với lỗi xác thực, quyền, not-found hoặc conflict thực sự để giữ semantics one-time và không mở lại credential đã bị từ chối hợp lệ.
+- OAuth state cũng được phục hồi ngắn hạn khi provider/application lỗi; binding cookie chỉ bị xóa sau khi callback hoàn tất thành công.
+- Nếu chính Redis phục hồi lỗi, hệ thống giữ exception gốc thay vì che khuất nguyên nhân.
+- Thêm fault-injection tests xác nhận refresh token và OAuth login code cũ retry thành công sau lỗi DB tạm thời.
+- Xác minh: **186 passed, 0 failed, 0 skipped**.
 
 ## Tổng quan
 
