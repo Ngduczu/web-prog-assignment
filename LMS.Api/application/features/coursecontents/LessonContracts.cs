@@ -45,4 +45,5 @@ public interface ILessonService
     Task<IReadOnlyList<MaterialDto>> ListMaterialsAsync(Guid lessonId, CancellationToken cancellationToken = default);
     Task<MaterialDto> UploadMaterialAsync(Guid lessonId, FileUpload upload, CancellationToken cancellationToken = default);
     Task DeleteMaterialAsync(Guid materialId, CancellationToken cancellationToken = default);
+    Task DeleteAsync(Guid lessonId, CancellationToken cancellationToken = default);
 }
