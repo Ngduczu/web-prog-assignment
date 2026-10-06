@@ -25,6 +25,12 @@ public sealed class EnrollmentsController : ControllerBase
         CancellationToken cancellationToken)
         => Ok(await service.ListByCourseAsync(courseId, query, cancellationToken));
 
+    [HttpGet("enrollments/mine")]
+    public async Task<ActionResult<IReadOnlyList<EnrollmentDto>>> ListMine(
+        [FromServices] IEnrollmentService service,
+        CancellationToken cancellationToken)
+        => Ok(await service.ListMineAsync(cancellationToken));
+
     [HttpPost("enrollments/{enrollmentId:guid}/accept")]
     public async Task<ActionResult<EnrollmentDto>> Accept(
         Guid enrollmentId,
@@ -45,4 +51,11 @@ public sealed class EnrollmentsController : ControllerBase
         [FromServices] IEnrollmentService service,
         CancellationToken cancellationToken)
         => Ok(await service.CancelAsync(enrollmentId, cancellationToken));
+
+    [HttpPost("enrollments/{enrollmentId:guid}/revoke")]
+    public async Task<ActionResult<EnrollmentDto>> Revoke(
+        Guid enrollmentId,
+        [FromServices] IEnrollmentService service,
+        CancellationToken cancellationToken)
+        => Ok(await service.RevokeAsync(enrollmentId, cancellationToken));
 }
