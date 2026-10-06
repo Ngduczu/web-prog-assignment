@@ -47,4 +47,6 @@ public sealed class ExerciseRepository : IExerciseRepository
     {
         _dbContext.ExerciseAttachments.Add(attachment);
     }
+
+    public void Remove(Exercise exercise) => _dbContext.Exercises.Remove(exercise);
 }
