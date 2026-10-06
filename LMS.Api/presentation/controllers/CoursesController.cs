@@ -24,6 +24,12 @@ public sealed class CoursesController : ControllerBase
         CancellationToken cancellationToken)
         => Ok(await service.ListAsync(query, cancellationToken));
 
+    [HttpGet("mine")]
+    public async Task<ActionResult<IReadOnlyList<CourseDto>>> ListMine(
+        [FromServices] ICourseService service,
+        CancellationToken cancellationToken)
+        => Ok(await service.ListMineAsync(cancellationToken));
+
     [HttpGet("{courseId:guid}")]
     public async Task<ActionResult<CourseDto>> GetById(
         Guid courseId,
