@@ -60,7 +60,7 @@ public sealed class ChatService : IChatService
             var courses = await _courses.ListByIdsAsync(courseRoomIds, cancellationToken);
             coursesById = courses.ToDictionary(course => course.Id);
             var role = _currentUser.GetRequiredRole();
-            if (role is not Role.Admin and not Role.Teacher)
+            if (role != Role.Admin)
             {
                 var enrollments = await _enrollments.ListByStudentAsync(userId, cancellationToken);
                 foreach (var enrollment in enrollments.Where(enrollment => enrollment.Status == EnrollmentStatus.Accepted))
@@ -92,11 +92,13 @@ public sealed class ChatService : IChatService
                 }
 
                 var role = _currentUser.GetRequiredRole();
-                if (role is not Role.Admin and not Role.Teacher &&
-                    (!enrollmentsByCourseId.TryGetValue(course.Id, out var enrollment) ||
-                     enrollment.StudentId != userId ||
-                     enrollment.CourseId != course.Id ||
-                     enrollment.Status != EnrollmentStatus.Accepted))
+                var canManageCourse = role == Role.Admin || role == Role.Teacher && course.TeacherId == userId;
+                var hasAcceptedEnrollment = role == Role.Student &&
+                    enrollmentsByCourseId.TryGetValue(course.Id, out var enrollment) &&
+                    enrollment.StudentId == userId &&
+                    enrollment.CourseId == course.Id &&
+                    enrollment.Status == EnrollmentStatus.Accepted;
+                if (!canManageCourse && !hasAcceptedEnrollment)
                 {
                     continue;
                 }
@@ -262,6 +264,25 @@ public sealed class ChatService : IChatService
         }
     }
 
+    public async Task<FileContent> GetAttachmentContentAsync(
+        Guid messageId,
+        Guid attachmentId,
+        CancellationToken cancellationToken)
+    {
+        var message = await _messages.GetByIdAsync(messageId, cancellationToken)
+            ?? throw new NotFoundException("The chat message was not found.");
+        await EnsureRoomAccessInternalAsync(message.ChatRoomId, cancellationToken);
+        if (message.IsDeleted)
+        {
+            throw new NotFoundException("The chat attachment was not found.");
+        }
+
+        var attachment = message.Attachments.SingleOrDefault(item => item.Id == attachmentId)
+            ?? throw new NotFoundException("The chat attachment was not found.");
+        var content = await _fileStorage.OpenReadAsync(attachment.ObjectKey, cancellationToken);
+        return new FileContent(content, attachment.FileName, attachment.ContentType);
+    }
+
     public async Task<ChatMessageDto> EditMessageAsync(Guid messageId, EditChatMessageRequest request, CancellationToken cancellationToken)
     {
         var userId = _currentUser.GetRequiredUserId();
@@ -401,5 +422,5 @@ public sealed class ChatService : IChatService
 
     private static bool CanModerate(ChatRoom room, Role role) => role == Role.Admin || room.Type == ChatRoomType.Course && role == Role.Teacher;
     private static ChatRoomDto MapRoom(ChatRoom room) => new(room.Id, room.Type.ToString(), room.CourseId, room.Participants.Select(participant => participant.UserId).ToArray(), room.CreatedAt, room.ArchivedAt);
-    private static ChatMessageDto MapMessage(ChatMessage message) => new(message.Id, message.ChatRoomId, message.SenderId, message.IsDeleted ? null : message.Content, message.ReplyToMessageId, message.CreatedAt, message.EditedAt, message.DeletedAt, message.IsDeleted ? [] : message.Attachments.Select(attachment => new ChatAttachmentDto(attachment.Id, attachment.FileName, attachment.ObjectKey, attachment.ContentType, attachment.FileSize)).ToArray());
+    private static ChatMessageDto MapMessage(ChatMessage message) => new(message.Id, message.ChatRoomId, message.SenderId, message.IsDeleted ? null : message.Content, message.ReplyToMessageId, message.CreatedAt, message.EditedAt, message.DeletedAt, message.IsDeleted ? [] : message.Attachments.Select(attachment => new ChatAttachmentDto(attachment.Id, attachment.FileName, attachment.ContentType, attachment.FileSize)).ToArray());
 }
