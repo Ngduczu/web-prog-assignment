@@ -20,6 +20,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 using LMS.Api.infrastructure.storage.S3;
+using LMS.Api.infrastructure.storage;
 using LMS.Api.infrastructure.workers;
 
 namespace LMS.Api.infrastructure;
@@ -64,6 +65,9 @@ public static class DependencyInjection
         {
             services.AddSingleton<IFileStorage, LocalFileStorage>();
         }
+        services.AddSingleton<FileCleanupWorker>();
+        services.AddSingleton<IFileCleanupQueue>(provider => provider.GetRequiredService<FileCleanupWorker>());
+        services.AddHostedService(provider => provider.GetRequiredService<FileCleanupWorker>());
         services.AddSingleton<IClock, SystemClock>();
         var redisConnectionString = configuration.GetConnectionString("Redis")
             ?? throw new InvalidOperationException("Redis connection string is not configured.");
