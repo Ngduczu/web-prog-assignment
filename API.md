@@ -39,7 +39,7 @@ Ví dụ lỗi để FrontEnd đọc `status`, `title`, `detail`:
 - `QuestionDifficulty`: `Easy`, `Medium`, `Hard`.
 - `ExaminationStatus`: `Draft`, `Published`, `Closed`.
 - `ExaminationAttemptStatus`: `InProgress`, `Disconnected`, `Submitted`, `AutoSubmitted`.
-- `ExaminationSubmitReason`: `StudentSubmitted`, `DurationExpired`, `DisconnectTimeout`, `MaxViolationsExceeded`.
+- `ExaminationSubmitReason`: `StudentSubmitted`, `DurationExpired`, `DisconnectTimeout`, `MaxViolationsExceeded`, `ExaminationClosed`.
 - `ExaminationViolationType`: `ExitFullscreen`, `TabChanged`, `WindowBlurred`, `CopyAttempt`, `PasteAttempt`, `RightClickAttempt`, `DevToolsSuspected`.
 
 ### Flow khởi tạo FrontEnd
@@ -1265,7 +1265,7 @@ Nếu `showScoreImmediately=false`, điểm được phát hành khi examination
 
 **Quyền:** Admin/server. FrontEnd student không gọi endpoint này.
 
-**Request body:** Không có body. `reason` không được là `StudentSubmitted`. **Response `200 OK`:** Examination attempt object.
+**Request body:** Không có body. `reason` không được là `StudentSubmitted`; backend kiểm tra điều kiện thực tế tương ứng (deadline, disconnect timeout, ngưỡng violation hoặc examination đã đóng) trước khi kết thúc attempt. Reason chưa đúng điều kiện trả `409`. **Response `200 OK`:** Examination attempt object.
 
 ## Data Flow
 

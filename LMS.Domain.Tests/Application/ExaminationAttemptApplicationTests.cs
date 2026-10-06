@@ -189,6 +189,49 @@ public class ExaminationAttemptApplicationTests
             fixture.Service.GetMineAsync(fixture.Examination.Id));
     }
 
+    [Theory]
+    [InlineData(ExaminationSubmitReason.DurationExpired)]
+    [InlineData(ExaminationSubmitReason.DisconnectTimeout)]
+    [InlineData(ExaminationSubmitReason.MaxViolationsExceeded)]
+    [InlineData(ExaminationSubmitReason.ExaminationClosed)]
+    public async Task AdminCannotAutoSubmitBeforeRequestedReasonApplies(
+        ExaminationSubmitReason reason)
+    {
+        var fixture = CreateFixture(currentUserRole: Role.Admin);
+        var attempt = new ExaminationAttempt(
+            fixture.Examination.Id,
+            fixture.Student.Id,
+            fixture.Clock.UtcNow,
+            fixture.Examination.Questions.Count);
+        fixture.Attempts.Add(attempt);
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            fixture.Service.AutoSubmitAsync(attempt.Id, reason));
+
+        Assert.Equal(ExaminationAttemptStatus.InProgress, attempt.Status);
+        Assert.Null(attempt.SubmitReason);
+    }
+
+    [Fact]
+    public async Task AdminCanAutoSubmitAfterDurationDeadline()
+    {
+        var fixture = CreateFixture(currentUserRole: Role.Admin);
+        var attempt = new ExaminationAttempt(
+            fixture.Examination.Id,
+            fixture.Student.Id,
+            fixture.Clock.UtcNow,
+            fixture.Examination.Questions.Count);
+        fixture.Attempts.Add(attempt);
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddMinutes(61);
+
+        var result = await fixture.Service.AutoSubmitAsync(
+            attempt.Id,
+            ExaminationSubmitReason.DurationExpired);
+
+        Assert.Equal(ExaminationAttemptStatus.AutoSubmitted, result.Status);
+        Assert.Equal(ExaminationSubmitReason.DurationExpired, result.SubmitReason);
+    }
+
     [Fact]
     public async Task GetQuestionsKeepsSnapshotOrderWhenShuffleIsDisabled()
     {
@@ -227,7 +270,8 @@ public class ExaminationAttemptApplicationTests
         bool enrollmentAccepted = true,
         bool showScoreImmediately = true,
         bool shuffleQuestions = false,
-        int maxDisconnectMinutes = 10)
+        int maxDisconnectMinutes = 10,
+        Role currentUserRole = Role.Student)
     {
         var teacher = CreateUser(Role.Teacher);
         var student = CreateUser(Role.Student);
@@ -284,7 +328,7 @@ public class ExaminationAttemptApplicationTests
             new FakeEnrollmentRepository(enrollment),
             new FakeUnitOfWork(),
             new FakeTransactionManager(),
-            new FakeCurrentUser(student),
+            new FakeCurrentUser(currentUserRole == Role.Student ? student : CreateUser(currentUserRole)),
             clock);
         return new Fixture(service, student, examination, attempts, clock);
     }

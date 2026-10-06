@@ -10,16 +10,17 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 3 |
+| Hoàn thành | 4 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 12 |
+| Chưa thực hiện | 11 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
 | RF-01 | Hoàn thành | Global filter dùng quan hệ course bắt buộc; `courses/mine` loại course soft-delete ở cả repository và service |
 | RF-02 | Hoàn thành | Student có enrollment accepted xem được exercise `Published` và `Closed`, nhưng không thấy `Draft` |
 | RF-03 | Hoàn thành | Close examination auto-submit và chấm mọi attempt active trong cùng transaction |
-| RF-04..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+| RF-04 | Hoàn thành | Admin auto-submit chỉ chấp nhận reason khi điều kiện server tương ứng đã xảy ra |
+| RF-05..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -43,6 +44,14 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Khi đóng, tải mọi attempt `InProgress`/`Disconnected`, chấm và auto-submit trước khi chuyển examination sang `Closed`, tất cả trong cùng transaction serializable.
 - Cập nhật `API.md` và thêm test bao phủ cả attempt đang làm lẫn disconnected.
 - Xác minh: **166 passed, 0 failed, 0 skipped**.
+
+### RF-04 — Xác thực reason của admin auto-submit
+
+- Giữ endpoint vận hành cho Admin nhưng không còn tin reason do caller truyền lên.
+- `DurationExpired`, `DisconnectTimeout`, `MaxViolationsExceeded` và `ExaminationClosed` đều được đối chiếu với trạng thái/deadline server; điều kiện chưa đạt trả `409` và attempt không đổi.
+- Với hai deadline trùng nhau hoặc examination hết trước, reason chuẩn là `DurationExpired`, không phải `DisconnectTimeout`.
+- Cập nhật enum/contract và thêm test cho mọi reason gửi sớm cùng trường hợp duration thực sự đã hết.
+- Xác minh: **171 passed, 0 failed, 0 skipped**.
 
 ## Tổng quan
 

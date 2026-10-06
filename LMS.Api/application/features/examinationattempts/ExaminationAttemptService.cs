@@ -415,10 +415,39 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
                 true,
                 transactionCancellationToken);
             EnsureActive(submittedAttempt);
+            EnsureAutoSubmitReasonApplies(submittedAttempt, examination, reason);
             AttemptGrader.CompleteAndGrade(submittedAttempt, examination, reason, true);
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
         }, cancellationToken);
         return Map(submittedAttempt!, examination!);
+    }
+
+    private void EnsureAutoSubmitReasonApplies(
+        ExaminationAttempt attempt,
+        Examination examination,
+        ExaminationSubmitReason reason)
+    {
+        var now = _clock.UtcNow;
+        var examinationDeadline = AttemptDeadline.GetExaminationDeadline(attempt, examination);
+        var applies = reason switch
+        {
+            ExaminationSubmitReason.DurationExpired => now >= examinationDeadline,
+            ExaminationSubmitReason.DisconnectTimeout =>
+                attempt.Status == ExaminationAttemptStatus.Disconnected &&
+                attempt.DisconnectedAt is not null &&
+                attempt.DisconnectedAt.Value.AddMinutes(examination.MaxDisconnectMinutes) < examinationDeadline &&
+                now >= attempt.DisconnectedAt.Value.AddMinutes(examination.MaxDisconnectMinutes),
+            ExaminationSubmitReason.MaxViolationsExceeded =>
+                examination.MaxViolations > 0 &&
+                attempt.ViolationCount >= examination.MaxViolations,
+            ExaminationSubmitReason.ExaminationClosed => examination.Status == ExaminationStatus.Closed,
+            _ => false
+        };
+
+        if (!applies)
+        {
+            throw new ConflictException("The requested auto-submit reason does not apply to this attempt.");
+        }
     }
 
     private async Task<(ExaminationAttempt Attempt, Examination Examination, ExaminationQuestion Question)>
