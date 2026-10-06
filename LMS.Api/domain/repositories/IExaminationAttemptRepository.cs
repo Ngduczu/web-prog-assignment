@@ -12,6 +12,11 @@ public interface IExaminationAttemptRepository
         Guid examinationId,
         Guid studentId,
         CancellationToken cancellationToken);
+    Task<ExaminationAttempt?> GetLatestAsync(
+        Guid examinationId,
+        Guid studentId,
+        bool includeAnswers,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<ExaminationAttempt>> ListExpiredAsync(
         DateTime now,
         int take,
