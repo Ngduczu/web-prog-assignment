@@ -10,4 +10,5 @@ public interface IQuestionRepository
         IReadOnlyCollection<Guid> questionBankIds,
         CancellationToken cancellationToken);
     void Add(Question question);
+    void Remove(Question question) => throw new NotSupportedException();
 }
