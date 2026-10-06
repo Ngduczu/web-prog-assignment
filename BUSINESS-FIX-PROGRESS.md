@@ -4,15 +4,15 @@ Cập nhật gần nhất: `2026-10-06`
 
 Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
-> Bảng 18/18 bên dưới chỉ phản ánh phạm vi audit đầu tiên. Lần tái rà soát đã phát hiện thêm các lỗi và khoảng trống mới; xem `BUSINESS-FUNCTIONAL-REAUDIT.md`. Các mục mới chưa được tính là đã sửa trong bảng này.
+> Bảng 18/18 bên dưới phản ánh audit đầu tiên. Toàn bộ 15/15 finding của lần tái rà soát trong `BUSINESS-FUNCTIONAL-REAUDIT.md` cũng đã được xử lý và ghi lịch sử ở phần đầu file này.
 
 ## Tiến độ tái rà soát
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 14 |
+| Hoàn thành | 15 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 1 |
+| Chưa thực hiện | 0 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
@@ -30,7 +30,7 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 | RF-12 | Hoàn thành | File cleanup chuyển sang PostgreSQL outbox bền vững; chat attachment dùng chung queue |
 | RF-13 | Hoàn thành | Attempt active luôn trả result field `null` |
 | RF-14 | Hoàn thành | Read receipt chỉ tiến, từ chối target đã xóa và được clear khi target bị xóa |
-| RF-15 | Chưa thực hiện | Xử lý tiếp theo theo báo cáo tái rà soát |
+| RF-15 | Hoàn thành | Chỉ unique constraint nghiệp vụ trong allowlist được map thành `409` |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -139,6 +139,21 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Production chạy transition mark-as-read trong transaction serializable để hai request đồng thời không ghi lùi con trỏ.
 - Cập nhật contract và thêm test cho request đảo thứ tự cùng target đã xóa.
 - Xác minh: **192 passed, 0 failed, 0 skipped**.
+
+### RF-15 — Phân loại unique violation đúng allowlist
+
+- Di chuyển allowlist constraint vào `DatabaseConstraintPolicy` dùng chung tại persistence và exception middleware.
+- `AppDbContext.SaveChangesAsync` chỉ đổi unique violation đã biết thành `ConflictException`; constraint lạ giữ nguyên `DbUpdateException` để được log/trả `500`.
+- Middleware dùng cùng policy nên không còn hai rule phân loại mâu thuẫn.
+- Thêm test cho constraint nghiệp vụ hợp lệ và unique constraint ngoài allowlist.
+- Xác minh: **195 passed, 0 failed, 0 skipped**.
+
+### Xác minh cuối tái rà soát
+
+- Toàn bộ test: **195 passed, 0 failed, 0 skipped**; build **0 warning, 0 error**.
+- Migration `AddPersistentFileCleanupQueue` đã áp dụng thành công lên PostgreSQL local cùng các migration còn thiếu trước đó.
+- `dotnet ef migrations has-pending-model-changes`: **không có model change chưa tạo migration**.
+- Chuỗi sửa lỗi được tách thành **15 commit**, đúng một commit cho mỗi finding `RF-01..RF-15`.
 
 ## Tổng quan
 

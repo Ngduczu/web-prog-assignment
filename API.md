@@ -1408,21 +1408,13 @@ const connection = new signalR.HubConnectionBuilder()
 
 Frontend nên tải lịch sử bằng REST, sau đó `JoinRoom` và lắng nghe `MessageReceived`. Gửi text qua hub hoặc hai endpoint REST (text/attachment) đều phát cùng event sau khi lưu thành công.
 
-## Khoảng trống backend cần biết khi nối FrontEnd
+## Lưu ý khi nối FrontEnd
 
-Đây là các thiếu hụt chức năng hiện tại, không phải yêu cầu hardening bảo mật:
-
-- Backend chưa cấu hình CORS. Khi chạy FrontEnd ở origin khác, dùng dev proxy về API hoặc bổ sung origin FrontEnd vào cấu hình backend.
-- Chưa có `GET /api/users/me`; FrontEnd phải đọc user ID từ JWT rồi gọi profile.
-- Chưa có endpoint “enrollments của tôi”, nên sau khi reload student không lấy được danh sách course đã đăng ký và trạng thái `Waiting/Accepted` từ một API riêng.
-- Danh sách course của student luôn chỉ trả course `Open`; course `Closed` đã enroll vẫn xem được bằng endpoint chi tiết nhưng không xuất hiện trong danh sách.
-- Submission chỉ có upload/submit/unsubmit; chưa có GET submission hiện tại, danh sách bài nộp cho teacher, chấm điểm hoặc endpoint tải submission attachment.
-- Examination attempt chưa có endpoint lấy attempt active/result theo exam. Nếu reload giữa lúc thi, FrontEnd không có API để tìm lại `attemptId`; gọi start lại sẽ nhận `409`.
-- Chat attachment mới chỉ trả `objectKey`, chưa có endpoint tải/xem file. REST upload attachment cũng chưa broadcast `MessageReceived`.
-- Exercise chưa có draft/publish; student có enrollment `Accepted` thấy bài tập ngay sau khi teacher tạo.
-- Chưa có endpoint xóa lesson/exercise hoặc cập nhật/xóa question. FrontEnd không nên hiển thị các nút này cho tới khi backend bổ sung.
-
-Các khoảng trống này nên được ưu tiên theo màn hình FrontEnd thực tế; không cần thêm abstraction hoặc hệ thống phức tạp cho đồ án.
+- Backend chưa cấu hình CORS. Khi FrontEnd chạy ở origin khác, dùng dev proxy hoặc bổ sung origin vào cấu hình backend.
+- Chưa có `GET /api/users/me`; FrontEnd đọc user ID từ JWT rồi gọi `GET /api/users/{userId}/profile`.
+- Course `Closed` hiện có nghĩa là ngừng tuyển: student đã `Accepted` vẫn truy cập nội dung/lịch sử qua các endpoint `mine`.
+- Hệ thống chỉ chặn hai attempt active đồng thời; student có thể bắt đầu attempt mới sau khi attempt trước hoàn thành vì chưa có cấu hình `MaxAttempts`.
+- Khi enrollment bị cancel/revoke, student mất quyền đọc course content và lịch sử liên quan theo authorization hiện tại.
 
 ## OAuth provider contract
 

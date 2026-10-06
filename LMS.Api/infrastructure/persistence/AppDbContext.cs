@@ -80,14 +80,11 @@ public class AppDbContext : DbContext, IUnitOfWork, ITransactionManager
         {
             throw new ConflictException("The data was changed by another request. Please retry.", exception);
         }
-        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        catch (DbUpdateException exception) when (DatabaseConstraintPolicy.IsBusinessUniqueViolation(exception))
         {
             throw new ConflictException("The record already exists.", exception);
         }
     }
-
-    private static bool IsUniqueViolation(DbUpdateException exception) =>
-        exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 
     private async Task ExecuteWithIsolationAsync(
         Func<CancellationToken, Task> action,

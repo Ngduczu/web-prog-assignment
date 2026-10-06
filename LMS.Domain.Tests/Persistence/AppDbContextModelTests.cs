@@ -108,6 +108,27 @@ public class AppDbContextModelTests
         Assert.Equal(expected, result);
     }
 
+    [Theory]
+    [InlineData("IX_users_email", true)]
+    [InlineData("IX_enrollments_student_id_course_id", true)]
+    [InlineData("IX_unexpected_internal_index", false)]
+    public void OnlyAllowlistedUniqueConstraintsAreBusinessConflicts(
+        string constraintName,
+        bool expected)
+    {
+        var postgresException = new PostgresException(
+            "duplicate key",
+            "ERROR",
+            "ERROR",
+            PostgresErrorCodes.UniqueViolation,
+            constraintName: constraintName);
+        var wrapped = new DbUpdateException("save failed", postgresException);
+
+        var result = DatabaseConstraintPolicy.IsBusinessUniqueViolation(wrapped);
+
+        Assert.Equal(expected, result);
+    }
+
     private static void AssertUniqueIndex<TEntity>(AppDbContext context, params string[] propertyNames)
     {
         var entityType = context.Model.FindEntityType(typeof(TEntity));

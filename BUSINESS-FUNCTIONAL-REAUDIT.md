@@ -2,13 +2,15 @@
 
 Ngày rà soát: `2026-10-06`
 
+> Trạng thái sửa lỗi ngày `2026-10-06`: **15/15 finding RF-01..RF-15 đã hoàn thành**. Nội dung chi tiết bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
+
 ## 1. Phạm vi và phương pháp
 
 Đã đọc lại toàn bộ các lớp controller, application service, domain entity, repository, EF Core configuration/migration, worker, Redis, mail, local/S3 storage và test hiện có.
 
 Lần rà soát này không mặc định 18 lỗi trong báo cáo cũ là toàn bộ phạm vi. Các luồng được đối chiếu lại từ HTTP → authorization → state transition → persistence → response, đặc biệt ở các biên thời gian, soft-delete, retry và request đồng thời.
 
-Xác minh hiện tại:
+Xác minh tại thời điểm phát hiện:
 
 - `dotnet test LMS.Domain.Tests/LMS.Domain.Tests.csproj --no-restore`: **163 passed, 0 failed, 0 skipped**.
 - Build trong lần chạy test thành công.
