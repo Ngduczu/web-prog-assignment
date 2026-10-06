@@ -149,6 +149,11 @@ public sealed class ExerciseService : IExerciseService
         var exercise = await GetExerciseAsync(exerciseId, true, cancellationToken);
         var course = await GetCourseAsync(exercise.CourseId, cancellationToken);
         var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);
+        if (exercise.Status != ExerciseStatus.Draft)
+        {
+            throw new ConflictException("Only draft exercises can have their attachment changed.");
+        }
+
         var storedFile = await _fileStorage.UploadAsync(
             upload,
             $"courses/{course.Id:N}/exercises/{exercise.Id:N}",

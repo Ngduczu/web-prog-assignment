@@ -10,9 +10,9 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 5 |
+| Hoàn thành | 6 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 10 |
+| Chưa thực hiện | 9 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
@@ -21,7 +21,8 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 | RF-03 | Hoàn thành | Close examination auto-submit và chấm mọi attempt active trong cùng transaction |
 | RF-04 | Hoàn thành | Admin auto-submit chỉ chấp nhận reason khi điều kiện server tương ứng đã xảy ra |
 | RF-05 | Hoàn thành | Transaction retry toàn khối cho PostgreSQL serialization/deadlock, hết retry trả `409` |
-| RF-06..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+| RF-06 | Hoàn thành | Chỉ exercise `Draft` được thêm hoặc thay attachment |
+| RF-07..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -61,6 +62,13 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Sau lần thử cuối, chuyển lỗi thành domain conflict `409` với thông báo có thể retry thay vì rơi thành `500`.
 - Thêm test phân loại SQL state để chỉ retry đúng hai lỗi concurrency, không nuốt unique violation.
 - Xác minh: **174 passed, 0 failed, 0 skipped**.
+
+### RF-06 — Khóa attachment sau khi phát hành exercise
+
+- Chọn quy tắc bất biến thay vì versioning: attachment chỉ được thêm/thay khi exercise còn `Draft`.
+- Kiểm tra trạng thái được thực hiện trước khi upload, nên request sai không tạo file orphan.
+- Cập nhật `API.md` và thêm test cho cả `Published` lẫn `Closed`.
+- Xác minh: **176 passed, 0 failed, 0 skipped**.
 
 ## Tổng quan
 

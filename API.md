@@ -913,7 +913,7 @@ Exercise luôn được tạo ở trạng thái `Draft`; `dueAt` nếu có phả
 
 ### `POST /api/exercises/{exerciseId}/attachment`
 
-**Quyền:** Teacher sở hữu course hoặc Admin. **Request:** `multipart/form-data`, field bắt buộc là `file` nhỏ hơn 20 MB. Upload mới sẽ thay file cũ. **Response `200 OK`:** Exercise object.
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ exercise `Draft` được thêm hoặc thay attachment; file đã phát hành là bất biến. **Request:** `multipart/form-data`, field bắt buộc là `file` nhỏ hơn 20 MB. Upload mới sẽ thay file cũ. **Response `200 OK`:** Exercise object.
 
 ### `DELETE /api/exercises/{exerciseId}`
 

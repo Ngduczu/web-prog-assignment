@@ -305,6 +305,32 @@ public class CourseContentApplicationTests
         Assert.Single(exercises.Items);
     }
 
+    [Theory]
+    [InlineData(ExerciseStatus.Published)]
+    [InlineData(ExerciseStatus.Closed)]
+    public async Task ReleasedExerciseAttachmentCannotBeChanged(ExerciseStatus status)
+    {
+        var teacher = CreateTeacher();
+        var course = CreateCourse(teacher);
+        var exercise = new Exercise(course.Id, "Exercise", null, null, teacher.Id, status);
+        var storage = new FakeFileStorage();
+        var service = new ExerciseService(
+            new FakeExerciseRepository(exercise),
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(),
+            storage,
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher));
+        await using var content = new MemoryStream([1, 2, 3]);
+
+        await Assert.ThrowsAsync<LMS.Api.domain.exceptions.ConflictException>(() =>
+            service.UploadAttachmentAsync(
+                exercise.Id,
+                new FileUpload("replacement.pdf", "application/pdf", content.Length, content)));
+
+        Assert.Equal(0, storage.UploadCount);
+    }
+
     private static LessonService CreateLessonService(
         User teacher,
         Course course,
