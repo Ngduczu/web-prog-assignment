@@ -2,7 +2,7 @@
 
 Ngày rà soát: `2026-10-06`
 
-> Trạng thái sửa lỗi ngày `2026-10-06`: **15/15 finding RF-01..RF-15 đã hoàn thành**. Nội dung chi tiết bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
+> Trạng thái sửa lỗi ngày `2026-10-06`: **15/15 finding RF-01..RF-15 đã hoàn thành**. Lần rà soát bổ sung sau đó phát hiện **6 finding RR-01..RR-06 chưa sửa**, được ghi ở mục 7 để xử lý tuần tự về sau. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 ## 1. Phạm vi và phương pháp
 
@@ -227,3 +227,91 @@ Ngoài ra `ChatService.SendMessageWithAttachmentAsync` vẫn gọi storage delet
 Hệ thống hiện build và vượt toàn bộ test sẵn có, nhưng vẫn có lỗi nghiệp vụ ở các nhánh chưa được test: soft-delete, lịch sử exercise, đóng kỳ thi, admin auto-submit, lỗi cạnh tranh PostgreSQL và các workflow nhiều hệ thống Redis/DB/mail/storage.
 
 Ưu tiên sửa trước là **RF-01 → RF-02 → RF-03/RF-04 → RF-05**, vì đây là các lỗi làm trạng thái người dùng nhìn thấy sai hoặc làm sai kết quả/audit của kỳ thi. Sau đó mới xử lý reliability và cleanup dài hạn.
+
+## 7. Backlog từ lần rà soát bổ sung
+
+Ngày rà soát bổ sung: `2026-10-06`
+
+Trạng thái xác minh tại thời điểm ghi nhận:
+
+- `dotnet test LMS.Domain.Tests/LMS.Domain.Tests.csproj --no-restore`: **195 passed, 0 failed, 0 skipped**.
+- Working tree sạch trước khi cập nhật tài liệu.
+- Các finding dưới đây được xác nhận bằng việc đối chiếu code path; bộ test hiện tại chưa có integration test PostgreSQL cho các race condition tương ứng.
+
+| Mã | Mức | Nhóm | Trạng thái | Tóm tắt |
+|---|---|---|---|---|
+| RR-01 | High | Submission | Chưa sửa | Upload/submit/unsubmit/grade đồng thời có thể phá vòng đời submission |
+| RR-02 | High | Auth | Chưa sửa | Reset password có thể commit nhưng không thu hồi session cũ |
+| RR-03 | Medium | OAuth | Chưa sửa | Khôi phục state không làm authorization code đã redeem dùng lại được |
+| RR-04 | Medium | File | Chưa sửa | Cleanup lỗi có thể che exception gốc; enqueue chưa atomic |
+| RR-05 | Medium | Registration | Chưa sửa | Retry qua endpoint register bỏ qua cooldown resend |
+| RR-06 | Medium | Concurrency | Chưa sửa | Retry transaction tạo multiple-choice dùng lại aggregate đã mutate |
+
+### RR-01 — Submission không bảo vệ transition đồng thời
+
+`SubmissionService.UploadAsync` kiểm tra submission còn `Draft` trước khi upload file, nhưng không khóa record hoặc kiểm tra lại trạng thái khi ghi metadata. `SubmitAsync`, `UnsubmitAsync` và `GradeAsync` cũng là các read-check-write độc lập. Entity `Submission` không có row-version/concurrency token và các transition không chạy trong cùng transaction serializable.
+
+Các lịch thực thi có thể xảy ra:
+
+- Upload đọc `Draft`, một request khác submit thành công, sau đó upload vẫn thay attachment của bài đã nộp.
+- Grade và unsubmit cùng đọc `Submitted`; request đến sau có thể ghi đè status của request trước, tạo submission `Draft` nhưng vẫn còn grade hoặc đưa bài đã unsubmit trở lại `Graded`.
+- Hai upload cùng đọc object key cũ có thể lost update; tùy thời điểm worker xử lý cleanup task, file của request thắng trước đó có thể trở thành orphan.
+
+**Ảnh hưởng:** tính bất biến “chỉ draft mới được thay file” và “bài graded không thể unsubmit” không được đảm bảo dưới request đồng thời; nội dung được chấm có thể không phải nội dung student đã submit.
+
+**Hướng sửa:** thêm PostgreSQL row-version (`xmin`) cho `Submission`, bao toàn bộ transition bằng transaction phù hợp và chuyển concurrency conflict thành `409`. Với upload, sau khi lưu object phải kiểm tra/ghi metadata có điều kiện theo version; nếu conflict thì enqueue object mới để cleanup. Thêm integration test thật cho upload-vs-submit và grade-vs-unsubmit.
+
+### RR-02 — Reset password và thu hồi session không atomic
+
+`PasswordResetService.ResetAsync` consume reset code, lưu password hash mới vào PostgreSQL, rồi mới khởi tạo/tăng `auth:version` trong Redis. Khối phục hồi hiện chỉ bao quanh `SaveChangesAsync`; lỗi Redis xảy ra sau khi DB commit không khôi phục code và không thể rollback password.
+
+**Ảnh hưởng:** API có thể trả lỗi trong khi mật khẩu thực tế đã đổi; người dùng không biết mật khẩu nào đang có hiệu lực. Nếu auth-version chưa tăng, access/refresh token cũ có thể tiếp tục hợp lệ khi Redis hoạt động lại với version cũ hoặc fallback version `1`.
+
+**Hướng sửa:** lưu security version bền vững trong PostgreSQL hoặc dùng transactional outbox để bắt buộc hoàn tất việc thu hồi session. Reset cần có trạng thái/idempotency result để retry trả cùng kết quả thay vì consume code lần nữa. Bổ sung fault-injection test tại từng bước sau DB commit.
+
+### RR-03 — OAuth state recovery không phục hồi authorization code
+
+Callback consume OAuth state trước khi gọi provider. Khi downstream lỗi, controller ghi state trở lại Redis trong một phút. Tuy nhiên `LoginWithOAuthAsync`/`LinkOAuthAsync` exchange authorization code với Google trước khi đọc hoặc ghi dữ liệu nội bộ. Nếu exchange đã thành công rồi DB/Redis lỗi, authorization code đã bị provider consume và retry callback với state được phục hồi vẫn thất bại.
+
+**Ảnh hưởng:** cơ chế recovery hiện chỉ hữu ích với lỗi xảy ra trước khi provider chấp nhận code; nó không đảm bảo retry cho lỗi DB, tạo user/link hoặc phát login code sau exchange.
+
+**Hướng sửa:** sau khi exchange thành công, ghi một pending OAuth identity nội bộ có TTL/idempotency key và cho callback retry tiếp tục từ kết quả đó. Không quảng bá việc khôi phục state như bảo đảm toàn bộ callback có thể chạy lại.
+
+### RR-04 — Persistent file cleanup vẫn có thể che lỗi gốc
+
+Các catch sau upload gọi `CleanupFileAsync`/`EnqueueImmediatelyAsync` rồi mới `throw`. Nếu cleanup queue cũng không ghi được — đặc biệt khi PostgreSQL chính là thành phần đang lỗi — exception từ cleanup thay thế exception nghiệp vụ/persistence ban đầu. `EnqueueImmediatelyAsync` còn dùng chuỗi `AnyAsync` rồi `Insert`, nên hai request có thể cùng vượt qua bước kiểm tra và va unique constraint.
+
+`Enqueue` trong cùng unit of work chỉ kiểm tra `DbSet.Local`, không kiểm tra task đã tồn tại trong DB. Unique constraint của `file_cleanup_tasks.object_key` không thuộc business-conflict allowlist, nên duplicate queue task có thể làm rollback cả thay đổi nghiệp vụ và trả `500`.
+
+**Ảnh hưởng:** mất nguyên nhân lỗi gốc, cleanup không chắc được ghi lại khi DB unavailable và request hợp lệ có thể thất bại vì duplicate outbox task.
+
+**Hướng sửa:** cleanup trong catch phải là best-effort và luôn bảo toàn exception gốc; dùng upsert/`ON CONFLICT DO NOTHING` cho enqueue. Cân nhắc fallback xóa trực tiếp có log khi persistent queue không khả dụng và thêm test queue failure/race.
+
+### RR-05 — Register retry bỏ qua cooldown verification
+
+Khi email đã thuộc local account `Inactive`, `RegisterAsync` gọi thẳng `CreateAndSendVerificationCodeAsync`. Đường này dùng `SetAsync` để ghi cooldown, trong khi endpoint `ResendVerificationAsync` dùng `SetIfNotExistsAsync` và từ chối khi cooldown còn hiệu lực. Register retry cũng không xác nhận password gửi lại khớp với password hash đã lưu.
+
+**Ảnh hưởng:** caller có thể gọi lại `/register` để thay verification code liên tục, làm link/code trong email trước mất hiệu lực và gửi mail vượt qua rule cooldown của resend. Global auth rate limit chỉ giới hạn số request theo IP, không giữ bất biến theo account.
+
+**Hướng sửa:** chỉ coi register là idempotent khi payload tương thích, hoặc hướng mọi account `Inactive` qua cùng một hàm resend có thao tác acquire cooldown atomic. Không thay code hiện hành nếu cooldown chưa hết. Thêm test gọi register lặp trong một phút và với password khác.
+
+### RR-06 — Transaction retry dùng lại aggregate multiple-choice đã mutate
+
+`QuestionService.CreateMultipleChoiceAsync` tạo `Question` và options bên ngoài callback transaction. Callback save graph lần đầu, sau đó gán `CorrectOptionId` và save lần hai. `AppDbContext` retry deadlock/serialization bằng cách clear change tracker rồi gọi lại callback.
+
+Nếu lỗi retryable xảy ra ở lần save thứ hai hoặc lúc commit, object được capture đã có `CorrectOptionId`. Lần retry re-add question và correct option cùng lúc, tạo vòng phụ thuộc insert: option cần question tồn tại, đồng thời question trỏ tới correct option chưa tồn tại.
+
+**Ảnh hưởng:** transaction retry có thể thoát bằng lỗi FK/circular dependency khác thay vì phục hồi deadlock; cam kết RF-05 không đúng cho đường tạo câu hỏi multiple-choice.
+
+**Hướng sửa:** dựng aggregate mới hoàn toàn bên trong mỗi lần callback chạy, hoặc thiết kế schema/write path không cần hai lần save và không capture mutable entity qua các attempt. Thêm fault-injection test gây lỗi retryable sau lần save thứ hai.
+
+### Thứ tự xử lý đề xuất
+
+1. `RR-01`: bảo vệ submission lifecycle và file correctness.
+2. `RR-02`: bảo đảm đổi mật khẩu luôn thu hồi session hoặc có khả năng hoàn tất lại.
+3. `RR-04`: không để cleanup che lỗi gốc và làm enqueue idempotent.
+4. `RR-05`: thống nhất cooldown register/resend.
+5. `RR-03`: làm OAuth callback resumable sau provider exchange.
+6. `RR-06`: làm transaction callback retry-safe.
+
+Sau mỗi finding cần cập nhật trạng thái tại bảng trên, ghi test/migration liên quan vào `BUSINESS-FIX-PROGRESS.md`, và tạo một commit riêng cho đúng một lỗi.
