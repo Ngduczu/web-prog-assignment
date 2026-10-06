@@ -55,6 +55,23 @@ public sealed class PasswordResetApplicationTests
                 "new-password123")));
     }
 
+    [Fact]
+    public async Task ResetCodeAndPasswordAreRestoredWhenDatabaseSaveFails()
+    {
+        var fixture = CreateFixture();
+        await fixture.Service.RequestAsync(new ForgotPasswordRequest("user@example.com"));
+        var code = fixture.Mail.LastCode;
+        fixture.UnitOfWork.FailNext = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.ResetAsync(
+            new ResetPasswordRequest("user@example.com", code, "new-password123", "new-password123")));
+
+        Assert.Equal("hash:password123", fixture.User.PasswordHash);
+        await fixture.Service.ResetAsync(new ResetPasswordRequest(
+            "user@example.com", code, "new-password123", "new-password123"));
+        Assert.Equal("hash:new-password123", fixture.User.PasswordHash);
+    }
+
     private static string DifferentCode(string code) =>
         $"{(code[0] == 'A' ? 'B' : 'A')}{code[1..]}";
 
@@ -70,21 +87,23 @@ public sealed class PasswordResetApplicationTests
         var users = new FakeUserRepository(user);
         var cache = new FakeCache();
         var mail = new FakeMailSender();
+        var unitOfWork = new FakeUnitOfWork();
         var service = new PasswordResetService(
             users,
             new FakePasswordHasher(),
             cache,
             mail,
-            new FakeUnitOfWork(),
+            unitOfWork,
             new FakeClock());
-        return new Fixture(service, user, cache, mail);
+        return new Fixture(service, user, cache, mail, unitOfWork);
     }
 
     private sealed record Fixture(
         PasswordResetService Service,
         User User,
         FakeCache Cache,
-        FakeMailSender Mail);
+        FakeMailSender Mail,
+        FakeUnitOfWork UnitOfWork);
 
     private sealed class FakeClock : IClock
     {
@@ -122,7 +141,18 @@ public sealed class PasswordResetApplicationTests
 
     private sealed class FakeUnitOfWork : IUnitOfWork
     {
-        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+        public bool FailNext { get; set; }
+
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            if (!FailNext)
+            {
+                return Task.FromResult(1);
+            }
+
+            FailNext = false;
+            return Task.FromException<int>(new InvalidOperationException("Database failure"));
+        }
     }
 
     private sealed class FakeUserRepository(User user) : IUserRepository
