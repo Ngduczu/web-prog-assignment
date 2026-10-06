@@ -26,6 +26,7 @@ public sealed record CreateFillInBlankQuestionRequest(
     string Content,
     QuestionDifficulty Difficulty,
     IReadOnlyList<FillInBlankAnswerInput> Answers);
+public sealed record UpdateQuestionRequest(string Content, QuestionDifficulty Difficulty);
 
 public sealed record MultipleChoiceOptionDto(Guid Id, string Content, int Order, bool IsCorrect);
 public sealed record FillInBlankAnswerDto(Guid Id, int BlankOrder, string ExpectedAnswer);
@@ -51,6 +52,7 @@ public interface IQuestionService
         Guid questionBankId,
         UpdateQuestionBankRequest request,
         CancellationToken cancellationToken = default);
+    Task DeleteQuestionBankAsync(Guid questionBankId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<QuestionBankDto>> ListQuestionBanksAsync(
         Guid? teacherId = null,
         CancellationToken cancellationToken = default);
@@ -65,4 +67,6 @@ public interface IQuestionService
     Task<IReadOnlyList<QuestionDto>> ListQuestionsAsync(
         Guid questionBankId,
         CancellationToken cancellationToken = default);
+    Task<QuestionDto> UpdateQuestionAsync(Guid questionId, UpdateQuestionRequest request, CancellationToken cancellationToken = default);
+    Task DeleteQuestionAsync(Guid questionId, CancellationToken cancellationToken = default);
 }
