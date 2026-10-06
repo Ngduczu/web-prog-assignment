@@ -59,9 +59,10 @@ public sealed class ExaminationAutoSubmitWorker : BackgroundService
 
         foreach (var attempt in expired)
         {
-            var reason = attempt.Status == ExaminationAttemptStatus.InProgress
-                ? ExaminationSubmitReason.DurationExpired
-                : ExaminationSubmitReason.DisconnectTimeout;
+            var reason = AttemptDeadline.GetExpiredReason(
+                attempt,
+                attempt.Examination!,
+                clock.UtcNow);
             AttemptGrader.CompleteAndGrade(attempt, attempt.Examination!, reason, autoSubmit: true);
         }
 
