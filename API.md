@@ -895,11 +895,11 @@ Exercise luôn được tạo ở trạng thái `Draft`; `dueAt` nếu có phả
 
 **Quyền:** Teacher sở hữu course, Admin hoặc student có enrollment `Accepted`.
 
-**Response `200 OK`:** Mảng exercise object. Teacher/Admin thấy mọi trạng thái; student chỉ thấy exercise `Published`.
+**Response `200 OK`:** Mảng exercise object. Teacher/Admin thấy mọi trạng thái; student thấy exercise `Published` và `Closed` để tiếp tục truy cập lịch sử bài nộp/điểm, nhưng không thấy bản nháp.
 
 ### `GET /api/exercises/{exerciseId}`
 
-**Quyền:** Giống endpoint danh sách exercise. **Response `200 OK`:** Exercise object.
+**Quyền:** Giống endpoint danh sách exercise, gồm quyền xem exercise `Closed` của student đã được nhận vào course. **Response `200 OK`:** Exercise object.
 
 ### `GET /api/exercises/{exerciseId}/attachment?download=false`
 

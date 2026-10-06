@@ -76,7 +76,7 @@ public sealed class ExerciseService : IExerciseService
         if (!CourseAuthorization.IsCourseManager(_currentUser, course))
         {
             exercises = exercises
-                .Where(exercise => exercise.Status == ExerciseStatus.Published)
+                .Where(exercise => exercise.Status is ExerciseStatus.Published or ExerciseStatus.Closed)
                 .ToArray();
         }
         return exercises.Select(Map).ToArray();
@@ -94,7 +94,7 @@ public sealed class ExerciseService : IExerciseService
             course,
             _enrollments,
             cancellationToken);
-        EnsureStudentCanAccessPublishedExercise(course, exercise);
+        EnsureStudentCanAccessReleasedExercise(course, exercise);
         return Map(exercise);
     }
 
@@ -132,7 +132,7 @@ public sealed class ExerciseService : IExerciseService
             course,
             _enrollments,
             cancellationToken);
-        EnsureStudentCanAccessPublishedExercise(course, exercise);
+        EnsureStudentCanAccessReleasedExercise(course, exercise);
         var attachment = exercise.Attachment
             ?? throw new NotFoundException("Exercise attachment was not found.");
         var content = await _fileStorage.OpenReadAsync(attachment.ObjectKey, cancellationToken);
@@ -287,10 +287,10 @@ public sealed class ExerciseService : IExerciseService
         }
     }
 
-    private void EnsureStudentCanAccessPublishedExercise(Course course, Exercise exercise)
+    private void EnsureStudentCanAccessReleasedExercise(Course course, Exercise exercise)
     {
         if (!CourseAuthorization.IsCourseManager(_currentUser, course) &&
-            exercise.Status != ExerciseStatus.Published)
+            exercise.Status is not ExerciseStatus.Published and not ExerciseStatus.Closed)
         {
             throw new NotFoundException("Exercise was not found.");
         }

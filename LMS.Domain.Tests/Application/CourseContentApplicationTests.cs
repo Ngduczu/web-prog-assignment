@@ -130,7 +130,7 @@ public class CourseContentApplicationTests
     }
 
     [Fact]
-    public async Task StudentListsOnlyPublishedExercisesWhenEnrolled()
+    public async Task StudentListsPublishedAndClosedExercisesWhenEnrolled()
     {
         var teacher = CreateTeacher();
         var student = CreateStudent();
@@ -143,8 +143,15 @@ public class CourseContentApplicationTests
             DateTime.UtcNow.AddDays(1),
             teacher.Id,
             ExerciseStatus.Published);
+        var closed = new Exercise(
+            course.Id,
+            "Closed",
+            null,
+            DateTime.UtcNow.AddDays(-1),
+            teacher.Id,
+            ExerciseStatus.Closed);
         var service = new ExerciseService(
-            new FakeExerciseRepository(draft, published),
+            new FakeExerciseRepository(draft, published, closed),
             new FakeCourseRepository(course),
             new FakeEnrollmentRepository(new Enrollment(student.Id, course.Id, EnrollmentStatus.Accepted)),
             new FakeFileStorage(),
@@ -153,9 +160,37 @@ public class CourseContentApplicationTests
 
         var result = await service.ListAsync(course.Id);
 
-        var item = Assert.Single(result);
-        Assert.Equal(published.Id, item.Id);
-        Assert.Equal(ExerciseStatus.Published, item.Status);
+        Assert.Equal(2, result.Count);
+        Assert.Contains(result, item => item.Id == published.Id && item.Status == ExerciseStatus.Published);
+        Assert.Contains(result, item => item.Id == closed.Id && item.Status == ExerciseStatus.Closed);
+        Assert.DoesNotContain(result, item => item.Id == draft.Id);
+    }
+
+    [Fact]
+    public async Task StudentCanGetClosedExerciseWhenEnrolled()
+    {
+        var teacher = CreateTeacher();
+        var student = CreateStudent();
+        var course = CreateCourse(teacher);
+        var closed = new Exercise(
+            course.Id,
+            "Closed",
+            null,
+            DateTime.UtcNow.AddDays(-1),
+            teacher.Id,
+            ExerciseStatus.Closed);
+        var service = new ExerciseService(
+            new FakeExerciseRepository(closed),
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(new Enrollment(student.Id, course.Id, EnrollmentStatus.Accepted)),
+            new FakeFileStorage(),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student));
+
+        var result = await service.GetAsync(closed.Id);
+
+        Assert.Equal(closed.Id, result.Id);
+        Assert.Equal(ExerciseStatus.Closed, result.Status);
     }
 
     [Fact]

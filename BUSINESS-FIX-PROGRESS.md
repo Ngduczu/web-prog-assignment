@@ -10,14 +10,15 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 1 |
+| Hoàn thành | 2 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 14 |
+| Chưa thực hiện | 13 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
 | RF-01 | Hoàn thành | Global filter dùng quan hệ course bắt buộc; `courses/mine` loại course soft-delete ở cả repository và service |
-| RF-02..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+| RF-02 | Hoàn thành | Student có enrollment accepted xem được exercise `Published` và `Closed`, nhưng không thấy `Draft` |
+| RF-03..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -26,6 +27,13 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - `CourseRepository.ListByIdsAsync` không còn vô hiệu global filter; `CourseService.ListMineAsync` vẫn loại `IsDeleted` phòng thủ cho mọi repository implementation.
 - Thêm test hồi quy xác nhận course đã soft-delete không xuất hiện trong danh sách course của student.
 - Xác minh: **164 passed, 0 failed, 0 skipped**.
+
+### RF-02 — Giữ exercise đã đóng trong lịch sử student
+
+- Danh sách exercise của student trả cả `Published` và `Closed`, đồng thời tiếp tục ẩn `Draft`.
+- Endpoint chi tiết và tải attachment áp dụng cùng quy tắc để student có thể mở lại bài đã đóng sau reload.
+- Cập nhật contract `API.md` và thêm test cho cả list lẫn get exercise `Closed`.
+- Xác minh: **165 passed, 0 failed, 0 skipped**.
 
 ## Tổng quan
 
