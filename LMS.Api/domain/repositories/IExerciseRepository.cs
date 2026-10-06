@@ -8,4 +8,5 @@ public interface IExerciseRepository
     Task<IReadOnlyList<Exercise>> ListByCourseAsync(Guid courseId, CancellationToken cancellationToken);
     void Add(Exercise exercise);
     void AddAttachment(ExerciseAttachment attachment);
+    void Remove(Exercise exercise) => throw new NotSupportedException();
 }
