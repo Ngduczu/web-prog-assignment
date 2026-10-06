@@ -4,6 +4,7 @@ using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Entities.Examinations;
 using LMS.Api.domain.Entities.Questions;
 using LMS.Api.domain.Entities.Users;
+using LMS.Api.domain.Entities.Storage;
 using LMS.Api.domain.exceptions;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -44,6 +45,7 @@ public class AppDbContext : DbContext, IUnitOfWork, ITransactionManager
     public DbSet<ChatParticipant> ChatParticipants => Set<ChatParticipant>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
     public DbSet<ChatAttachment> ChatAttachments => Set<ChatAttachment>();
+    public DbSet<FileCleanupTask> FileCleanupTasks => Set<FileCleanupTask>();
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

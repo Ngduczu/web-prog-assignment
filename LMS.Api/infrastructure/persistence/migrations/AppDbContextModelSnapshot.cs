@@ -1326,6 +1326,46 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.ToTable("question_banks", (string)null);
                 });
 
+            modelBuilder.Entity("LMS.Api.domain.Entities.Storage.FileCleanupTask", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("object_key");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NextAttemptAt");
+
+                    b.HasIndex("ObjectKey")
+                        .IsUnique();
+
+                    b.ToTable("file_cleanup_tasks", (string)null);
+                });
+
             modelBuilder.Entity("LMS.Api.domain.Entities.Users.ExternalUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1541,7 +1581,8 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Course", "Course")
                         .WithMany()
                         .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "Student")
                         .WithMany()
@@ -1559,7 +1600,8 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Course", "Course")
                         .WithMany("Exercises")
                         .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "CreatedBy")
                         .WithMany()
@@ -1603,7 +1645,8 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Course", "Course")
                         .WithMany("Lessons")
                         .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "CreatedBy")
                         .WithMany()
@@ -1691,7 +1734,8 @@ namespace LMS.Api.infrastructure.persistence.migrations
                     b.HasOne("LMS.Api.domain.Entities.Courses.Course", "Course")
                         .WithMany("Examinations")
                         .HasForeignKey("CourseId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.HasOne("LMS.Api.domain.Entities.Users.User", "CreatedBy")
                         .WithMany()

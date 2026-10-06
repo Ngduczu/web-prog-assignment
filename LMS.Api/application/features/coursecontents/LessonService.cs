@@ -214,9 +214,17 @@ public sealed class LessonService : ILessonService
         var course = await GetCourseAsync(lesson.CourseId, cancellationToken);
         CourseAuthorization.EnsureCanManage(_currentUser, course);
 
+        if (_fileCleanup is not null)
+        {
+            _fileCleanup.Enqueue(material.ObjectKey);
+        }
+
         _materials.Remove(material);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await CleanupFileAsync(material.ObjectKey);
+        if (_fileCleanup is null)
+        {
+            await CleanupFileAsync(material.ObjectKey);
+        }
     }
 
     public async Task DeleteAsync(Guid lessonId, CancellationToken cancellationToken = default)
@@ -226,11 +234,22 @@ public sealed class LessonService : ILessonService
         var course = await GetCourseAsync(lesson.CourseId, cancellationToken);
         CourseAuthorization.EnsureCanManage(_currentUser, course);
         var materials = await _materials.ListByLessonAsync(lesson.Id, cancellationToken);
+        if (_fileCleanup is not null)
+        {
+            foreach (var material in materials)
+            {
+                _fileCleanup.Enqueue(material.ObjectKey);
+            }
+        }
+
         _lessons.Remove(lesson);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        foreach (var material in materials)
+        if (_fileCleanup is null)
         {
-            await CleanupFileAsync(material.ObjectKey);
+            foreach (var material in materials)
+            {
+                await CleanupFileAsync(material.ObjectKey);
+            }
         }
     }
 
@@ -241,8 +260,7 @@ public sealed class LessonService : ILessonService
             return _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
         }
 
-        _fileCleanup.Enqueue(objectKey);
-        return Task.CompletedTask;
+        return _fileCleanup.EnqueueImmediatelyAsync(objectKey, CancellationToken.None);
     }
 
     private void EnsureStudentCanAccessPublishedLesson(Course course, Lesson lesson)

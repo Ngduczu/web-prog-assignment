@@ -3,6 +3,7 @@ using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Entities.Examinations;
 using LMS.Api.domain.Entities.Questions;
 using LMS.Api.domain.Entities.Users;
+using LMS.Api.domain.Entities.Storage;
 using LMS.Api.infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -48,7 +49,8 @@ public class AppDbContextModelTests
             typeof(ChatRoom),
             typeof(ChatParticipant),
             typeof(ChatMessage),
-            typeof(ChatAttachment)
+            typeof(ChatAttachment),
+            typeof(FileCleanupTask)
         ];
 
         Assert.All(expectedEntityTypes, entityType =>

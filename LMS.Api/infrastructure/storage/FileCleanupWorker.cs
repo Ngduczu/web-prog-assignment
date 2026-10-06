@@ -1,53 +1,79 @@
-using System.Threading.Channels;
 using LMS.Api.application.abstractions.storage;
+using LMS.Api.infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace LMS.Api.infrastructure.storage;
 
-public sealed class FileCleanupWorker : BackgroundService, IFileCleanupQueue
+public sealed class FileCleanupWorker : BackgroundService
 {
-    private readonly Channel<string> _queue = Channel.CreateUnbounded<string>();
-    private readonly IFileStorage _storage;
+    private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(10);
+    private const int BatchSize = 100;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<FileCleanupWorker> _logger;
 
-    public FileCleanupWorker(IFileStorage storage, ILogger<FileCleanupWorker> logger)
+    public FileCleanupWorker(
+        IServiceScopeFactory scopeFactory,
+        ILogger<FileCleanupWorker> logger)
     {
-        _storage = storage;
+        _scopeFactory = scopeFactory;
         _logger = logger;
-    }
-
-    public void Enqueue(string objectKey)
-    {
-        if (!string.IsNullOrWhiteSpace(objectKey))
-        {
-            _queue.Writer.TryWrite(objectKey);
-        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await foreach (var objectKey in _queue.Reader.ReadAllAsync(stoppingToken))
+        await ProcessPendingAsync(stoppingToken);
+        using var timer = new PeriodicTimer(PollingInterval);
+        while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            for (var attempt = 1; attempt <= 5; attempt++)
+            await ProcessPendingAsync(stoppingToken);
+        }
+    }
+
+    private async Task ProcessPendingAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var storage = scope.ServiceProvider.GetRequiredService<IFileStorage>();
+            var now = DateTime.UtcNow;
+            var tasks = await dbContext.FileCleanupTasks
+                .Where(task => task.NextAttemptAt <= now)
+                .OrderBy(task => task.NextAttemptAt)
+                .ThenBy(task => task.Id)
+                .Take(BatchSize)
+                .ToListAsync(cancellationToken);
+
+            foreach (var task in tasks)
             {
                 try
                 {
-                    await _storage.DeleteIfExistsAsync(objectKey, stoppingToken);
-                    break;
+                    await storage.DeleteIfExistsAsync(task.ObjectKey, cancellationToken);
+                    dbContext.FileCleanupTasks.Remove(task);
                 }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    return;
-                }
-                catch (Exception exception) when (attempt < 5)
-                {
-                    _logger.LogWarning(exception, "File cleanup attempt {Attempt} failed for {ObjectKey}.", attempt, objectKey);
-                    await Task.Delay(TimeSpan.FromSeconds(attempt * 2), stoppingToken);
-                }
-                catch (Exception exception)
-                {
-                    _logger.LogError(exception, "File cleanup exhausted retries for {ObjectKey}.", objectKey);
+                    var delayMinutes = Math.Min(60, 1 << Math.Min(task.AttemptCount, 6));
+                    task.RecordFailure(exception.Message, now.AddMinutes(delayMinutes));
+                    _logger.LogWarning(
+                        exception,
+                        "File cleanup attempt {Attempt} failed for {ObjectKey}; it remains queued.",
+                        task.AttemptCount,
+                        task.ObjectKey);
                 }
             }
+
+            if (tasks.Count > 0)
+            {
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Failed to process the persistent file cleanup queue.");
         }
     }
 }

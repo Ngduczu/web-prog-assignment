@@ -31,10 +31,11 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.AddDbContext<AppDbContext>((option) =>
-            option.UseNpgsql(
-                configuration.GetConnectionString("DefaultConnection"))
-        );
+        var databaseConnectionString = configuration.GetConnectionString("DefaultConnection");
+        services.AddDbContext<AppDbContext>(option => option.UseNpgsql(databaseConnectionString));
+        services.AddDbContextFactory<AppDbContext>(
+            option => option.UseNpgsql(databaseConnectionString),
+            ServiceLifetime.Scoped);
         services.AddScoped<IUnitOfWork>(serviceProvider =>
             serviceProvider.GetRequiredService<AppDbContext>());
         services.AddScoped<ITransactionManager>(serviceProvider =>
@@ -65,9 +66,8 @@ public static class DependencyInjection
         {
             services.AddSingleton<IFileStorage, LocalFileStorage>();
         }
-        services.AddSingleton<FileCleanupWorker>();
-        services.AddSingleton<IFileCleanupQueue>(provider => provider.GetRequiredService<FileCleanupWorker>());
-        services.AddHostedService(provider => provider.GetRequiredService<FileCleanupWorker>());
+        services.AddScoped<IFileCleanupQueue, FileCleanupQueue>();
+        services.AddHostedService<FileCleanupWorker>();
         services.AddSingleton<IClock, SystemClock>();
         var redisConnectionString = configuration.GetConnectionString("Redis")
             ?? throw new InvalidOperationException("Redis connection string is not configured.");

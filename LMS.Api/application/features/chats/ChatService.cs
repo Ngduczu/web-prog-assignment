@@ -21,6 +21,7 @@ public sealed class ChatService : IChatService
     private readonly IUserRepository _users;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorage _fileStorage;
+    private readonly IFileCleanupQueue? _fileCleanup;
 
     public ChatService(
         ICurrentUser currentUser,
@@ -30,7 +31,8 @@ public sealed class ChatService : IChatService
         IEnrollmentRepository enrollments,
         IUserRepository users,
         IUnitOfWork unitOfWork,
-        IFileStorage fileStorage)
+        IFileStorage fileStorage,
+        IFileCleanupQueue? fileCleanup = null)
     {
         _currentUser = currentUser;
         _rooms = rooms;
@@ -40,6 +42,7 @@ public sealed class ChatService : IChatService
         _users = users;
         _unitOfWork = unitOfWork;
         _fileStorage = fileStorage;
+        _fileCleanup = fileCleanup;
     }
 
     public async Task<IReadOnlyList<ChatRoomDto>> ListRoomsAsync(CancellationToken cancellationToken)
@@ -259,7 +262,16 @@ public sealed class ChatService : IChatService
         {
             if (uploadedObjectKey is not null)
             {
-                await _fileStorage.DeleteIfExistsAsync(uploadedObjectKey, CancellationToken.None);
+                if (_fileCleanup is null)
+                {
+                    await _fileStorage.DeleteIfExistsAsync(uploadedObjectKey, CancellationToken.None);
+                }
+                else
+                {
+                    await _fileCleanup.EnqueueImmediatelyAsync(
+                        uploadedObjectKey,
+                        CancellationToken.None);
+                }
             }
             throw;
         }

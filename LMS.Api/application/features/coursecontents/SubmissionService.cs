@@ -112,6 +112,11 @@ public sealed class SubmissionService : ISubmissionService
                     storedFile.FileSize);
             }
 
+            if (oldObjectKey is not null && _fileCleanup is not null)
+            {
+                _fileCleanup.Enqueue(oldObjectKey);
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch
@@ -120,7 +125,7 @@ public sealed class SubmissionService : ISubmissionService
             throw;
         }
 
-        if (oldObjectKey is not null)
+        if (oldObjectKey is not null && _fileCleanup is null)
         {
             await CleanupFileAsync(oldObjectKey);
         }
@@ -140,8 +145,7 @@ public sealed class SubmissionService : ISubmissionService
             return _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
         }
 
-        _fileCleanup.Enqueue(objectKey);
-        return Task.CompletedTask;
+        return _fileCleanup.EnqueueImmediatelyAsync(objectKey, CancellationToken.None);
     }
 
     public Task<SubmissionDto> SubmitAsync(

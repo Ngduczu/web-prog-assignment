@@ -182,6 +182,11 @@ public sealed class ExerciseService : IExerciseService
                     storedFile.FileSize);
             }
 
+            if (oldObjectKey is not null && _fileCleanup is not null)
+            {
+                _fileCleanup.Enqueue(oldObjectKey);
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch
@@ -190,7 +195,7 @@ public sealed class ExerciseService : IExerciseService
             throw;
         }
 
-        if (oldObjectKey is not null)
+        if (oldObjectKey is not null && _fileCleanup is null)
         {
             await CleanupFileAsync(oldObjectKey);
         }
@@ -217,9 +222,14 @@ public sealed class ExerciseService : IExerciseService
         }
 
         var objectKey = exercise.Attachment?.ObjectKey;
+        if (objectKey is not null && _fileCleanup is not null)
+        {
+            _fileCleanup.Enqueue(objectKey);
+        }
+
         _exercises.Remove(exercise);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        if (objectKey is not null)
+        if (objectKey is not null && _fileCleanup is null)
         {
             await CleanupFileAsync(objectKey);
         }
@@ -232,8 +242,7 @@ public sealed class ExerciseService : IExerciseService
             return _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
         }
 
-        _fileCleanup.Enqueue(objectKey);
-        return Task.CompletedTask;
+        return _fileCleanup.EnqueueImmediatelyAsync(objectKey, CancellationToken.None);
     }
 
     private async Task<ExerciseDto> ChangeStatusAsync(

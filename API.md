@@ -12,6 +12,7 @@
 - Lỗi nghiệp vụ trả về `ProblemDetails` với HTTP status `400`, `401`, `403`, `404`, `409` hoặc `500`. Rate limit có thể trả `429`.
 - Phân trang: `page` mặc định `1`, `pageSize` mặc định `20`, tối đa `100`.
 - Upload file dùng `multipart/form-data`; không gửi JSON cho các endpoint này.
+- File cũ/orphan được ghi vào bảng cleanup bền vững; worker retry với backoff và không mất task khi process restart.
 - Request không có body được ghi là `Không có body`.
 - Các ví dụ JSON dưới đây là JSON hợp lệ và có thể dùng làm mẫu request/response.
 

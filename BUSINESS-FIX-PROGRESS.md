@@ -10,9 +10,9 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 11 |
+| Hoàn thành | 12 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 4 |
+| Chưa thực hiện | 3 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
@@ -27,7 +27,8 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 | RF-09 | Hoàn thành | REST text message broadcast `MessageReceived` giống hub và attachment REST |
 | RF-10 | Hoàn thành | Refresh token, OAuth login code/state được phục hồi ngắn hạn sau lỗi downstream tạm thời |
 | RF-11 | Hoàn thành | Mail lỗi rollback code/cooldown; register account inactive có thể retry idempotent |
-| RF-12..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+| RF-12 | Hoàn thành | File cleanup chuyển sang PostgreSQL outbox bền vững; chat attachment dùng chung queue |
+| RF-13..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -112,6 +113,15 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Forgot password xóa reset code và cooldown khi SMTP lỗi, vẫn giữ cơ chế không tiết lộ email tồn tại.
 - Cập nhật `API.md` và thêm fault-injection tests cho register/forgot-password retry sau SMTP failure.
 - Xác minh: **188 passed, 0 failed, 0 skipped**.
+
+### RF-12 — Hàng đợi file cleanup bền vững
+
+- Thay `Channel<string>` in-memory bằng bảng `file_cleanup_tasks` có unique object key, attempt count, next-attempt và last error.
+- Worker đọc task từ PostgreSQL, xóa task khi storage cleanup thành công; lỗi được giữ lại vô thời hạn với exponential backoff thay vì bỏ sau năm lần.
+- Thao tác xóa/thay file lesson, exercise và submission ghi task trong cùng unit of work với thay đổi metadata; cleanup file upload mới sau DB failure dùng một DbContext độc lập.
+- Chat attachment dùng cùng persistent queue khi save message thất bại, không còn gọi storage delete trực tiếp làm che lỗi gốc.
+- Thêm migration `AddPersistentFileCleanupQueue`, model/domain test và cập nhật contract vận hành file.
+- Xác minh: **189 passed, 0 failed, 0 skipped**; EF Core báo **không có model change chưa tạo migration**.
 
 ## Tổng quan
 
@@ -258,7 +268,7 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Material, exercise attachment và submission cùng giới hạn dưới 20 MB tại HTTP, application và storage boundary.
 - Thêm `FileCleanupWorker`: thao tác xóa sau DB commit được đưa vào queue, retry tối đa 5 lần và không làm response báo thất bại sau khi DB đã lưu thành công.
 - File mới tạo khi DB save thất bại cũng được cleanup qua queue trong runtime production.
-- Giới hạn hiện tại: queue là in-memory; nếu process dừng trước khi xử lý xong cần reconciliation vận hành để dọn orphan còn sót.
+- Hạn chế in-memory đã được thay bằng persistent cleanup outbox ở RF-12; task còn lại tiếp tục được xử lý sau restart.
 
 ### BF-16 — Khôi phục mã khi DB thất bại
 
