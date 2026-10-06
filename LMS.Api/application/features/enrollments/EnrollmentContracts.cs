@@ -4,12 +4,14 @@ using LMS.Api.domain.Enums.Courses;
 namespace LMS.Api.application.features.enrollments;
 
 public sealed record EnrollmentQuery(int Page = 1, int PageSize = 20);
+public sealed record EnrollmentStudentDto(Guid Id, string FullName, string Email);
 
 public sealed record EnrollmentDto(
     Guid Id,
     Guid StudentId,
     Guid CourseId,
     EnrollmentStatus Status,
+    EnrollmentStudentDto? Student,
     DateTime CreatedAt,
     DateTime ModifiedAt);
 
@@ -20,7 +22,9 @@ public interface IEnrollmentService
         Guid courseId,
         EnrollmentQuery query,
         CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<EnrollmentDto>> ListMineAsync(CancellationToken cancellationToken = default);
     Task<EnrollmentDto> AcceptAsync(Guid enrollmentId, CancellationToken cancellationToken = default);
     Task<EnrollmentDto> RejectAsync(Guid enrollmentId, CancellationToken cancellationToken = default);
     Task<EnrollmentDto> CancelAsync(Guid enrollmentId, CancellationToken cancellationToken = default);
+    Task<EnrollmentDto> RevokeAsync(Guid enrollmentId, CancellationToken cancellationToken = default);
 }
