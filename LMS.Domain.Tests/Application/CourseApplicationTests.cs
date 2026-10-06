@@ -135,6 +135,29 @@ public class CourseApplicationTests
     }
 
     [Fact]
+    public async Task StudentMyCoursesIncludesAcceptedClosedCourse()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var closedCourse = CreateCourse(teacher);
+        closedCourse.SetStatus(CourseStatus.Closed);
+        var accepted = new Enrollment(student.Id, closedCourse.Id, EnrollmentStatus.Accepted);
+        var service = new CourseService(
+            new FakeCourseRepository(closedCourse),
+            new FakeUserRepository(teacher),
+            new FakeEnrollmentRepository(accepted),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student),
+            new FakeChatRoomRepository());
+
+        var result = await service.ListMineAsync();
+
+        var item = Assert.Single(result);
+        Assert.Equal(closedCourse.Id, item.Id);
+        Assert.Equal(CourseStatus.Closed, item.Status);
+    }
+
+    [Fact]
     public async Task CourseChangesSynchronizeTheCourseRoomLifecycle()
     {
         var teacher = CreateUser(Role.Teacher);
@@ -205,6 +228,27 @@ public class CourseApplicationTests
     }
 
     [Fact]
+    public async Task CancelledEnrollmentCanBeRequestedAgainWithoutCreatingDuplicate()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var course = CreateCourse(teacher);
+        var existing = new Enrollment(student.Id, course.Id);
+        existing.Cancel();
+        var repository = new FakeEnrollmentRepository(existing);
+        var service = new EnrollmentService(
+            repository,
+            new FakeCourseRepository(course),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student));
+
+        var result = await service.RequestAsync(course.Id);
+
+        Assert.Equal(EnrollmentStatus.Waiting, result.Status);
+        Assert.Single(repository.Items);
+    }
+
+    [Fact]
     public async Task CourseCapacityIsCheckedBeforeAcceptingEnrollment()
     {
         var teacher = CreateUser(Role.Teacher);
@@ -222,6 +266,47 @@ public class CourseApplicationTests
 
         await Assert.ThrowsAsync<ConflictException>(() => service.AcceptAsync(waiting.Id));
         Assert.Equal(EnrollmentStatus.Waiting, waiting.Status);
+    }
+
+    [Fact]
+    public async Task EnrollmentCannotBeAcceptedAfterCourseIsClosed()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var course = CreateCourse(teacher);
+        course.SetStatus(CourseStatus.Closed);
+        var waiting = new Enrollment(student.Id, course.Id);
+        var service = new EnrollmentService(
+            new FakeEnrollmentRepository(waiting),
+            new FakeCourseRepository(course),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher));
+
+        await Assert.ThrowsAsync<ConflictException>(() => service.AcceptAsync(waiting.Id));
+        Assert.Equal(EnrollmentStatus.Waiting, waiting.Status);
+    }
+
+    [Fact]
+    public async Task CourseCapacityCannotBeLoweredBelowAcceptedEnrollmentCount()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var course = CreateCourse(teacher, maxStudents: 3);
+        var first = new Enrollment(CreateUser(Role.Student).Id, course.Id, EnrollmentStatus.Accepted);
+        var second = new Enrollment(CreateUser(Role.Student).Id, course.Id, EnrollmentStatus.Accepted);
+        var service = new CourseService(
+            new FakeCourseRepository(course),
+            new FakeUserRepository(teacher),
+            new FakeEnrollmentRepository(first, second),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher),
+            new FakeChatRoomRepository(),
+            new FakeTransactionManager());
+
+        await Assert.ThrowsAsync<ConflictException>(() => service.UpdateAsync(
+            course.Id,
+            new UpdateCourseRequest("Course", null, 1, CourseStatus.Open)));
+
+        Assert.Equal(3, course.MaxStudents);
     }
 
     [Fact]
@@ -243,6 +328,29 @@ public class CourseApplicationTests
 
         Assert.Equal(EnrollmentStatus.Accepted, result.Status);
         Assert.Equal(1, transactionManager.SerializableExecutionCount);
+    }
+
+    [Fact]
+    public async Task CourseTeacherReceivesStudentIdentityInEnrollmentList()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var course = CreateCourse(teacher);
+        var enrollment = new Enrollment(student.Id, course.Id);
+        typeof(Enrollment).GetProperty(nameof(Enrollment.Student))!.SetValue(enrollment, student);
+        var service = new EnrollmentService(
+            new FakeEnrollmentRepository(enrollment),
+            new FakeCourseRepository(course),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher));
+
+        var result = await service.ListByCourseAsync(course.Id, new EnrollmentQuery());
+
+        var item = Assert.Single(result.Items);
+        Assert.NotNull(item.Student);
+        Assert.Equal(student.Id, item.Student.Id);
+        Assert.Equal(student.FullName, item.Student.FullName);
+        Assert.Equal(student.Email, item.Student.Email);
     }
 
     [Fact]
