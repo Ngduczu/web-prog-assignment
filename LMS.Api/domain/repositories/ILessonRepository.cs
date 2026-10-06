@@ -8,4 +8,5 @@ public interface ILessonRepository
     Task<IReadOnlyList<Lesson>> ListByCourseAsync(Guid courseId, CancellationToken cancellationToken);
     Task<bool> OrderExistsAsync(Guid courseId, int order, Guid? excludingLessonId, CancellationToken cancellationToken);
     void Add(Lesson lesson);
+    void Remove(Lesson lesson) => throw new NotSupportedException();
 }
