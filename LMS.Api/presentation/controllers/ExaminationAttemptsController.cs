@@ -23,7 +23,7 @@ public sealed class ExaminationAttemptsController : ControllerBase
     [HttpPost("{attemptId:guid}/reconnect")]
     public async Task<ActionResult<ExaminationAttemptDto>> Reconnect(Guid attemptId, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.ReconnectAsync(attemptId, ct));
     [HttpPost("{attemptId:guid}/violations")]
-    public async Task<ActionResult<ExaminationAttemptDto>> Violation(Guid attemptId, ExaminationViolationType violationType, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.RecordViolationAsync(attemptId, violationType, ct));
+    public async Task<ActionResult<ExaminationAttemptDto>> Violation(Guid attemptId, ExaminationViolationType violationType, int? durationSeconds, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.RecordViolationAsync(attemptId, violationType, durationSeconds, ct));
     [HttpPost("{attemptId:guid}/submit")]
     public async Task<ActionResult<ExaminationAttemptDto>> Submit(Guid attemptId, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.SubmitAsync(attemptId, ct));
     [HttpPost("{attemptId:guid}/auto-submit")]
