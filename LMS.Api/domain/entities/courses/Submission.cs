@@ -17,6 +17,11 @@ public class Submission
     public SubmissionAttachment? Attachment { get; private set; }
 
     public DateTime? SubmittedAt { get; private set; }
+    public decimal? Grade { get; private set; }
+    public string? Feedback { get; private set; }
+    public DateTime? GradedAt { get; private set; }
+    public Guid? GradedById { get; private set; }
+    public User? GradedBy { get; private set; }
 
     public DateTime CreatedAt { get; private set; }
     public DateTime ModifiedAt { get; private set; }
@@ -61,6 +66,19 @@ public class Submission
         SubmittedAt = null;
 
         Touch();
+    }
+
+    public void GradeSubmission(decimal grade, string? feedback, Guid gradedById, DateTime gradedAt)
+    {
+        if (Status is not SubmissionStatus.Submitted and not SubmissionStatus.Graded)
+            throw new InvalidOperationException("Only submitted work can be graded.");
+
+        Grade = grade;
+        Feedback = feedback;
+        GradedById = gradedById;
+        GradedAt = gradedAt;
+        Status = SubmissionStatus.Graded;
+        ModifiedAt = gradedAt;
     }
 
 }
