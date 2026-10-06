@@ -1148,11 +1148,13 @@ Khi đóng, backend chấm và auto-submit ngay mọi attempt `InProgress`/`Disc
   "remainingSeconds": 5400,
   "lastActivityAt": "2026-09-10T08:15:00Z",
   "violationCount": 0,
-  "correctAnswers": 0,
-  "totalQuestions": 20,
-  "score": 0
+  "correctAnswers": null,
+  "totalQuestions": null,
+  "score": null
 }
 ```
+
+`correctAnswers`, `totalQuestions` và `score` luôn là `null` khi attempt còn `InProgress`/`Disconnected`. Sau khi hoàn thành, các trường này mới tuân theo `showScoreImmediately` hoặc thời điểm phát hành điểm.
 
 ### `POST /api/examination-attempts/{examinationId}/start`
 

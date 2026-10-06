@@ -682,13 +682,12 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
 
     private bool ShouldRevealScore(ExaminationAttempt attempt, Examination examination)
     {
-        if (examination.ShowScoreImmediately)
+        if (attempt.Status is ExaminationAttemptStatus.InProgress or ExaminationAttemptStatus.Disconnected)
         {
-            return true;
+            return false;
         }
 
-        if (attempt.Status is not ExaminationAttemptStatus.Submitted
-            and not ExaminationAttemptStatus.AutoSubmitted)
+        if (examination.ShowScoreImmediately)
         {
             return true;
         }

@@ -134,13 +134,13 @@ public class ExaminationAttemptApplicationTests
     }
 
     [Fact]
-    public async Task SubmittedAttemptHidesScoreWhenShowScoreImmediatelyIsDisabled()
+    public async Task ActiveAndSubmittedAttemptHideScoreWhenImmediateReleaseIsDisabled()
     {
         var fixture = CreateFixture(showScoreImmediately: false);
         var started = await fixture.Service.StartAsync(fixture.Examination.Id);
-        Assert.Equal(2, started.TotalQuestions);
-        Assert.Equal(0, started.CorrectAnswers);
-        Assert.Equal(0m, started.Score);
+        Assert.Null(started.TotalQuestions);
+        Assert.Null(started.CorrectAnswers);
+        Assert.Null(started.Score);
 
         var submitted = await fixture.Service.SubmitAsync(started.Id);
 
@@ -148,6 +148,19 @@ public class ExaminationAttemptApplicationTests
         Assert.Null(submitted.CorrectAnswers);
         Assert.Null(submitted.TotalQuestions);
         Assert.Null(submitted.Score);
+    }
+
+    [Fact]
+    public async Task ActiveAttemptHidesResultEvenWhenImmediateReleaseIsEnabled()
+    {
+        var fixture = CreateFixture(showScoreImmediately: true);
+
+        var started = await fixture.Service.StartAsync(fixture.Examination.Id);
+
+        Assert.Equal(ExaminationAttemptStatus.InProgress, started.Status);
+        Assert.Null(started.CorrectAnswers);
+        Assert.Null(started.TotalQuestions);
+        Assert.Null(started.Score);
     }
 
     [Fact]

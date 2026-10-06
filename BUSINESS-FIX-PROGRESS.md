@@ -10,9 +10,9 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 12 |
+| Hoàn thành | 13 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 3 |
+| Chưa thực hiện | 2 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
@@ -28,7 +28,8 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 | RF-10 | Hoàn thành | Refresh token, OAuth login code/state được phục hồi ngắn hạn sau lỗi downstream tạm thời |
 | RF-11 | Hoàn thành | Mail lỗi rollback code/cooldown; register account inactive có thể retry idempotent |
 | RF-12 | Hoàn thành | File cleanup chuyển sang PostgreSQL outbox bền vững; chat attachment dùng chung queue |
-| RF-13..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
+| RF-13 | Hoàn thành | Attempt active luôn trả result field `null` |
+| RF-14..RF-15 | Chưa thực hiện | Xử lý tuần tự theo báo cáo tái rà soát |
 
 ### RF-01 — Loại dữ liệu con của course đã soft-delete
 
@@ -122,6 +123,13 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Chat attachment dùng cùng persistent queue khi save message thất bại, không còn gọi storage delete trực tiếp làm che lỗi gốc.
 - Thêm migration `AddPersistentFileCleanupQueue`, model/domain test và cập nhật contract vận hành file.
 - Xác minh: **189 passed, 0 failed, 0 skipped**; EF Core báo **không có model change chưa tạo migration**.
+
+### RF-13 — Không trả điểm giả cho attempt active
+
+- `InProgress` và `Disconnected` luôn ẩn `correctAnswers`, `totalQuestions`, `score`, kể cả khi `ShowScoreImmediately=true`.
+- Chỉ attempt `Submitted`/`AutoSubmitted` mới xét rule công bố ngay, examination `Closed` hoặc qua `DueAt`.
+- Cập nhật example/semantics trong `API.md` và thêm test cho cả cấu hình phát hành điểm bật/tắt.
+- Xác minh: **190 passed, 0 failed, 0 skipped**.
 
 ## Tổng quan
 
