@@ -16,6 +16,7 @@ public sealed class LessonService : ILessonService
     private readonly ICourseRepository _courses;
     private readonly IEnrollmentRepository _enrollments;
     private readonly IFileStorage _fileStorage;
+    private readonly IFileCleanupQueue? _fileCleanup;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
 
@@ -26,7 +27,8 @@ public sealed class LessonService : ILessonService
         IEnrollmentRepository enrollments,
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        IFileCleanupQueue? fileCleanup = null)
     {
         _lessons = lessons;
         _materials = materials;
@@ -35,6 +37,7 @@ public sealed class LessonService : ILessonService
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
+        _fileCleanup = fileCleanup;
     }
 
     public async Task<LessonDto> CreateAsync(
@@ -170,13 +173,14 @@ public sealed class LessonService : ILessonService
         CancellationToken cancellationToken = default)
     {
         ValidateId(lessonId, "Lesson id");
-        FileUploadPolicy.Validate(upload);
+        FileUploadPolicy.Validate(upload, FileUploadPolicy.MaximumCourseFileSizeBytes);
         var lesson = await GetLessonAsync(lessonId, cancellationToken);
         var course = await GetCourseAsync(lesson.CourseId, cancellationToken);
         var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);
         var storedFile = await _fileStorage.UploadAsync(
             upload,
             $"courses/{course.Id:N}/lessons/{lesson.Id:N}/materials",
+            FileUploadPolicy.MaximumCourseFileSizeBytes,
             cancellationToken: cancellationToken);
 
         try
@@ -194,7 +198,7 @@ public sealed class LessonService : ILessonService
         }
         catch
         {
-            await _fileStorage.DeleteIfExistsAsync(storedFile.ObjectKey, CancellationToken.None);
+            await CleanupFileAsync(storedFile.ObjectKey);
             throw;
         }
     }
@@ -212,7 +216,33 @@ public sealed class LessonService : ILessonService
 
         _materials.Remove(material);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await _fileStorage.DeleteIfExistsAsync(material.ObjectKey, CancellationToken.None);
+        await CleanupFileAsync(material.ObjectKey);
+    }
+
+    public async Task DeleteAsync(Guid lessonId, CancellationToken cancellationToken = default)
+    {
+        ValidateId(lessonId, "Lesson id");
+        var lesson = await GetLessonAsync(lessonId, cancellationToken);
+        var course = await GetCourseAsync(lesson.CourseId, cancellationToken);
+        CourseAuthorization.EnsureCanManage(_currentUser, course);
+        var materials = await _materials.ListByLessonAsync(lesson.Id, cancellationToken);
+        _lessons.Remove(lesson);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        foreach (var material in materials)
+        {
+            await CleanupFileAsync(material.ObjectKey);
+        }
+    }
+
+    private Task CleanupFileAsync(string objectKey)
+    {
+        if (_fileCleanup is null)
+        {
+            return _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
+        }
+
+        _fileCleanup.Enqueue(objectKey);
+        return Task.CompletedTask;
     }
 
     private void EnsureStudentCanAccessPublishedLesson(Course course, Lesson lesson)
