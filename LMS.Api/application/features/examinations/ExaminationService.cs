@@ -416,6 +416,11 @@ public sealed class ExaminationService : IExaminationService
             throw new BadRequestException("Examination description cannot exceed 4000 characters.");
         }
 
+        if (startAt.Kind != DateTimeKind.Utc || dueAt.Kind != DateTimeKind.Utc)
+        {
+            throw new BadRequestException("Examination start and due times must use UTC.");
+        }
+
         if (dueAt <= startAt)
         {
             throw new BadRequestException("Examination due time must be after its start time.");

@@ -1080,6 +1080,8 @@ Luồng teacher: tạo exam `Draft` và snapshot câu hỏi → chỉnh cấu h�
 }
 ```
 
+`startAt` và `dueAt` bắt buộc là timestamp UTC (hậu tố `Z`); giá trị local hoặc không có timezone bị từ chối với `400`.
+
 **Response `201 Created`:** Examination object.
 
 ### `GET /api/courses/{courseId}/examinations`

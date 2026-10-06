@@ -51,6 +51,26 @@ public class ExaminationAuthoringTests
         Assert.Equal(1, fixture.TransactionManager.ExecutionCount);
     }
 
+    [Theory]
+    [InlineData(DateTimeKind.Local)]
+    [InlineData(DateTimeKind.Unspecified)]
+    public async Task CreateRejectsNonUtcSchedule(DateTimeKind kind)
+    {
+        var fixture = CreateFixture();
+        var request = fixture.CreateRequest(questionCount: 2);
+        request = request with
+        {
+            StartAt = DateTime.SpecifyKind(request.StartAt, kind),
+            DueAt = DateTime.SpecifyKind(request.DueAt, kind)
+        };
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            fixture.Service.CreateAsync(fixture.Course.Id, request));
+
+        Assert.Empty(fixture.Examinations.Items);
+        Assert.Equal(0, fixture.TransactionManager.ExecutionCount);
+    }
+
     [Fact]
     public async Task ExaminationFollowsDraftPublishedClosedLifecycle()
     {
