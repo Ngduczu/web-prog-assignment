@@ -83,6 +83,26 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         return Map(createdAttempt!, examination!);
     }
 
+    public async Task<ExaminationAttemptDto> GetMineAsync(
+        Guid examinationId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(examinationId, "Examination id");
+        var studentId = EnsureStudent();
+        var examination = await GetExaminationAsync(examinationId, false, cancellationToken);
+        _ = await _courses.GetByIdAsync(examination.CourseId, false, cancellationToken)
+            ?? throw new NotFoundException("Course was not found.");
+        await EnsureAcceptedEnrollmentAsync(studentId, examination.CourseId, cancellationToken);
+
+        var attempt = await _attempts.GetLatestAsync(
+            examinationId,
+            studentId,
+            true,
+            cancellationToken) ?? throw new NotFoundException("Examination attempt was not found.");
+
+        return Map(attempt, examination);
+    }
+
     public async Task<IReadOnlyList<StudentExamQuestionDto>> GetQuestionsAsync(
         Guid attemptId,
         CancellationToken cancellationToken = default)
@@ -241,21 +261,14 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
             EnsureStatus(attempt, ExaminationAttemptStatus.Disconnected);
             var now = _clock.UtcNow;
             var disconnectDeadline = attempt.DisconnectedAt!.Value.AddMinutes(examination.MaxDisconnectMinutes);
+            var examinationDeadline = AttemptDeadline.GetExaminationDeadline(attempt, examination);
 
-            if (now >= disconnectDeadline)
+            if (now >= examinationDeadline || now >= disconnectDeadline)
             {
                 AttemptGrader.CompleteAndGrade(
                     attempt,
                     examination,
-                    ExaminationSubmitReason.DisconnectTimeout,
-                    true);
-            }
-            else if (GetRemainingSeconds(attempt, examination, now) == 0)
-            {
-                AttemptGrader.CompleteAndGrade(
-                    attempt,
-                    examination,
-                    ExaminationSubmitReason.DurationExpired,
+                    AttemptDeadline.GetExpiredReason(attempt, examination, now),
                     true);
             }
             else
@@ -271,6 +284,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
     public async Task<ExaminationAttemptDto> RecordViolationAsync(
         Guid attemptId,
         ExaminationViolationType violationType,
+        int? durationSeconds = null,
         CancellationToken cancellationToken = default)
     {
         if (!Enum.IsDefined(violationType))
@@ -289,6 +303,27 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
                 examination.CourseId,
                 transactionCancellationToken);
             EnsureActive(attempt);
+
+            if (!IsViolationEnabled(examination, violationType))
+            {
+                throw new BadRequestException("This violation type is not enabled for the examination.");
+            }
+
+            if (violationType == ExaminationViolationType.ExitFullscreen)
+            {
+                if (durationSeconds is null || durationSeconds < 0)
+                {
+                    throw new BadRequestException("Fullscreen exit duration is required and cannot be negative.");
+                }
+
+                if (durationSeconds <= examination.FullscreenGraceSeconds)
+                {
+                    attempt.TouchActivity(_clock.UtcNow);
+                    await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+                    return;
+                }
+            }
+
             var violation = new ExaminationViolation(attempt.Id, violationType, _clock.UtcNow);
             _attempts.AddViolation(violation);
             attempt.AddViolation();
@@ -310,6 +345,18 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         }, cancellationToken);
         return Map(attempt!, examination!);
     }
+
+    private static bool IsViolationEnabled(
+        Examination examination,
+        ExaminationViolationType violationType) => violationType switch
+    {
+        ExaminationViolationType.ExitFullscreen => examination.RequireFullscreen,
+        ExaminationViolationType.TabChanged or ExaminationViolationType.WindowBlurred => examination.DetectTabChange,
+        ExaminationViolationType.CopyAttempt or ExaminationViolationType.PasteAttempt => examination.BlockCopyPaste,
+        ExaminationViolationType.RightClickAttempt => examination.BlockRightClick,
+        ExaminationViolationType.DevToolsSuspected => examination.DetectDevTools,
+        _ => false
+    };
 
     public async Task<ExaminationAttemptDto> SubmitAsync(
         Guid attemptId,
@@ -476,8 +523,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         Examination examination,
         DateTime now)
     {
-        var durationDeadline = attempt.StartedAt.AddMinutes(examination.DurationMinutes);
-        var deadline = durationDeadline < examination.DueAt ? durationDeadline : examination.DueAt;
+        var deadline = AttemptDeadline.GetExaminationDeadline(attempt, examination);
         return Math.Max(0, (int)Math.Ceiling((deadline - now).TotalSeconds));
     }
 
@@ -585,7 +631,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
             answer.ModifiedAt);
     }
 
-    private static ExaminationAttemptDto Map(ExaminationAttempt attempt, Examination examination)
+    private ExaminationAttemptDto Map(ExaminationAttempt attempt, Examination examination)
     {
         var revealScore = ShouldRevealScore(attempt, examination);
         return new(
@@ -605,14 +651,19 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
             revealScore ? attempt.Score : null);
     }
 
-    private static bool ShouldRevealScore(ExaminationAttempt attempt, Examination examination)
+    private bool ShouldRevealScore(ExaminationAttempt attempt, Examination examination)
     {
         if (examination.ShowScoreImmediately)
         {
             return true;
         }
 
-        return attempt.Status is not ExaminationAttemptStatus.Submitted
-            and not ExaminationAttemptStatus.AutoSubmitted;
+        if (attempt.Status is not ExaminationAttemptStatus.Submitted
+            and not ExaminationAttemptStatus.AutoSubmitted)
+        {
+            return true;
+        }
+
+        return examination.Status == ExaminationStatus.Closed || _clock.UtcNow >= examination.DueAt;
     }
 }
