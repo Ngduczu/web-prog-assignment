@@ -2,6 +2,8 @@ using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.abstractions.storage;
 using LMS.Api.application.abstractions.time;
+using LMS.Api.application.common;
+using LMS.Api.application.features.courses;
 using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Enums.Courses;
 using LMS.Api.domain.Enums.Users;
@@ -14,28 +16,34 @@ public sealed class SubmissionService : ISubmissionService
 {
     private readonly ISubmissionRepository _submissions;
     private readonly IExerciseRepository _exercises;
+    private readonly ICourseRepository _courses;
     private readonly IEnrollmentRepository _enrollments;
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
     private readonly IClock _clock;
+    private readonly IFileCleanupQueue? _fileCleanup;
 
     public SubmissionService(
         ISubmissionRepository submissions,
         IExerciseRepository exercises,
+        ICourseRepository courses,
         IEnrollmentRepository enrollments,
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
-        IClock clock)
+        IClock clock,
+        IFileCleanupQueue? fileCleanup = null)
     {
         _submissions = submissions;
         _exercises = exercises;
+        _courses = courses;
         _enrollments = enrollments;
         _fileStorage = fileStorage;
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
         _clock = clock;
+        _fileCleanup = fileCleanup;
     }
 
     public async Task<SubmissionDto> UploadAsync(
@@ -49,6 +57,11 @@ public sealed class SubmissionService : ISubmissionService
         var exercise = await GetExerciseAsync(exerciseId, cancellationToken);
         await EnsureAcceptedEnrollmentAsync(studentId, exercise.CourseId, cancellationToken);
 
+        if (exercise.Status != ExerciseStatus.Published)
+        {
+            throw new ConflictException("Submissions are only accepted for published exercises.");
+        }
+
         if (exercise.DueAt is not null && exercise.DueAt <= _clock.UtcNow)
         {
             throw new ConflictException("The exercise deadline has passed.");
@@ -60,9 +73,9 @@ public sealed class SubmissionService : ISubmissionService
             true,
             cancellationToken);
 
-        if (submission?.Status == SubmissionStatus.Submitted)
+        if (submission is not null && submission.Status != SubmissionStatus.Draft)
         {
-            throw new ConflictException("Submitted work must be unsubmitted before replacing its file.");
+            throw new ConflictException("Only draft work can have its file replaced.");
         }
 
         var isNewSubmission = submission is null;
@@ -70,6 +83,7 @@ public sealed class SubmissionService : ISubmissionService
         var storedFile = await _fileStorage.UploadAsync(
             upload,
             $"courses/{exercise.CourseId:N}/submissions/{submission.Id:N}",
+            FileUploadPolicy.MaximumCourseFileSizeBytes,
             cancellationToken: cancellationToken);
         var oldObjectKey = submission.Attachment?.ObjectKey;
 
@@ -102,13 +116,13 @@ public sealed class SubmissionService : ISubmissionService
         }
         catch
         {
-            await _fileStorage.DeleteIfExistsAsync(storedFile.ObjectKey, CancellationToken.None);
+            await CleanupFileAsync(storedFile.ObjectKey);
             throw;
         }
 
         if (oldObjectKey is not null)
         {
-            await _fileStorage.DeleteIfExistsAsync(oldObjectKey, CancellationToken.None);
+            await CleanupFileAsync(oldObjectKey);
         }
 
         var refreshed = await _submissions.GetByExerciseAndStudentAsync(
@@ -117,6 +131,17 @@ public sealed class SubmissionService : ISubmissionService
             true,
             cancellationToken) ?? submission;
         return Map(refreshed);
+    }
+
+    private Task CleanupFileAsync(string objectKey)
+    {
+        if (_fileCleanup is null)
+        {
+            return _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
+        }
+
+        _fileCleanup.Enqueue(objectKey);
+        return Task.CompletedTask;
     }
 
     public Task<SubmissionDto> SubmitAsync(
@@ -128,6 +153,108 @@ public sealed class SubmissionService : ISubmissionService
         Guid submissionId,
         CancellationToken cancellationToken = default) =>
         ChangeStatusAsync(submissionId, false, cancellationToken);
+
+    public async Task<SubmissionDto> GetMineAsync(
+        Guid exerciseId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(exerciseId, "Exercise id");
+        var studentId = EnsureStudent();
+        var exercise = await GetExerciseAsync(exerciseId, cancellationToken);
+        await EnsureAcceptedEnrollmentAsync(studentId, exercise.CourseId, cancellationToken);
+        var submission = await _submissions.GetByExerciseAndStudentAsync(
+            exerciseId,
+            studentId,
+            true,
+            cancellationToken) ?? throw new NotFoundException("Submission was not found.");
+        return Map(submission);
+    }
+
+    public async Task<PagedResult<SubmissionDto>> ListByExerciseAsync(
+        Guid exerciseId,
+        SubmissionQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(exerciseId, "Exercise id");
+        ValidatePage(query.Page, query.PageSize);
+        var exercise = await GetExerciseAsync(exerciseId, cancellationToken);
+        var course = await GetCourseAsync(exercise.CourseId, cancellationToken);
+        CourseAuthorization.EnsureCanManage(_currentUser, course);
+        var submissions = await _submissions.ListSubmittedByExerciseAsync(
+            exerciseId,
+            (query.Page - 1) * query.PageSize,
+            query.PageSize,
+            cancellationToken);
+        var count = await _submissions.CountSubmittedByExerciseAsync(exerciseId, cancellationToken);
+        return new PagedResult<SubmissionDto>(
+            submissions.Select(Map).ToArray(),
+            query.Page,
+            query.PageSize,
+            count);
+    }
+
+    public async Task<FileContent> GetContentAsync(
+        Guid submissionId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(submissionId, "Submission id");
+        var submission = await _submissions.GetByIdAsync(submissionId, true, cancellationToken)
+            ?? throw new NotFoundException("Submission was not found.");
+        var exercise = await GetExerciseAsync(submission.ExerciseId, cancellationToken);
+        var course = await GetCourseAsync(exercise.CourseId, cancellationToken);
+        var actorId = _currentUser.GetRequiredUserId();
+        if (_currentUser.GetRequiredRole() == Role.Student)
+        {
+            if (submission.StudentId != actorId)
+            {
+                throw new ForbiddenException("Students can only download their own submissions.");
+            }
+
+            await EnsureAcceptedEnrollmentAsync(actorId, exercise.CourseId, cancellationToken);
+        }
+        else
+        {
+            CourseAuthorization.EnsureCanManage(_currentUser, course);
+        }
+
+        var attachment = submission.Attachment
+            ?? throw new NotFoundException("Submission attachment was not found.");
+        var content = await _fileStorage.OpenReadAsync(attachment.ObjectKey, cancellationToken);
+        return new FileContent(content, attachment.FileName, attachment.ContentType);
+    }
+
+    public async Task<SubmissionDto> GradeAsync(
+        Guid submissionId,
+        GradeSubmissionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(submissionId, "Submission id");
+        if (request.Grade is < 0 or > 10 || request.Feedback?.Trim().Length > 4000)
+        {
+            throw new BadRequestException("Grade must be between 0 and 10 and feedback cannot exceed 4000 characters.");
+        }
+
+        var submission = await _submissions.GetByIdAsync(submissionId, true, cancellationToken)
+            ?? throw new NotFoundException("Submission was not found.");
+        var exercise = await GetExerciseAsync(submission.ExerciseId, cancellationToken);
+        var course = await GetCourseAsync(exercise.CourseId, cancellationToken);
+        var graderId = CourseAuthorization.EnsureCanManage(_currentUser, course);
+        try
+        {
+            submission.GradeSubmission(
+                request.Grade,
+                string.IsNullOrWhiteSpace(request.Feedback) ? null : request.Feedback.Trim(),
+                graderId,
+                _clock.UtcNow);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new ConflictException(exception.Message);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(submission);
+    }
 
     private async Task<SubmissionDto> ChangeStatusAsync(
         Guid submissionId,
@@ -145,6 +272,10 @@ public sealed class SubmissionService : ISubmissionService
         }
 
         var exercise = await GetExerciseAsync(submission.ExerciseId, cancellationToken);
+        if (exercise.Status != ExerciseStatus.Published)
+        {
+            throw new ConflictException("Submissions can only change while the exercise is published.");
+        }
         if (exercise.DueAt is not null && exercise.DueAt <= _clock.UtcNow)
         {
             throw new ConflictException("The exercise deadline has passed.");
@@ -204,6 +335,18 @@ public sealed class SubmissionService : ISubmissionService
         await _exercises.GetByIdAsync(exerciseId, false, cancellationToken)
         ?? throw new NotFoundException("Exercise was not found.");
 
+    private async Task<Course> GetCourseAsync(Guid courseId, CancellationToken cancellationToken) =>
+        await _courses.GetByIdAsync(courseId, false, cancellationToken)
+        ?? throw new NotFoundException("Course was not found.");
+
+    private static void ValidatePage(int page, int pageSize)
+    {
+        if (page <= 0 || pageSize is < 1 or > 100)
+        {
+            throw new BadRequestException("Page must be positive and page size must be between 1 and 100.");
+        }
+    }
+
     private static void ValidateId(Guid id, string fieldName)
     {
         if (id == Guid.Empty)
@@ -218,6 +361,10 @@ public sealed class SubmissionService : ISubmissionService
         submission.StudentId,
         submission.Status,
         submission.SubmittedAt,
+        submission.Grade,
+        submission.Feedback,
+        submission.GradedAt,
+        submission.GradedById,
         submission.Attachment is null
             ? null
             : new FileAttachmentDto(
