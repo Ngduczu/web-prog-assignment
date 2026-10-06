@@ -116,7 +116,20 @@ public sealed class RegistrationService : IRegistrationService
         }
 
         user.SetStatus(AccountStatus.Active);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            user.SetStatus(AccountStatus.Inactive);
+            await _cache.SetAsync(
+                GetVerificationKey(user.Id),
+                cacheEntry,
+                VerificationTimeToLive,
+                CancellationToken.None);
+            throw;
+        }
         await _cache.RemoveAsync(GetAttemptsKey(user.Id), cancellationToken);
         await _cache.RemoveAsync(GetCooldownKey(user.Id), cancellationToken);
         return new EmailVerificationResultDto(user.Id, user.Email, user.Status, _clock.UtcNow);
