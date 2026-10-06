@@ -58,6 +58,40 @@ public class ExaminationAttemptApplicationTests
     }
 
     [Fact]
+    public async Task DisabledViolationTypeIsRejectedWithoutChangingAttempt()
+    {
+        var fixture = CreateFixture();
+        fixture.Examination.SetAntiCheat(true, 3, 5, true, true, false, false, 10);
+        var started = await fixture.Service.StartAsync(fixture.Examination.Id);
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            fixture.Service.RecordViolationAsync(started.Id, ExaminationViolationType.TabChanged));
+
+        Assert.Equal(0, fixture.Attempts.Items.Single().ViolationCount);
+        Assert.Empty(fixture.Attempts.Violations);
+    }
+
+    [Fact]
+    public async Task FullscreenGraceDoesNotCountShortExitButCountsLongExit()
+    {
+        var fixture = CreateFixture();
+        var started = await fixture.Service.StartAsync(fixture.Examination.Id);
+
+        var withinGrace = await fixture.Service.RecordViolationAsync(
+            started.Id,
+            ExaminationViolationType.ExitFullscreen,
+            durationSeconds: 3);
+        var beyondGrace = await fixture.Service.RecordViolationAsync(
+            started.Id,
+            ExaminationViolationType.ExitFullscreen,
+            durationSeconds: 4);
+
+        Assert.Equal(0, withinGrace.ViolationCount);
+        Assert.Equal(1, beyondGrace.ViolationCount);
+        Assert.Single(fixture.Attempts.Violations);
+    }
+
+    [Fact]
     public async Task DisconnectAfterDurationExpiresAutoSubmitsAttempt()
     {
         var fixture = CreateFixture();
@@ -65,6 +99,20 @@ public class ExaminationAttemptApplicationTests
         fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddMinutes(61);
 
         var result = await fixture.Service.DisconnectAsync(started.Id);
+
+        Assert.Equal(ExaminationAttemptStatus.AutoSubmitted, result.Status);
+        Assert.Equal(ExaminationSubmitReason.DurationExpired, result.SubmitReason);
+    }
+
+    [Fact]
+    public async Task ReconnectUsesTheDeadlineThatExpiredFirst()
+    {
+        var fixture = CreateFixture(maxDisconnectMinutes: 120);
+        var started = await fixture.Service.StartAsync(fixture.Examination.Id);
+        await fixture.Service.DisconnectAsync(started.Id);
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddMinutes(61);
+
+        var result = await fixture.Service.ReconnectAsync(started.Id);
 
         Assert.Equal(ExaminationAttemptStatus.AutoSubmitted, result.Status);
         Assert.Equal(ExaminationSubmitReason.DurationExpired, result.SubmitReason);
@@ -100,6 +148,45 @@ public class ExaminationAttemptApplicationTests
         Assert.Null(submitted.CorrectAnswers);
         Assert.Null(submitted.TotalQuestions);
         Assert.Null(submitted.Score);
+    }
+
+    [Fact]
+    public async Task HiddenScoreIsReleasedAfterExaminationDueTime()
+    {
+        var fixture = CreateFixture(showScoreImmediately: false);
+        var started = await fixture.Service.StartAsync(fixture.Examination.Id);
+        await fixture.Service.SubmitAsync(started.Id);
+        fixture.Clock.UtcNow = fixture.Examination.DueAt;
+
+        var result = await fixture.Service.GetMineAsync(fixture.Examination.Id);
+
+        Assert.NotNull(result.CorrectAnswers);
+        Assert.NotNull(result.TotalQuestions);
+        Assert.NotNull(result.Score);
+    }
+
+    [Fact]
+    public async Task StudentCanRecoverLatestAttemptForExaminationAfterReload()
+    {
+        var fixture = CreateFixture();
+        var first = await fixture.Service.StartAsync(fixture.Examination.Id);
+        await fixture.Service.SubmitAsync(first.Id);
+        var latest = await fixture.Service.StartAsync(fixture.Examination.Id);
+
+        var recovered = await fixture.Service.GetMineAsync(fixture.Examination.Id);
+
+        Assert.Equal(latest.Id, recovered.Id);
+        Assert.Equal(ExaminationAttemptStatus.InProgress, recovered.Status);
+        Assert.Equal(fixture.Student.Id, recovered.StudentId);
+    }
+
+    [Fact]
+    public async Task RecoverAttemptReturnsNotFoundWhenStudentHasNotStartedExamination()
+    {
+        var fixture = CreateFixture();
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            fixture.Service.GetMineAsync(fixture.Examination.Id));
     }
 
     [Fact]
@@ -139,7 +226,8 @@ public class ExaminationAttemptApplicationTests
         int maxViolations = 5,
         bool enrollmentAccepted = true,
         bool showScoreImmediately = true,
-        bool shuffleQuestions = false)
+        bool shuffleQuestions = false,
+        int maxDisconnectMinutes = 10)
     {
         var teacher = CreateUser(Role.Teacher);
         var student = CreateUser(Role.Student);
@@ -154,7 +242,7 @@ public class ExaminationAttemptApplicationTests
             60,
             teacher.Id);
         examination.SetDisplayOptions(shuffleQuestions, showScoreImmediately);
-        examination.SetAntiCheat(true, 3, maxViolations, true, true, true, false, 10);
+        examination.SetAntiCheat(true, 3, maxViolations, true, true, true, false, maxDisconnectMinutes);
         examination.SetStatus(ExaminationStatus.Published);
 
         var multipleChoice = new ExaminationQuestion(
@@ -270,6 +358,21 @@ public class ExaminationAttemptApplicationTests
                 attempt.ExaminationId == examinationId &&
                 attempt.StudentId == studentId &&
                 attempt.Status is ExaminationAttemptStatus.InProgress or ExaminationAttemptStatus.Disconnected));
+
+        public Task<ExaminationAttempt?> GetLatestAsync(
+            Guid examinationId,
+            Guid studentId,
+            bool includeAnswers,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(Items
+                .Where(attempt =>
+                    attempt.ExaminationId == examinationId &&
+                    attempt.StudentId == studentId)
+                .OrderByDescending(attempt =>
+                    attempt.Status is ExaminationAttemptStatus.InProgress or ExaminationAttemptStatus.Disconnected)
+                .ThenByDescending(attempt => attempt.StartedAt)
+                .ThenByDescending(attempt => attempt.Id)
+                .FirstOrDefault());
 
         public Task<StudentAnswer?> GetAnswerAsync(
             Guid attemptId,
