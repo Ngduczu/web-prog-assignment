@@ -18,6 +18,7 @@ public sealed class CourseService : ICourseService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
     private readonly IChatRoomRepository _chatRooms;
+    private readonly ITransactionManager? _transactionManager;
 
     public CourseService(
         ICourseRepository courses,
@@ -25,7 +26,8 @@ public sealed class CourseService : ICourseService
         IEnrollmentRepository enrollments,
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
-        IChatRoomRepository chatRooms)
+        IChatRoomRepository chatRooms,
+        ITransactionManager? transactionManager = null)
     {
         _courses = courses;
         _users = users;
@@ -33,6 +35,7 @@ public sealed class CourseService : ICourseService
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
         _chatRooms = chatRooms;
+        _transactionManager = transactionManager;
     }
 
     public async Task<CourseDto> CreateAsync(
@@ -147,6 +150,34 @@ public sealed class CourseService : ICourseService
             totalCount);
     }
 
+    public async Task<IReadOnlyList<CourseDto>> ListMineAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (_currentUser.GetRequiredRole() != Role.Student)
+        {
+            throw new ForbiddenException("Only students can list their enrolled courses.");
+        }
+
+        var studentId = _currentUser.GetRequiredUserId();
+        var enrollments = await _enrollments.ListByStudentAsync(studentId, cancellationToken);
+        var courseIds = enrollments
+            .Where(enrollment => enrollment.Status == EnrollmentStatus.Accepted)
+            .Select(enrollment => enrollment.CourseId)
+            .Distinct()
+            .ToArray();
+        if (courseIds.Length == 0)
+        {
+            return [];
+        }
+
+        var courses = await _courses.ListByIdsAsync(courseIds, cancellationToken);
+        return courses
+            .OrderBy(course => course.Name)
+            .ThenBy(course => course.Id)
+            .Select(Map)
+            .ToArray();
+    }
+
     public async Task<CourseDto> UpdateAsync(
         Guid courseId,
         UpdateCourseRequest request,
@@ -155,18 +186,40 @@ public sealed class CourseService : ICourseService
         ValidateId(courseId, "Course id");
         ValidateCourse(request.Name, request.Description, request.MaxStudents, request.Status);
 
-        var course = await GetManagedCourseAsync(courseId, cancellationToken);
-        var actorId = _currentUser.GetRequiredUserId();
+        CourseDto? result = null;
+        async Task UpdateCore(CancellationToken transactionCancellationToken)
+        {
+            var course = await GetManagedCourseAsync(courseId, transactionCancellationToken);
+            var acceptedCount = await _enrollments.CountAcceptedByCourseAsync(
+                course.Id,
+                transactionCancellationToken);
+            if (request.MaxStudents < acceptedCount)
+            {
+                throw new ConflictException(
+                    "Maximum students cannot be lower than the number of accepted enrollments.");
+            }
 
-        course.SetName(request.Name.Trim());
-        course.SetDescription(NormalizeOptional(request.Description));
-        course.SetMaxStudents(request.MaxStudents);
-        course.SetStatus(request.Status);
-        course.SetModifiedBy(actorId);
-        await SynchronizeChatRoomAsync(course, cancellationToken);
+            var actorId = _currentUser.GetRequiredUserId();
+            course.SetName(request.Name.Trim());
+            course.SetDescription(NormalizeOptional(request.Description));
+            course.SetMaxStudents(request.MaxStudents);
+            course.SetStatus(request.Status);
+            course.SetModifiedBy(actorId);
+            await SynchronizeChatRoomAsync(course, transactionCancellationToken);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            result = Map(course);
+        }
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(course);
+        if (_transactionManager is null)
+        {
+            await UpdateCore(cancellationToken);
+        }
+        else
+        {
+            await _transactionManager.ExecuteSerializableAsync(UpdateCore, cancellationToken);
+        }
+
+        return result!;
     }
 
     public async Task DeleteAsync(Guid courseId, CancellationToken cancellationToken = default)
