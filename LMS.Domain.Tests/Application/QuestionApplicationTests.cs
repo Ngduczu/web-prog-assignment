@@ -76,6 +76,60 @@ public class QuestionApplicationTests
         Assert.Equal(1, fixture.UnitOfWork.SaveCount);
     }
 
+    [Fact]
+    public async Task UpdateQuestionChangesOnlyEditableSourceFields()
+    {
+        var fixture = CreateFixture();
+        var question = new Question(
+            fixture.QuestionBank.Id,
+            "Old content",
+            QuestionType.FillInBlank,
+            QuestionDifficulty.Easy,
+            false,
+            fixture.QuestionBank.TeacherId);
+        question.FillInBlankAnswerKeys.Add(new FillInBlankAnswerKey(question.Id, 0, "Hanoi"));
+        fixture.Questions.Items.Add(question);
+
+        var result = await fixture.Service.UpdateQuestionAsync(
+            question.Id,
+            new UpdateQuestionRequest("New content", QuestionDifficulty.Hard));
+
+        Assert.Equal("New content", result.Content);
+        Assert.Equal(QuestionDifficulty.Hard, result.Difficulty);
+        Assert.Single(result.Answers);
+        Assert.Equal("Hanoi", result.Answers[0].ExpectedAnswer);
+    }
+
+    [Fact]
+    public async Task DeleteQuestionRemovesSourceQuestion()
+    {
+        var fixture = CreateFixture();
+        var question = new Question(
+            fixture.QuestionBank.Id,
+            "Question",
+            QuestionType.FillInBlank,
+            QuestionDifficulty.Easy,
+            false,
+            fixture.QuestionBank.TeacherId);
+        fixture.Questions.Items.Add(question);
+
+        await fixture.Service.DeleteQuestionAsync(question.Id);
+
+        Assert.Empty(fixture.Questions.Items);
+    }
+
+    [Fact]
+    public async Task ReferencedQuestionBankCannotBeDeleted()
+    {
+        var fixture = CreateFixture();
+        fixture.QuestionBanks.IsReferenced = true;
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            fixture.Service.DeleteQuestionBankAsync(fixture.QuestionBank.Id));
+
+        Assert.False(fixture.QuestionBanks.WasRemoved);
+    }
+
     private static Fixture CreateFixture()
     {
         var teacher = new User(
@@ -89,19 +143,21 @@ public class QuestionApplicationTests
         var questions = new FakeQuestionRepository();
         var unitOfWork = new FakeUnitOfWork();
         var transactionManager = new FakeTransactionManager();
+        var questionBanks = new FakeQuestionBankRepository(questionBank);
         var service = new QuestionService(
-            new FakeQuestionBankRepository(questionBank),
+            questionBanks,
             questions,
             new FakeUserRepository(teacher),
             unitOfWork,
             transactionManager,
             new FakeCurrentUser(teacher));
-        return new Fixture(service, questionBank, questions, unitOfWork, transactionManager);
+        return new Fixture(service, questionBank, questionBanks, questions, unitOfWork, transactionManager);
     }
 
     private sealed record Fixture(
         QuestionService Service,
         QuestionBank QuestionBank,
+        FakeQuestionBankRepository QuestionBanks,
         FakeQuestionRepository Questions,
         FakeUnitOfWork UnitOfWork,
         FakeTransactionManager TransactionManager);
@@ -175,6 +231,8 @@ public class QuestionApplicationTests
     private sealed class FakeQuestionBankRepository : IQuestionBankRepository
     {
         private readonly QuestionBank _questionBank;
+        public bool IsReferenced { get; set; }
+        public bool WasRemoved { get; private set; }
 
         public FakeQuestionBankRepository(QuestionBank questionBank)
         {
@@ -198,6 +256,12 @@ public class QuestionApplicationTests
         public void Add(QuestionBank questionBank)
         {
         }
+
+        public Task<bool> IsReferencedByExaminationAsync(
+            Guid questionBankId,
+            CancellationToken cancellationToken) => Task.FromResult(IsReferenced);
+
+        public void Remove(QuestionBank questionBank) => WasRemoved = true;
     }
 
     private sealed class FakeQuestionRepository : IQuestionRepository
@@ -226,5 +290,7 @@ public class QuestionApplicationTests
         {
             Items.Add(question);
         }
+
+        public void Remove(Question question) => Items.Remove(question);
     }
 }
