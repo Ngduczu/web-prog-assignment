@@ -57,4 +57,6 @@ public sealed class QuestionRepository : IQuestionRepository
     {
         _dbContext.Questions.Add(question);
     }
+
+    public void Remove(Question question) => _dbContext.Questions.Remove(question);
 }
