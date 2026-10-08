@@ -32,7 +32,7 @@ public class ExaminationAttemptConfiguration : IEntityTypeConfiguration<Examinat
         builder.Property(x => x.Score).HasColumnName("score").HasPrecision(5, 2);
         builder.Property<uint>("Version").IsRowVersion();
 
-        builder.HasIndex(x => new { x.ExaminationId, x.StudentId });
+        builder.HasIndex(x => new { x.ExaminationId, x.StudentId }).IsUnique();
         builder.HasIndex(x => new { x.Status, x.LastActivityAt });
 
         builder.HasOne(x => x.Examination).WithMany(x => x.Attempts).HasForeignKey(x => x.ExaminationId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);

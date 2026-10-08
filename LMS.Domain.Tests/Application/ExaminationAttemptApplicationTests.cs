@@ -179,18 +179,16 @@ public class ExaminationAttemptApplicationTests
     }
 
     [Fact]
-    public async Task StudentCanRecoverLatestAttemptForExaminationAfterReload()
+    public async Task StudentCannotStartAnExaminationTwice()
     {
         var fixture = CreateFixture();
         var first = await fixture.Service.StartAsync(fixture.Examination.Id);
         await fixture.Service.SubmitAsync(first.Id);
-        var latest = await fixture.Service.StartAsync(fixture.Examination.Id);
 
-        var recovered = await fixture.Service.GetMineAsync(fixture.Examination.Id);
+        var exception = await Assert.ThrowsAsync<ConflictException>(() =>
+            fixture.Service.StartAsync(fixture.Examination.Id));
 
-        Assert.Equal(latest.Id, recovered.Id);
-        Assert.Equal(ExaminationAttemptStatus.InProgress, recovered.Status);
-        Assert.Equal(fixture.Student.Id, recovered.StudentId);
+        Assert.Equal("A student can attempt an examination only once.", exception.Message);
     }
 
     [Fact]

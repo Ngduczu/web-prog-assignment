@@ -884,7 +884,8 @@ namespace LMS.Api.infrastructure.persistence.migrations
 
                     b.HasIndex("StudentId");
 
-                    b.HasIndex("ExaminationId", "StudentId");
+                    b.HasIndex("ExaminationId", "StudentId")
+                        .IsUnique();
 
                     b.HasIndex("Status", "LastActivityAt");
 

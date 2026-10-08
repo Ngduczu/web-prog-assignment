@@ -95,7 +95,6 @@ public sealed class CourseContentController : ControllerBase
         ? throw new LMS.Api.domain.exceptions.BadRequestException("A file is required.")
         : new(file.FileName, file.ContentType, file.Length, file.OpenReadStream());
 
-    private FileStreamResult ToFileResult(FileContent file, bool download) => download
-        ? File(file.Content, file.ContentType, file.FileName, enableRangeProcessing: true)
-        : File(file.Content, file.ContentType, enableRangeProcessing: true);
+    private FileStreamResult ToFileResult(FileContent file, bool _) =>
+        File(file.Content, file.ContentType, file.FileName, enableRangeProcessing: true);
 }

@@ -75,9 +75,7 @@ public sealed class ChatsController : ControllerBase
         CancellationToken cancellationToken)
     {
         var file = await service.GetAttachmentContentAsync(messageId, attachmentId, cancellationToken);
-        return download
-            ? File(file.Content, file.ContentType, file.FileName, enableRangeProcessing: true)
-            : File(file.Content, file.ContentType, enableRangeProcessing: true);
+        return File(file.Content, file.ContentType, file.FileName, enableRangeProcessing: true);
     }
 
     [HttpPatch("messages/{messageId:guid}")]

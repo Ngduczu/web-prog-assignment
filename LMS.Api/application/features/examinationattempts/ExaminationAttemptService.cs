@@ -66,9 +66,13 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
                 throw new ConflictException("The examination has no questions.");
             }
 
-            if (await _attempts.GetActiveAsync(examination.Id, studentId, transactionCancellationToken) is not null)
+            if (await _attempts.GetLatestAsync(
+                    examination.Id,
+                    studentId,
+                    false,
+                    transactionCancellationToken) is not null)
             {
-                throw new ConflictException("An active examination attempt already exists.");
+                throw new ConflictException("A student can attempt an examination only once.");
             }
 
             createdAttempt = new ExaminationAttempt(
