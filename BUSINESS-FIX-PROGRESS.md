@@ -70,6 +70,15 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Thêm fault-injection test gây lỗi ở lần save thứ hai, chạy lại callback và xác nhận aggregate mới sạch, khác ID và hoàn tất đúng đáp án.
 - Xác minh: **209 passed, 0 failed, 0 skipped**.
 
+### Quét ngang vận hành sau RR-05/RR-06
+
+- Build `LMS.Api` và `LMS.Domain.Tests`: **0 warning, 0 error**.
+- Chạy toàn bộ test suite với PostgreSQL thật: **209 passed, 0 failed, 0 skipped**.
+- PostgreSQL 17 và Redis 8 đều báo `healthy`; database đã ở migration mới nhất.
+- EF model khớp migration snapshot, không có model change chưa tạo migration.
+- API khởi động thành công trong môi trường Development; OpenAPI 3.0.4 trả `200` với **71 paths**.
+- Request rỗng tới `POST /api/auth/login` đi qua routing và validation pipeline, trả `400` cùng lỗi bắt buộc `Email`/`Password` như dự kiến.
+
 ## Tiến độ tái rà soát
 
 | Trạng thái | Số lượng |
