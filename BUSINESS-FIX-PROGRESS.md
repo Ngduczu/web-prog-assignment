@@ -4,21 +4,21 @@ Cập nhật gần nhất: `2026-10-08`
 
 Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
-> Bảng 18/18 bên dưới phản ánh audit đầu tiên. Toàn bộ 15/15 finding RF của lần tái rà soát đã hoàn thành; backlog rà soát bổ sung RR đang được xử lý tuần tự.
+> Bảng 18/18 bên dưới phản ánh audit đầu tiên. Toàn bộ 15/15 finding RF của lần tái rà soát và 6/6 finding RR của lần rà soát bổ sung đã hoàn thành.
 
 ## Tiến độ rà soát bổ sung
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 5 |
+| Hoàn thành | 6 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 1 |
+| Chưa thực hiện | 0 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
 | RR-01 | Hoàn thành | Submission dùng PostgreSQL `xmin`; upload/submit/unsubmit/grade chạy trong transaction serializable |
 | RR-02 | Hoàn thành | `AuthVersion` lưu trong PostgreSQL và tăng atomic cùng password/status/role |
-| RR-03 | Chưa thực hiện | OAuth callback chưa resumable sau khi provider redeem code |
+| RR-03 | Hoàn thành | Pending identity cho phép callback retry mà không redeem lại provider code |
 | RR-04 | Hoàn thành | Cleanup best-effort; queue upsert `ON CONFLICT DO NOTHING` trong transaction nghiệp vụ |
 | RR-05 | Hoàn thành | Register retry dùng chung cooldown atomic với resend và yêu cầu password khớp |
 | RR-06 | Hoàn thành | Transaction callback dựng question/options mới trên từng attempt |
@@ -42,6 +42,15 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Cleanup attempts/cooldown sau commit là best-effort và không thể đổi một reset đã commit thành response lỗi.
 - Thêm migration `PersistUserAuthVersion` và test cho DB rollback, Redis cleanup failure, refresh-token revocation, access-token revocation cùng metadata concurrency.
 - Xác minh: **203 passed, 0 failed, 0 skipped**; migration đã áp dụng lên PostgreSQL local; EF báo **không có model change chưa tạo migration**.
+
+### RR-03 — Tiếp tục OAuth callback sau provider exchange
+
+- Sau khi provider xác thực thành công, lưu pending OAuth identity trong Redis với TTL 10 phút trước khi truy cập hoặc thay đổi dữ liệu nội bộ.
+- Recovery key là SHA-256 của provider, authorization code, redirect URI và PKCE verifier; credential không xuất hiện trong Redis key và identity không thể bị dùng chéo request OAuth khác.
+- Khi callback được retry sau lỗi DB hoặc lỗi phát login code, service đọc pending identity và bỏ qua bước exchange authorization code vốn chỉ dùng được một lần.
+- Áp dụng chung cho cả OAuth login và link; pending entry được xóa best-effort sau khi flow thành công, hoặc tự hết hạn nếu Redis cleanup lỗi.
+- Thêm test cho login và link: cố ý làm DB lookup lỗi sau provider exchange, provider từ chối lần exchange thứ hai, rồi xác nhận retry vẫn thành công với đúng một lần redeem code.
+- Xác minh: **211 passed, 0 failed, 0 skipped**.
 
 ### RR-04 — Cleanup bảo toàn lỗi gốc và enqueue idempotent
 

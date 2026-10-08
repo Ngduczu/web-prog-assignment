@@ -2,7 +2,7 @@
 
 Ngày rà soát: `2026-10-06`
 
-> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 cùng RR-01, RR-02, RR-04, RR-05, RR-06 đã hoàn thành**. Lần rà soát bổ sung còn **1 finding RR-03 chưa sửa**, được ghi ở mục 7 để xử lý về sau. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
+> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 và 6/6 finding RR-01..RR-06 đã hoàn thành**. Nội dung bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 ## 1. Phạm vi và phương pháp
 
@@ -242,7 +242,7 @@ Trạng thái xác minh tại thời điểm ghi nhận:
 |---|---|---|---|---|
 | RR-01 | High | Submission | Hoàn thành | Dùng `xmin` và transaction serializable; upload lỗi cạnh tranh dọn file mới |
 | RR-02 | High | Auth | Hoàn thành | Password và auth version cùng commit trong PostgreSQL; token cũ bị từ chối |
-| RR-03 | Medium | OAuth | Chưa sửa | Khôi phục state không làm authorization code đã redeem dùng lại được |
+| RR-03 | Medium | OAuth | Hoàn thành | Callback retry dùng pending identity, không exchange lại authorization code |
 | RR-04 | Medium | File | Hoàn thành | Cleanup best-effort bảo toàn lỗi gốc; enqueue dùng atomic upsert |
 | RR-05 | Medium | Registration | Hoàn thành | Register retry dùng chung cooldown atomic và xác minh password |
 | RR-06 | Medium | Concurrency | Hoàn thành | Mỗi transaction attempt dựng aggregate multiple-choice mới hoàn toàn |
@@ -274,6 +274,8 @@ Các lịch thực thi có thể xảy ra:
 **Hướng sửa:** lưu security version bền vững trong PostgreSQL hoặc dùng transactional outbox để bắt buộc hoàn tất việc thu hồi session. Reset cần có trạng thái/idempotency result để retry trả cùng kết quả thay vì consume code lần nữa. Bổ sung fault-injection test tại từng bước sau DB commit.
 
 ### RR-03 — OAuth state recovery không phục hồi authorization code
+
+**Trạng thái: Đã sửa ngày `2026-10-08`.** Chi tiết triển khai và xác minh nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 Callback consume OAuth state trước khi gọi provider. Khi downstream lỗi, controller ghi state trở lại Redis trong một phút. Tuy nhiên `LoginWithOAuthAsync`/`LinkOAuthAsync` exchange authorization code với Google trước khi đọc hoặc ghi dữ liệu nội bộ. Nếu exchange đã thành công rồi DB/Redis lỗi, authorization code đã bị provider consume và retry callback với state được phục hồi vẫn thất bại.
 

@@ -24,6 +24,7 @@ public sealed class AuthenticationService : IAuthenticationService
     private readonly IUnitOfWork _unitOfWork;
     private static readonly TimeSpan RefreshLifetime = TimeSpan.FromDays(30);
     private static readonly TimeSpan OAuthLoginCodeLifetime = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan OAuthIdentityRecoveryLifetime = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan CredentialRecoveryLifetime = TimeSpan.FromMinutes(1);
     public AuthenticationService(IUserRepository users, IPasswordHasher hasher, ITokenProvider tokens, ICache cache, IClock clock, OAuthResolver oauthResolver, IUnitOfWork unitOfWork) { _users = users; _hasher = hasher; _tokens = tokens; _cache = cache; _clock = clock; _oauthResolver = oauthResolver; _unitOfWork = unitOfWork; }
     public async Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
@@ -63,7 +64,7 @@ public sealed class AuthenticationService : IAuthenticationService
         OAuthLoginRequest request,
         CancellationToken cancellationToken = default)
     {
-        var (providerType, externalInfo) = await GetVerifiedExternalIdentityAsync(
+        var (providerType, externalInfo, recoveryKey) = await GetVerifiedExternalIdentityAsync(
             request.Provider,
             request.Code,
             request.RedirectUri,
@@ -98,7 +99,9 @@ public sealed class AuthenticationService : IAuthenticationService
             throw new UnauthorizeException("Account is not active.");
         }
 
-        return await CreateOAuthLoginCodeAsync(user.Id, cancellationToken);
+        var result = await CreateOAuthLoginCodeAsync(user.Id, cancellationToken);
+        await TryRemovePendingOAuthIdentityAsync(recoveryKey);
+        return result;
     }
 
     public async Task<LoginResponse> RedeemOAuthLoginCodeAsync(
@@ -148,7 +151,7 @@ public sealed class AuthenticationService : IAuthenticationService
             throw new UnauthorizeException("Account is not active.");
         }
 
-        var (providerType, externalInfo) = await GetVerifiedExternalIdentityAsync(
+        var (providerType, externalInfo, recoveryKey) = await GetVerifiedExternalIdentityAsync(
             request.Provider,
             request.Code,
             request.RedirectUri,
@@ -173,10 +176,12 @@ public sealed class AuthenticationService : IAuthenticationService
 
         _users.AddExternalUser(new ExternalUser(user.Id, providerType, externalInfo.ProviderUserId));
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return new OAuthLinkResponse(user.Id, providerType.ToString(), externalEmail);
+        var result = new OAuthLinkResponse(user.Id, providerType.ToString(), externalEmail);
+        await TryRemovePendingOAuthIdentityAsync(recoveryKey);
+        return result;
     }
 
-    private async Task<(ExternalProvider Provider, OAuthUserInfo ExternalInfo)> GetVerifiedExternalIdentityAsync(
+    private async Task<(ExternalProvider Provider, OAuthUserInfo ExternalInfo, string RecoveryKey)> GetVerifiedExternalIdentityAsync(
         string providerName,
         string code,
         string redirectUri,
@@ -189,6 +194,19 @@ public sealed class AuthenticationService : IAuthenticationService
             string.IsNullOrWhiteSpace(codeVerifier))
         {
             throw new BadRequestException("OAuth provider, code, redirect URI and code verifier are required.");
+        }
+
+        var recoveryKey = PendingOAuthIdentityKey(
+            providerType,
+            code,
+            redirectUri,
+            codeVerifier);
+        var pendingIdentity = await _cache.GetAsync<PendingOAuthIdentity>(
+            recoveryKey,
+            cancellationToken);
+        if (pendingIdentity is not null)
+        {
+            return (providerType, pendingIdentity.ExternalInfo, recoveryKey);
         }
 
         var provider = _oauthResolver.Get(providerType.ToString());
@@ -205,7 +223,12 @@ public sealed class AuthenticationService : IAuthenticationService
             throw new UnauthorizeException("The external account email is not verified.");
         }
 
-        return (providerType, externalInfo);
+        await _cache.SetAsync(
+            recoveryKey,
+            new PendingOAuthIdentity(externalInfo),
+            OAuthIdentityRecoveryLifetime,
+            cancellationToken);
+        return (providerType, externalInfo, recoveryKey);
     }
 
     private static string NormalizeExternalEmail(string email)
@@ -263,6 +286,18 @@ public sealed class AuthenticationService : IAuthenticationService
         }
     }
 
+    private async Task TryRemovePendingOAuthIdentityAsync(string key)
+    {
+        try
+        {
+            await _cache.RemoveAsync(key, CancellationToken.None);
+        }
+        catch
+        {
+            // The state is already consumed; let the short-lived recovery entry expire naturally.
+        }
+    }
+
     private static bool IsCredentialRestorableFailure(Exception exception) =>
         exception is not BadRequestException
             and not UnauthorizeException
@@ -292,10 +327,20 @@ public sealed class AuthenticationService : IAuthenticationService
 
     private sealed record RefreshSession(Guid UserId, long AuthVersion);
     private sealed record OAuthLoginCodeEntry(Guid UserId);
+    private sealed record PendingOAuthIdentity(OAuthUserInfo ExternalInfo);
 
     private static string HashRefreshToken(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
     private static string OAuthLoginCodeKey(string loginCode) =>
         $"auth:oauth-login-code:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(loginCode))).ToLowerInvariant()}";
+    private static string PendingOAuthIdentityKey(
+        ExternalProvider provider,
+        string code,
+        string redirectUri,
+        string codeVerifier)
+    {
+        var binding = $"{provider}\n{code.Length}:{code}\n{redirectUri.Length}:{redirectUri}\n{codeVerifier.Length}:{codeVerifier}";
+        return $"auth:oauth-identity:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(binding))).ToLowerInvariant()}";
+    }
     private static string Base64Url(byte[] value) =>
         Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

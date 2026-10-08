@@ -113,6 +113,33 @@ public sealed class AuthenticationApplicationTests
     }
 
     [Fact]
+    public async Task OAuthLoginRetryReusesVerifiedIdentityAfterDatabaseFailure()
+    {
+        var fixture = CreateOAuthFixture(
+            [],
+            new OAuthUserInfo("google-user", "new-user@example.com", "New User", null, true));
+        fixture.OAuthProvider!.RejectReusedAuthorizationCode = true;
+        fixture.Users.FailNextGetByExternalLogin = true;
+        var request = new OAuthLoginRequest(
+            "Google",
+            "single-use-code",
+            "https://localhost/callback",
+            "verifier");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.LoginWithOAuthAsync(request));
+        Assert.Equal(
+            TimeSpan.FromMinutes(10),
+            fixture.Cache.GetExpiry(fixture.Cache.LastOAuthIdentityKey));
+
+        var result = await fixture.Service.LoginWithOAuthAsync(request);
+
+        Assert.False(string.IsNullOrWhiteSpace(result.LoginCode));
+        Assert.Equal(1, fixture.OAuthProvider.ExchangeCount);
+        Assert.Single(fixture.Users.ExternalUsers);
+    }
+
+    [Fact]
     public async Task OAuthLoginBoundsProviderFullNameToDatabaseColumn()
     {
         var fixture = CreateOAuthFixture(
@@ -254,6 +281,32 @@ public sealed class AuthenticationApplicationTests
     }
 
     [Fact]
+    public async Task OAuthLinkRetryReusesVerifiedIdentityAfterDatabaseFailure()
+    {
+        var user = CreateUser("user@example.com");
+        var fixture = CreateOAuthFixture(
+            user,
+            new OAuthUserInfo("google-user", "google@example.com", "Google User", null, true));
+        fixture.OAuthProvider!.RejectReusedAuthorizationCode = true;
+        fixture.Users.FailNextGetByExternalLogin = true;
+        var request = new OAuthLinkRequest(
+            user.Id,
+            "Google",
+            "single-use-code",
+            "https://localhost/callback",
+            "verifier");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.LinkOAuthAsync(request));
+
+        var result = await fixture.Service.LinkOAuthAsync(request);
+
+        Assert.Equal(user.Id, result.UserId);
+        Assert.Equal(1, fixture.OAuthProvider.ExchangeCount);
+        Assert.Single(fixture.Users.ExternalUsers);
+    }
+
+    [Fact]
     public async Task ExternalIdentityCannotBeLinkedToTwoAccounts()
     {
         var firstUser = CreateUser("first@example.com");
@@ -316,7 +369,7 @@ public sealed class AuthenticationApplicationTests
             new FakeClock(),
             new OAuthResolver([]),
             new FakeUnitOfWork());
-        return new Fixture(service, cache, users);
+        return new Fixture(service, cache, users, null);
     }
 
     private static Fixture CreateOAuthFixture(User user, OAuthUserInfo externalInfo) =>
@@ -326,15 +379,16 @@ public sealed class AuthenticationApplicationTests
     {
         var users = new FakeUserRepository(usersToAdd);
         var cache = new FakeCache();
+        var oauthProvider = new FakeOAuthProvider(externalInfo);
         var service = new AuthenticationService(
             users,
             new FakePasswordHasher(),
             new FakeTokenProvider(),
             cache,
             new FakeClock(),
-            new OAuthResolver([new FakeOAuthProvider(externalInfo)]),
+            new OAuthResolver([oauthProvider]),
             new FakeUnitOfWork());
-        return new Fixture(service, cache, users);
+        return new Fixture(service, cache, users, oauthProvider);
     }
 
     private static User CreateUser(string email) => new(
@@ -348,7 +402,8 @@ public sealed class AuthenticationApplicationTests
     private sealed record Fixture(
         AuthenticationService Service,
         FakeCache Cache,
-        FakeUserRepository Users);
+        FakeUserRepository Users,
+        FakeOAuthProvider? OAuthProvider);
 
     private sealed class FakeClock : IClock
     {
@@ -378,6 +433,8 @@ public sealed class AuthenticationApplicationTests
 
     private sealed class FakeOAuthProvider(OAuthUserInfo userInfo) : IOAuthProvider
     {
+        public int ExchangeCount { get; private set; }
+        public bool RejectReusedAuthorizationCode { get; set; }
         public string Name => "Google";
         public string BuildAuthorizationUrl(OAuthAuthorizationRequest request) =>
             throw new NotSupportedException();
@@ -385,8 +442,16 @@ public sealed class AuthenticationApplicationTests
             string code,
             string redirectUri,
             string codeVerifier,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(new OAuthTokenResult("access-token", null, null));
+            CancellationToken cancellationToken = default)
+        {
+            ExchangeCount++;
+            if (RejectReusedAuthorizationCode && ExchangeCount > 1)
+            {
+                throw new InvalidOperationException("Authorization code has already been redeemed.");
+            }
+
+            return Task.FromResult(new OAuthTokenResult("access-token", null, null));
+        }
         public Task<OAuthUserInfo> GetUserInfoAsync(
             OAuthTokenResult token,
             CancellationToken cancellationToken = default) =>
@@ -404,6 +469,7 @@ public sealed class AuthenticationApplicationTests
         public List<ExternalUser> ExternalUsers { get; } = [];
 
         public bool FailNextGetById { get; set; }
+        public bool FailNextGetByExternalLogin { get; set; }
 
         public Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         {
@@ -419,11 +485,19 @@ public sealed class AuthenticationApplicationTests
         public Task<User?> GetByEmailAsync(string normalizedEmail, CancellationToken cancellationToken) =>
             Task.FromResult(Users.SingleOrDefault(user => user.Email == normalizedEmail));
 
-        public Task<User?> GetByExternalLoginAsync(ExternalProvider provider, string externalUserId, CancellationToken cancellationToken) =>
-            Task.FromResult(ExternalUsers
+        public Task<User?> GetByExternalLoginAsync(ExternalProvider provider, string externalUserId, CancellationToken cancellationToken)
+        {
+            if (FailNextGetByExternalLogin)
+            {
+                FailNextGetByExternalLogin = false;
+                throw new InvalidOperationException("Transient database failure");
+            }
+
+            return Task.FromResult(ExternalUsers
                 .Where(external => external.Provider == provider && external.ExternalUserId == externalUserId)
                 .Select(external => Users.Single(user => user.Id == external.UserId))
                 .SingleOrDefault());
+        }
 
         public Task<ExternalUser?> GetExternalLoginAsync(Guid userId, ExternalProvider provider, CancellationToken cancellationToken) =>
             Task.FromResult(ExternalUsers.SingleOrDefault(external =>
@@ -441,6 +515,7 @@ public sealed class AuthenticationApplicationTests
 
         public string LastRefreshKey { get; private set; } = string.Empty;
         public string LastOAuthLoginCodeKey { get; private set; } = string.Empty;
+        public string LastOAuthIdentityKey { get; private set; } = string.Empty;
         public Task<T?> GetAsync<T>(string key, CancellationToken cancellationToken = default)
         {
             lock (_sync)
@@ -524,6 +599,11 @@ public sealed class AuthenticationApplicationTests
             if (key.StartsWith("auth:oauth-login-code:", StringComparison.Ordinal))
             {
                 LastOAuthLoginCodeKey = key;
+            }
+
+            if (key.StartsWith("auth:oauth-identity:", StringComparison.Ordinal))
+            {
+                LastOAuthIdentityKey = key;
             }
         }
     }
