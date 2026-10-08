@@ -1,7 +1,6 @@
 using System.Net.Mail;
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
-using LMS.Api.application.abstractions.caching;
 using LMS.Api.application.common;
 using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Users;
@@ -16,13 +15,12 @@ public sealed class UserService : IUserService
     private readonly IPasswordHasher _hasher;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
-    private readonly ICache _cache;
     private readonly ICourseRepository _courses;
     private readonly IQuestionBankRepository _questionBanks;
     private readonly ITransactionManager? _transactionManager;
 
-    public UserService(IUserManagementRepository users, IPasswordHasher hasher, IUnitOfWork unitOfWork, ICurrentUser currentUser, ICache cache, ICourseRepository courses, IQuestionBankRepository questionBanks, ITransactionManager? transactionManager = null)
-    { _users = users; _hasher = hasher; _unitOfWork = unitOfWork; _currentUser = currentUser; _cache = cache; _courses = courses; _questionBanks = questionBanks; _transactionManager = transactionManager; }
+    public UserService(IUserManagementRepository users, IPasswordHasher hasher, IUnitOfWork unitOfWork, ICurrentUser currentUser, ICourseRepository courses, IQuestionBankRepository questionBanks, ITransactionManager? transactionManager = null)
+    { _users = users; _hasher = hasher; _unitOfWork = unitOfWork; _currentUser = currentUser; _courses = courses; _questionBanks = questionBanks; _transactionManager = transactionManager; }
 
     public async Task<UserProfileDto> GetProfileAsync(Guid userId, CancellationToken cancellationToken = default)
     {
@@ -74,13 +72,12 @@ public sealed class UserService : IUserService
                 throw new ConflictException("The last active administrator cannot be disabled.");
             if (user.Role == Role.Teacher && request.Status != AccountStatus.Active)
                 await EnsureTeacherHasNoOwnedResourcesAsync(user.Id, transactionCancellationToken);
-            user.SetStatus(request.Status); user.SetModifiedBy(actorId);
+            user.SetStatus(request.Status); user.SetModifiedBy(actorId); user.RevokeSessions();
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
             result = Map(user);
         }
 
         await ExecuteSerializableAsync(UpdateCore, cancellationToken);
-        await InvalidateTokensAsync(userId, cancellationToken);
         return result!;
     }
 
@@ -105,21 +102,16 @@ public sealed class UserService : IUserService
             user.SetPhone(request.Phone?.Trim() ?? string.Empty);
             user.SetRole(request.Role);
             user.SetModifiedBy(actorId);
+            user.RevokeSessions();
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
             result = Map(user);
         }
 
         await ExecuteSerializableAsync(UpdateCore, cancellationToken);
-        await InvalidateTokensAsync(userId, cancellationToken);
         return result!;
     }
 
     private void EnsureAdmin() { if (_currentUser.GetRequiredRole() != Role.Admin) throw new ForbiddenException("Only administrators can manage users."); }
-    private async Task InvalidateTokensAsync(Guid userId, CancellationToken cancellationToken)
-    {
-        await _cache.SetIfNotExistsAsync($"auth:version:{userId:N}", 1L, TimeSpan.FromDays(365), cancellationToken);
-        await _cache.IncrementAsync($"auth:version:{userId:N}", TimeSpan.FromDays(365), cancellationToken);
-    }
     private Task ExecuteSerializableAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken) =>
         _transactionManager is null
             ? action(cancellationToken)

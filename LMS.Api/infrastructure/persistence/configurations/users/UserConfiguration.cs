@@ -36,6 +36,12 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.PasswordHash)
             .HasColumnName("password_hash")
             .IsRequired(false);
+
+        builder.Property(x => x.AuthVersion)
+            .HasColumnName("auth_version")
+            .HasDefaultValue(1L)
+            .IsConcurrencyToken()
+            .IsRequired();
     
         builder.Property(x => x.Role)
             .HasConversion<string>()

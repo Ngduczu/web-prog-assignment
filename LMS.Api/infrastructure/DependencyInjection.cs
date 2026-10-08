@@ -123,9 +123,7 @@ public static class DependencyInjection
 
                     var users = context.HttpContext.RequestServices.GetRequiredService<IUserRepository>();
                     var user = await users.GetByIdAsync(parsedUserId, context.HttpContext.RequestAborted);
-                    var cache = context.HttpContext.RequestServices.GetRequiredService<ICache>();
-                    var currentVersion = await cache.GetAsync<long?>($"auth:version:{parsedUserId:N}", context.HttpContext.RequestAborted) ?? 1;
-                    if (user is null || user.Status != LMS.Api.domain.Enums.Users.AccountStatus.Active || !string.Equals(role, user.Role.ToString(), StringComparison.OrdinalIgnoreCase) || tokenVersion != currentVersion)
+                    if (user is null || user.Status != LMS.Api.domain.Enums.Users.AccountStatus.Active || !string.Equals(role, user.Role.ToString(), StringComparison.OrdinalIgnoreCase) || tokenVersion != user.AuthVersion)
                     {
                         context.Fail("User authentication is no longer valid.");
                     }

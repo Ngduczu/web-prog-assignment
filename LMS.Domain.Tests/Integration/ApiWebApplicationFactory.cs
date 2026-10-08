@@ -35,6 +35,7 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
 
     public bool UseRealJwtAuthentication { get; init; }
     public Guid SignalRUserId => _signalRUser.Id;
+    public void RevokeSignalRUserSessions() => _signalRUser.RevokeSessions();
     public Mock<IChatService> SignalRChatService { get; } = CreateSignalRChatService();
 
     public void ExpireOAuthState(string state) =>

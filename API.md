@@ -47,7 +47,7 @@ Ví dụ lỗi để FrontEnd đọc `status`, `title`, `detail`:
 
 1. Gọi `POST /api/auth/login` và lưu token pair.
 2. Gửi access token bằng Bearer header. Khi API trả `401`, gọi `POST /api/auth/refresh` một lần rồi retry request cũ.
-3. Access token chứa claim user ID, email và role. Hiện chưa có endpoint `/me`; FrontEnd có thể đọc claim user ID rồi gọi `GET /api/users/{userId}/profile`.
+3. Access token chứa claim user ID, email, role và `auth_version`. Mỗi request xác thực đối chiếu trạng thái, role và version với user trong PostgreSQL. Hiện chưa có endpoint `/me`; FrontEnd có thể đọc claim user ID rồi gọi `GET /api/users/{userId}/profile`.
 4. Dùng `role` để chọn màn hình; backend vẫn là nguồn quyết định cuối cùng cho các thao tác nghiệp vụ.
 
 ## Authentication
@@ -77,7 +77,7 @@ Ví dụ lỗi để FrontEnd đọc `status`, `title`, `detail`:
 Client gửi token ở các request cần đăng nhập:
 `Authorization: Bearer <accessToken>`.
 
-Flow: Controller → tìm user theo email → verify password hash → kiểm tra `AccountStatus.Active` → tạo JWT chứa `NameIdentifier`, `Email`, `Role` → trả access token.
+Flow: Controller → tìm user theo email → verify password hash → kiểm tra `AccountStatus.Active` → tạo JWT chứa `NameIdentifier`, `Email`, `Role`, `auth_version` → trả access token.
 
 ### `POST /api/auth/refresh`
 
@@ -99,7 +99,7 @@ Flow: Controller → tìm user theo email → verify password hash → kiểm tr
   "refreshTokenExpiresAt": "2026-10-04T12:00:00Z"
 }
 ```
-Refresh token cũ bị xoá ngay khi dùng (rotation), hash được lưu Redis TTL 30 ngày. Nếu request lỗi do downstream tạm thời sau khi consume, token cũ được phục hồi trong một phút để retry; lỗi xác thực hoặc trạng thái account hợp lệ không phục hồi token.
+Refresh token cũ bị xoá ngay khi dùng (rotation), hash được lưu Redis TTL 30 ngày. Session giữ `AuthVersion` lúc phát hành và phải khớp `users.auth_version` trong PostgreSQL. Nếu request lỗi do downstream tạm thời sau khi consume, token cũ được phục hồi trong một phút để retry; lỗi xác thực hoặc trạng thái account hợp lệ không phục hồi token.
 
 ### `POST /api/auth/register`
 
@@ -220,7 +220,7 @@ Nếu SMTP lỗi, reset code và cooldown vừa tạo được xóa để reques
 ```
 
 Reset code dùng namespace Redis riêng `auth:password-reset:*`, TTL 15 phút và tối đa 5 lần thử.
-Nếu cập nhật mật khẩu trong PostgreSQL thất bại, backend khôi phục password hash cũ và reset code để client có thể thử lại.
+Password hash mới và `AuthVersion` tăng được commit atomic trong PostgreSQL. Sau khi thành công, mọi access/refresh token mang version cũ bị từ chối. Nếu cập nhật PostgreSQL thất bại, backend khôi phục password hash/version cũ và reset code để client có thể thử lại; lỗi dọn attempts/cooldown sau commit không làm response reset thành lỗi.
 
 ### `GET /api/auth/oauth/Google/authorize`
 
@@ -382,6 +382,8 @@ Teacher đang sở hữu course hoặc question bank không thể đổi sang ro
 **Response `200 OK`:** User profile object.
 
 Admin active cuối cùng không thể tự chuyển sang `Inactive`, `Disabled` hoặc `Banned`. Việc kiểm tra chạy trong transaction serializable.
+
+Đổi role hoặc status thành công tăng `AuthVersion` trong cùng transaction và thu hồi access/refresh token đã phát hành trước đó.
 
 Teacher đang sở hữu course hoặc question bank không thể bị chuyển khỏi trạng thái `Active`; phải chuyển quyền sở hữu tài nguyên trước.
 

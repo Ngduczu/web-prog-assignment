@@ -1,5 +1,4 @@
 using LMS.Api.application.abstractions.auth;
-using LMS.Api.application.abstractions.caching;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.features.users;
 using LMS.Api.domain.Entities.Users;
@@ -59,10 +58,7 @@ public class UserApplicationTests
         Assert.Equal(Role.Student, result.Role);
         fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
             It.IsAny<CancellationToken>()), Times.Once);
-        fixture.Cache.Verify(cache => cache.IncrementAsync(
-            $"auth:version:{actor.Id:N}",
-            It.IsAny<TimeSpan>(),
-            It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(2, actor.AuthVersion);
     }
 
     [Fact]
@@ -108,7 +104,6 @@ public class UserApplicationTests
             Mock.Of<IPasswordHasher>(),
             unitOfWork.Object,
             currentUser.Object,
-            Mock.Of<ICache>(),
             courses.Object,
             Mock.Of<IQuestionBankRepository>());
 
@@ -182,28 +177,14 @@ public class UserApplicationTests
         unitOfWork.Setup(unit => unit.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(1);
 
-        var cache = new Mock<ICache>();
-        cache.Setup(item => item.SetIfNotExistsAsync(
-                It.IsAny<string>(),
-                It.IsAny<long>(),
-                It.IsAny<TimeSpan>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-        cache.Setup(item => item.IncrementAsync(
-                It.IsAny<string>(),
-                It.IsAny<TimeSpan>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(2);
-
         var service = new UserService(
             users.Object,
             Mock.Of<IPasswordHasher>(),
             unitOfWork.Object,
             currentUser.Object,
-            cache.Object,
             Mock.Of<ICourseRepository>(),
             Mock.Of<IQuestionBankRepository>());
-        return new Fixture(service, users, unitOfWork, cache);
+        return new Fixture(service, users, unitOfWork);
     }
 
     private static User CreateAdmin() => new(
@@ -217,6 +198,5 @@ public class UserApplicationTests
     private sealed record Fixture(
         UserService Service,
         Mock<IUserManagementRepository> Users,
-        Mock<IUnitOfWork> UnitOfWork,
-        Mock<ICache> Cache);
+        Mock<IUnitOfWork> UnitOfWork);
 }

@@ -27,7 +27,7 @@ public sealed class AuthenticationApplicationTests
         Assert.False(string.IsNullOrWhiteSpace(result.AccessToken));
         Assert.False(string.IsNullOrWhiteSpace(result.RefreshToken));
         Assert.Equal(TimeSpan.FromDays(30), fixture.Cache.GetExpiry(fixture.Cache.LastRefreshKey));
-        Assert.Equal(1L, fixture.Cache.GetValue<long>(fixture.Cache.VersionKey));
+        Assert.EndsWith("-Student-1", result.AccessToken, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -39,6 +39,18 @@ public sealed class AuthenticationApplicationTests
         var refreshed = await fixture.Service.RefreshAsync(new RefreshTokenRequest(login.RefreshToken));
 
         Assert.NotEqual(login.RefreshToken, refreshed.RefreshToken);
+        await Assert.ThrowsAsync<UnauthorizeException>(() =>
+            fixture.Service.RefreshAsync(new RefreshTokenRequest(login.RefreshToken)));
+    }
+
+    [Fact]
+    public async Task RefreshTokenIsRejectedAfterPersistentAuthVersionChanges()
+    {
+        var fixture = CreateFixture(AccountStatus.Active);
+        var login = await fixture.Service.LoginAsync(new LoginRequest("user@example.com", "password123"));
+        var user = Assert.Single(fixture.Users.Users);
+        user.RevokeSessions();
+
         await Assert.ThrowsAsync<UnauthorizeException>(() =>
             fixture.Service.RefreshAsync(new RefreshTokenRequest(login.RefreshToken)));
     }
@@ -429,8 +441,6 @@ public sealed class AuthenticationApplicationTests
 
         public string LastRefreshKey { get; private set; } = string.Empty;
         public string LastOAuthLoginCodeKey { get; private set; } = string.Empty;
-        public string VersionKey => _values.Keys.Single(key => key.StartsWith("auth:version:", StringComparison.Ordinal));
-
         public Task<T?> GetAsync<T>(string key, CancellationToken cancellationToken = default)
         {
             lock (_sync)

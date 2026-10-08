@@ -2,7 +2,7 @@
 
 Ngày rà soát: `2026-10-06`
 
-> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 và RR-01 đã hoàn thành**. Lần rà soát bổ sung còn **5 finding RR-02..RR-06 chưa sửa**, được ghi ở mục 7 để xử lý tuần tự. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
+> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 và RR-01..RR-02 đã hoàn thành**. Lần rà soát bổ sung còn **4 finding RR-03..RR-06 chưa sửa**, được ghi ở mục 7 để xử lý tuần tự. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 ## 1. Phạm vi và phương pháp
 
@@ -241,7 +241,7 @@ Trạng thái xác minh tại thời điểm ghi nhận:
 | Mã | Mức | Nhóm | Trạng thái | Tóm tắt |
 |---|---|---|---|---|
 | RR-01 | High | Submission | Hoàn thành | Dùng `xmin` và transaction serializable; upload lỗi cạnh tranh dọn file mới |
-| RR-02 | High | Auth | Chưa sửa | Reset password có thể commit nhưng không thu hồi session cũ |
+| RR-02 | High | Auth | Hoàn thành | Password và auth version cùng commit trong PostgreSQL; token cũ bị từ chối |
 | RR-03 | Medium | OAuth | Chưa sửa | Khôi phục state không làm authorization code đã redeem dùng lại được |
 | RR-04 | Medium | File | Chưa sửa | Cleanup lỗi có thể che exception gốc; enqueue chưa atomic |
 | RR-05 | Medium | Registration | Chưa sửa | Retry qua endpoint register bỏ qua cooldown resend |
@@ -264,6 +264,8 @@ Các lịch thực thi có thể xảy ra:
 **Hướng sửa:** thêm PostgreSQL row-version (`xmin`) cho `Submission`, bao toàn bộ transition bằng transaction phù hợp và chuyển concurrency conflict thành `409`. Với upload, sau khi lưu object phải kiểm tra/ghi metadata có điều kiện theo version; nếu conflict thì enqueue object mới để cleanup. Thêm integration test thật cho upload-vs-submit và grade-vs-unsubmit.
 
 ### RR-02 — Reset password và thu hồi session không atomic
+
+**Trạng thái: Đã sửa ngày `2026-10-08`.** Chi tiết triển khai và xác minh nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 `PasswordResetService.ResetAsync` consume reset code, lưu password hash mới vào PostgreSQL, rồi mới khởi tạo/tăng `auth:version` trong Redis. Khối phục hồi hiện chỉ bao quanh `SaveChangesAsync`; lỗi Redis xảy ra sau khi DB commit không khôi phục code và không thể rollback password.
 

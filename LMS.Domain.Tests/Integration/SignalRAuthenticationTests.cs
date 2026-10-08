@@ -103,6 +103,21 @@ public sealed class SignalRAuthenticationTests : IClassFixture<ApiWebApplication
     }
 
     [Fact]
+    public async Task PersistentAuthVersionRevokesExistingAccessToken()
+    {
+        using var factory = new ApiWebApplicationFactory { UseRealJwtAuthentication = true };
+        using var client = factory.CreateClient();
+        var token = factory.Services.GetRequiredService<ITokenProvider>()
+            .CreateAccessToken(factory.SignalRUserId, "signalr@example.com", "Student", 1)
+            .Token;
+        factory.RevokeSignalRUserSessions();
+
+        using var response = await NegotiateAsync(client, token);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
     public async Task AuthenticatedClientCanConnectReconnectAndInvokeProtectedHubMethod()
     {
         using var factory = new ApiWebApplicationFactory { UseRealJwtAuthentication = true };

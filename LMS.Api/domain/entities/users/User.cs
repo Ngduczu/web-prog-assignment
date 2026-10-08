@@ -9,6 +9,7 @@ public class User
     public string FullName { get; private set; } = null!;
     public string? Phone { get; private set; }
     public string? PasswordHash { get; private set;  }
+    public long AuthVersion { get; private set; }
     public Role Role { get; private set; }
     public AccountStatus Status  { get; private set; }
     public string? AvatarUrl { get; private set; }
@@ -43,6 +44,7 @@ public class User
         Email = email;
         Phone = phone;
         PasswordHash = passwordHash;
+        AuthVersion = 1;
         Role = role;
         Status = status;
         
@@ -67,6 +69,26 @@ public class User
     public void SetPasswordHash(string passwordHash)
     {
         PasswordHash = passwordHash;
+        Touch();
+    }
+
+    public void RevokeSessions()
+    {
+        checked
+        {
+            AuthVersion++;
+        }
+
+        Touch();
+    }
+
+    public void RestorePasswordSecurityState(string passwordHash, long authVersion)
+    {
+        if (authVersion < 1)
+            throw new ArgumentOutOfRangeException(nameof(authVersion));
+
+        PasswordHash = passwordHash;
+        AuthVersion = authVersion;
         Touch();
     }
 

@@ -10,14 +10,14 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 1 |
+| Hoàn thành | 2 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 5 |
+| Chưa thực hiện | 4 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
 | RR-01 | Hoàn thành | Submission dùng PostgreSQL `xmin`; upload/submit/unsubmit/grade chạy trong transaction serializable |
-| RR-02 | Chưa thực hiện | Reset password có thể commit nhưng không thu hồi session cũ |
+| RR-02 | Hoàn thành | `AuthVersion` lưu trong PostgreSQL và tăng atomic cùng password/status/role |
 | RR-03 | Chưa thực hiện | OAuth callback chưa resumable sau khi provider redeem code |
 | RR-04 | Chưa thực hiện | Cleanup có thể che exception gốc; enqueue chưa atomic |
 | RR-05 | Chưa thực hiện | Register retry bỏ qua cooldown verification |
@@ -31,6 +31,17 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Mọi lần thay attachment đều cập nhật submission parent để hai upload và upload-vs-submit cùng tham gia optimistic concurrency.
 - Thêm migration `AddSubmissionConcurrencyToken`, test mô phỏng upload-vs-submit và grade-vs-unsubmit, cùng test metadata xác nhận `Version` ánh xạ vào `xmin`.
 - Xác minh: **199 passed, 0 failed, 0 skipped**; migration đã áp dụng lên PostgreSQL local; EF báo **không có model change chưa tạo migration**.
+
+### RR-02 — Đổi mật khẩu và thu hồi session atomic
+
+- Chuyển nguồn sự thật `AuthVersion` từ Redis sang cột bền vững `users.auth_version`, mặc định `1` và là EF concurrency token.
+- Reset password thay password hash và tăng `AuthVersion` trong cùng một lần `SaveChanges`; PostgreSQL hoặc commit cả hai hoặc không commit thay đổi nào.
+- Nếu DB save thất bại, service phục hồi password/version trong entity và phát lại reset entry để cùng code có thể retry.
+- Login phát token theo version của user trong DB; refresh token và JWT validation đều tải user rồi đối chiếu version bền vững, nên access/refresh token cũ bị từ chối ngay sau reset.
+- Đổi role/status qua Admin cũng tăng version trong cùng transaction thay vì commit DB xong mới phụ thuộc Redis.
+- Cleanup attempts/cooldown sau commit là best-effort và không thể đổi một reset đã commit thành response lỗi.
+- Thêm migration `PersistUserAuthVersion` và test cho DB rollback, Redis cleanup failure, refresh-token revocation, access-token revocation cùng metadata concurrency.
+- Xác minh: **203 passed, 0 failed, 0 skipped**; migration đã áp dụng lên PostgreSQL local; EF báo **không có model change chưa tạo migration**.
 
 ## Tiến độ tái rà soát
 

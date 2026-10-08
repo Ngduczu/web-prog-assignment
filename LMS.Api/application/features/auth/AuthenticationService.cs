@@ -25,7 +25,6 @@ public sealed class AuthenticationService : IAuthenticationService
     private static readonly TimeSpan RefreshLifetime = TimeSpan.FromDays(30);
     private static readonly TimeSpan OAuthLoginCodeLifetime = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan CredentialRecoveryLifetime = TimeSpan.FromMinutes(1);
-    private static string AuthVersionKey(Guid userId) => $"auth:version:{userId:N}";
     public AuthenticationService(IUserRepository users, IPasswordHasher hasher, ITokenProvider tokens, ICache cache, IClock clock, OAuthResolver oauthResolver, IUnitOfWork unitOfWork) { _users = users; _hasher = hasher; _tokens = tokens; _cache = cache; _clock = clock; _oauthResolver = oauthResolver; _unitOfWork = unitOfWork; }
     public async Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
@@ -37,7 +36,7 @@ public sealed class AuthenticationService : IAuthenticationService
             throw new UnauthorizeException("Invalid email or password.");
         if (user.Status != AccountStatus.Active)
             throw new UnauthorizeException("Account is not active.");
-        return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
+        return await IssueTokensAsync(user, cancellationToken);
     }
 
     public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, CancellationToken cancellationToken = default)
@@ -48,11 +47,10 @@ public sealed class AuthenticationService : IAuthenticationService
         var session = await _cache.ConsumeAsync<RefreshSession>(key, cancellationToken) ?? throw new UnauthorizeException("Refresh token is invalid or expired.");
         try
         {
-            var currentVersion = await _cache.GetAsync<long?>($"auth:version:{session.UserId:N}", cancellationToken) ?? 1;
-            if (session.AuthVersion != currentVersion) throw new UnauthorizeException("Refresh token is invalid or expired.");
             var user = await _users.GetByIdAsync(session.UserId, cancellationToken) ?? throw new UnauthorizeException("Refresh token is invalid or expired.");
+            if (session.AuthVersion != user.AuthVersion) throw new UnauthorizeException("Refresh token is invalid or expired.");
             if (user.Status != AccountStatus.Active) throw new UnauthorizeException("Account is not active.");
-            return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
+            return await IssueTokensAsync(user, cancellationToken);
         }
         catch (Exception exception) when (IsCredentialRestorableFailure(exception))
         {
@@ -125,7 +123,7 @@ public sealed class AuthenticationService : IAuthenticationService
                 throw new UnauthorizeException("Account is not active.");
             }
 
-            return await IssueTokensAsync(user.Id, user.Email, user.Role.ToString(), cancellationToken);
+            return await IssueTokensAsync(user, cancellationToken);
         }
         catch (Exception exception) when (IsCredentialRestorableFailure(exception))
         {
@@ -232,14 +230,20 @@ public sealed class AuthenticationService : IAuthenticationService
         return value.Length <= 100 ? value : value[..100];
     }
 
-    private async Task<LoginResponse> IssueTokensAsync(Guid userId, string email, string role, CancellationToken cancellationToken)
+    private async Task<LoginResponse> IssueTokensAsync(User user, CancellationToken cancellationToken)
     {
-        var version = await _cache.GetAsync<long?>(AuthVersionKey(userId), cancellationToken) ?? 1;
-        await _cache.SetIfNotExistsAsync(AuthVersionKey(userId), version, TimeSpan.FromDays(365), cancellationToken);
-        var access = _tokens.CreateAccessToken(userId, email, role, version);
+        var access = _tokens.CreateAccessToken(
+            user.Id,
+            user.Email,
+            user.Role.ToString(),
+            user.AuthVersion);
         var refresh = _tokens.CreateRefreshToken();
         var refreshExpires = _clock.UtcNow.Add(RefreshLifetime);
-        await _cache.SetAsync($"auth:refresh:{HashRefreshToken(refresh)}", new RefreshSession(userId, version), RefreshLifetime, cancellationToken);
+        await _cache.SetAsync(
+            $"auth:refresh:{HashRefreshToken(refresh)}",
+            new RefreshSession(user.Id, user.AuthVersion),
+            RefreshLifetime,
+            cancellationToken);
         return new LoginResponse(access.Token, access.ExpiresAt, refresh, refreshExpires);
     }
 

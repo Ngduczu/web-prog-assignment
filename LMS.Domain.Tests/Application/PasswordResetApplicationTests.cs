@@ -67,9 +67,29 @@ public sealed class PasswordResetApplicationTests
             new ResetPasswordRequest("user@example.com", code, "new-password123", "new-password123")));
 
         Assert.Equal("hash:password123", fixture.User.PasswordHash);
+        Assert.Equal(1, fixture.User.AuthVersion);
         await fixture.Service.ResetAsync(new ResetPasswordRequest(
             "user@example.com", code, "new-password123", "new-password123"));
         Assert.Equal("hash:new-password123", fixture.User.PasswordHash);
+        Assert.Equal(2, fixture.User.AuthVersion);
+    }
+
+    [Fact]
+    public async Task CacheCleanupFailureAfterCommitDoesNotChangeSuccessfulResetResult()
+    {
+        var fixture = CreateFixture();
+        await fixture.Service.RequestAsync(new ForgotPasswordRequest("user@example.com"));
+        fixture.Cache.FailRemovals = true;
+
+        var result = await fixture.Service.ResetAsync(new ResetPasswordRequest(
+            "user@example.com",
+            fixture.Mail.LastCode,
+            "new-password123",
+            "new-password123"));
+
+        Assert.Equal(fixture.User.Id, result.UserId);
+        Assert.Equal("hash:new-password123", fixture.User.PasswordHash);
+        Assert.Equal(2, fixture.User.AuthVersion);
     }
 
     [Fact]
@@ -206,6 +226,7 @@ public sealed class PasswordResetApplicationTests
     {
         private readonly object _sync = new();
         private readonly Dictionary<string, object> _values = [];
+        public bool FailRemovals { get; set; }
 
         public Task<T?> GetAsync<T>(string key, CancellationToken cancellationToken = default)
         {
@@ -268,6 +289,11 @@ public sealed class PasswordResetApplicationTests
         {
             lock (_sync)
             {
+                if (FailRemovals)
+                {
+                    throw new InvalidOperationException("Redis cleanup failure");
+                }
+
                 _values.Remove(key);
             }
 

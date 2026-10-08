@@ -105,6 +105,22 @@ public class AppDbContextModelTests
         Assert.Equal("xmin", version.GetColumnName());
     }
 
+    [Fact]
+    public void UserAuthVersionIsPersistentAndConcurrencyProtected()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=lms_model_test;Username=lms;Password=lms")
+            .Options;
+
+        using var context = new AppDbContext(options);
+        var authVersion = context.Model.FindEntityType(typeof(User))?.FindProperty(nameof(User.AuthVersion));
+
+        Assert.NotNull(authVersion);
+        Assert.True(authVersion.IsConcurrencyToken);
+        Assert.Equal("auth_version", authVersion.GetColumnName());
+        Assert.Equal(1L, authVersion.GetDefaultValue());
+    }
+
     [Theory]
     [InlineData(PostgresErrorCodes.SerializationFailure, true)]
     [InlineData(PostgresErrorCodes.DeadlockDetected, true)]

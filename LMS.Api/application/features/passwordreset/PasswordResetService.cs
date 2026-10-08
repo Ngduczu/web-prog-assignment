@@ -59,22 +59,33 @@ public sealed class PasswordResetService : IPasswordResetService
         if (entry.UserId != user.Id || entry.Email != user.Email || !_hasher.Verify(request.ResetCode.Trim().ToUpperInvariant(), entry.CodeHash)) throw new BadRequestException("Reset code is invalid or expired.");
         if (await _cache.ConsumeAsync<ResetEntry>(Key(user.Id), cancellationToken) is null) throw new ConflictException("Reset code has already been used. Request a new code.");
         var oldPasswordHash = user.PasswordHash;
+        var oldAuthVersion = user.AuthVersion;
         user.SetPasswordHash(_hasher.Hash(request.NewPassword));
+        user.RevokeSessions();
         try
         {
             await _uow.SaveChangesAsync(cancellationToken);
         }
         catch
         {
-            user.SetPasswordHash(oldPasswordHash);
+            user.RestorePasswordSecurityState(oldPasswordHash, oldAuthVersion);
             await _cache.SetAsync(Key(user.Id), entry, Ttl, CancellationToken.None);
             throw;
         }
-        await _cache.SetIfNotExistsAsync($"auth:version:{user.Id:N}", 1L, TimeSpan.FromDays(365), cancellationToken);
-        await _cache.IncrementAsync($"auth:version:{user.Id:N}", TimeSpan.FromDays(365), cancellationToken);
-        await _cache.RemoveAsync(AttemptsKey(user.Id), cancellationToken);
-        await _cache.RemoveAsync(CooldownKey(user.Id), cancellationToken);
+        await TryRemoveAsync(AttemptsKey(user.Id));
+        await TryRemoveAsync(CooldownKey(user.Id));
         return new PasswordResetResultDto(user.Id, user.Email, user.Status, _clock.UtcNow);
+    }
+    private async Task TryRemoveAsync(string key)
+    {
+        try
+        {
+            await _cache.RemoveAsync(key, CancellationToken.None);
+        }
+        catch
+        {
+            // Password and session revocation are already committed atomically in PostgreSQL.
+        }
     }
     private static string GenerateCode() { Span<char> chars = stackalloc char[6]; for (var i = 0; i < chars.Length; i++) chars[i] = Alphabet[RandomNumberGenerator.GetInt32(Alphabet.Length)]; return new string(chars); }
     private static string NormalizeEmail(string email) { var value = email?.Trim().ToLowerInvariant(); if (string.IsNullOrWhiteSpace(value) || !MailAddress.TryCreate(value, out var address) || address.Address != value) throw new BadRequestException("Email address is invalid."); return value; }
