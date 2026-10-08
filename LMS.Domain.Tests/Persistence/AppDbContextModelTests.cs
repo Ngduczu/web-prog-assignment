@@ -90,6 +90,21 @@ public class AppDbContextModelTests
         Assert.Contains("CREATE TABLE chat_messages", script);
     }
 
+    [Fact]
+    public void SubmissionUsesPostgresRowVersionForOptimisticConcurrency()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=lms_model_test;Username=lms;Password=lms")
+            .Options;
+
+        using var context = new AppDbContext(options);
+        var version = context.Model.FindEntityType(typeof(Submission))?.FindProperty("Version");
+
+        Assert.NotNull(version);
+        Assert.True(version.IsConcurrencyToken);
+        Assert.Equal("xmin", version.GetColumnName());
+    }
+
     [Theory]
     [InlineData(PostgresErrorCodes.SerializationFailure, true)]
     [InlineData(PostgresErrorCodes.DeadlockDetected, true)]

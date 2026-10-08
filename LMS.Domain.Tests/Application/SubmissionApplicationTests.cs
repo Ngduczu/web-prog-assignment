@@ -83,6 +83,59 @@ public sealed class SubmissionApplicationTests
         Assert.Equal(attachment.ObjectKey, fixture.Storage.LastOpenedObjectKey);
     }
 
+    [Fact]
+    public async Task UploadRejectsAndCleansNewFileWhenSubmissionIsSubmittedConcurrently()
+    {
+        var fixture = CreateFixture(Role.Student);
+        var submission = new Submission(fixture.Exercise.Id, fixture.Student.Id);
+        var attachment = new SubmissionAttachment(
+            submission.Id,
+            "old.pdf",
+            "submissions/old.pdf",
+            "application/pdf",
+            3);
+        typeof(Submission).GetProperty(nameof(Submission.Attachment))!.SetValue(submission, attachment);
+        fixture.Submissions.Items.Add(submission);
+        fixture.Transaction.BeforeExecute = submission.Submit;
+
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.UploadAsync(
+            fixture.Exercise.Id,
+            new FileUpload("new.pdf", "application/pdf", 3, new MemoryStream([1, 2, 3]))));
+
+        Assert.Equal(SubmissionStatus.Submitted, submission.Status);
+        Assert.Equal("stored/file", fixture.Storage.LastDeletedObjectKey);
+    }
+
+    [Fact]
+    public async Task FirstUploadReturnsPersistedAttachment()
+    {
+        var fixture = CreateFixture(Role.Student);
+
+        var result = await fixture.Service.UploadAsync(
+            fixture.Exercise.Id,
+            new FileUpload("answer.pdf", "application/pdf", 3, new MemoryStream([1, 2, 3])));
+
+        Assert.Equal(SubmissionStatus.Draft, result.Status);
+        Assert.NotNull(result.Attachment);
+        Assert.Equal("stored/file", result.Attachment.ObjectKey);
+    }
+
+    [Fact]
+    public async Task GradeRechecksStatusInsideSerializableTransaction()
+    {
+        var fixture = CreateFixture(Role.Teacher);
+        var submission = CreateSubmitted(fixture.Exercise.Id, fixture.Student.Id);
+        fixture.Submissions.Items.Add(submission);
+        fixture.Transaction.BeforeExecute = submission.Unsubmit;
+
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.GradeAsync(
+            submission.Id,
+            new GradeSubmissionRequest(9m, null)));
+
+        Assert.Equal(SubmissionStatus.Draft, submission.Status);
+        Assert.Null(submission.Grade);
+    }
+
     private static Submission CreateSubmitted(Guid exerciseId, Guid studentId)
     {
         var submission = new Submission(exerciseId, studentId);
@@ -96,17 +149,18 @@ public sealed class SubmissionApplicationTests
         var student = CreateUser(Role.Student);
         var actor = actorRole == Role.Teacher ? teacher : student;
         var course = new Course("Course", null, teacher.Id, 30, CourseStatus.Open, teacher.Id);
+        var clock = new FakeClock(new DateTime(2030, 1, 1, 10, 0, 0, DateTimeKind.Utc));
         var exercise = new Exercise(
             course.Id,
             "Exercise",
             null,
-            DateTime.UtcNow.AddDays(1),
+            clock.UtcNow.AddDays(1),
             teacher.Id,
             ExerciseStatus.Published);
         var enrollment = new Enrollment(student.Id, course.Id, EnrollmentStatus.Accepted);
         var submissions = new FakeSubmissionRepository();
         var storage = new FakeFileStorage();
-        var clock = new FakeClock(new DateTime(2030, 1, 1, 10, 0, 0, DateTimeKind.Utc));
+        var transaction = new FakeTransactionManager();
         var service = new SubmissionService(
             submissions,
             new FakeExerciseRepository(exercise),
@@ -115,8 +169,9 @@ public sealed class SubmissionApplicationTests
             storage,
             new FakeUnitOfWork(),
             new FakeCurrentUser(actor),
-            clock);
-        return new Fixture(service, submissions, storage, teacher, student, exercise, clock);
+            clock,
+            transaction);
+        return new Fixture(service, submissions, storage, teacher, student, exercise, clock, transaction);
     }
 
     private static User CreateUser(Role role) => new(
@@ -134,7 +189,8 @@ public sealed class SubmissionApplicationTests
         User Teacher,
         User Student,
         Exercise Exercise,
-        FakeClock Clock);
+        FakeClock Clock,
+        FakeTransactionManager Transaction);
 
     private sealed class FakeSubmissionRepository : ISubmissionRepository
     {
@@ -197,6 +253,7 @@ public sealed class SubmissionApplicationTests
     private sealed class FakeFileStorage : IFileStorage
     {
         public string? LastOpenedObjectKey { get; private set; }
+        public string? LastDeletedObjectKey { get; private set; }
         public Task<Stream> OpenReadAsync(string objectKey, CancellationToken cancellationToken = default)
         {
             LastOpenedObjectKey = objectKey;
@@ -204,7 +261,11 @@ public sealed class SubmissionApplicationTests
         }
         public Task<StoredFile> UploadAsync(FileUpload upload, string directory, long? maximumSizeBytes = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(new StoredFile(upload.FileName, "stored/file", upload.ContentType, upload.Length));
-        public Task DeleteIfExistsAsync(string objectKey, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteIfExistsAsync(string objectKey, CancellationToken cancellationToken = default)
+        {
+            LastDeletedObjectKey = objectKey;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeCurrentUser(User user) : ICurrentUser
@@ -217,6 +278,18 @@ public sealed class SubmissionApplicationTests
     private sealed class FakeUnitOfWork : IUnitOfWork
     {
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+    }
+
+    private sealed class FakeTransactionManager : ITransactionManager
+    {
+        public Action? BeforeExecute { get; set; }
+
+        public Task ExecuteAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken = default)
+        {
+            BeforeExecute?.Invoke();
+            BeforeExecute = null;
+            return action(cancellationToken);
+        }
     }
 
     private sealed class FakeClock(DateTime utcNow) : IClock

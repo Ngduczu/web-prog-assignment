@@ -1,10 +1,36 @@
 # Tiến độ sửa lỗi nghiệp vụ LMS
 
-Cập nhật gần nhất: `2026-10-06`
+Cập nhật gần nhất: `2026-10-08`
 
 Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
-> Bảng 18/18 bên dưới phản ánh audit đầu tiên. Toàn bộ 15/15 finding của lần tái rà soát trong `BUSINESS-FUNCTIONAL-REAUDIT.md` cũng đã được xử lý và ghi lịch sử ở phần đầu file này.
+> Bảng 18/18 bên dưới phản ánh audit đầu tiên. Toàn bộ 15/15 finding RF của lần tái rà soát đã hoàn thành; backlog rà soát bổ sung RR đang được xử lý tuần tự.
+
+## Tiến độ rà soát bổ sung
+
+| Trạng thái | Số lượng |
+|---|---:|
+| Hoàn thành | 1 |
+| Đang thực hiện | 0 |
+| Chưa thực hiện | 5 |
+
+| Mã | Trạng thái | Ghi chú |
+|---|---|---|
+| RR-01 | Hoàn thành | Submission dùng PostgreSQL `xmin`; upload/submit/unsubmit/grade chạy trong transaction serializable |
+| RR-02 | Chưa thực hiện | Reset password có thể commit nhưng không thu hồi session cũ |
+| RR-03 | Chưa thực hiện | OAuth callback chưa resumable sau khi provider redeem code |
+| RR-04 | Chưa thực hiện | Cleanup có thể che exception gốc; enqueue chưa atomic |
+| RR-05 | Chưa thực hiện | Register retry bỏ qua cooldown verification |
+| RR-06 | Chưa thực hiện | Retry tạo multiple-choice dùng lại aggregate đã mutate |
+
+### RR-01 — Bảo vệ vòng đời submission khi request đồng thời
+
+- Thêm PostgreSQL row-version `xmin` cho `Submission`; stale write được `AppDbContext` chuyển thành `409 Conflict`.
+- Bao upload, submit, unsubmit và grade trong transaction `Serializable`; mỗi lần transaction retry đều nạp lại submission và kiểm tra trạng thái mới nhất.
+- Upload file trước rồi mới transition metadata trong transaction. Nếu submission đã được submit hoặc transaction thất bại, file vừa upload được đưa vào cleanup; object key cũ chỉ được cleanup cùng thay đổi metadata thành công.
+- Mọi lần thay attachment đều cập nhật submission parent để hai upload và upload-vs-submit cùng tham gia optimistic concurrency.
+- Thêm migration `AddSubmissionConcurrencyToken`, test mô phỏng upload-vs-submit và grade-vs-unsubmit, cùng test metadata xác nhận `Version` ánh xạ vào `xmin`.
+- Xác minh: **199 passed, 0 failed, 0 skipped**; migration đã áp dụng lên PostgreSQL local; EF báo **không có model change chưa tạo migration**.
 
 ## Tiến độ tái rà soát
 

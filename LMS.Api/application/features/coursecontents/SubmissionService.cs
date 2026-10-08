@@ -22,6 +22,7 @@ public sealed class SubmissionService : ISubmissionService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
     private readonly IClock _clock;
+    private readonly ITransactionManager _transactionManager;
     private readonly IFileCleanupQueue? _fileCleanup;
 
     public SubmissionService(
@@ -33,6 +34,7 @@ public sealed class SubmissionService : ISubmissionService
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
         IClock clock,
+        ITransactionManager transactionManager,
         IFileCleanupQueue? fileCleanup = null)
     {
         _submissions = submissions;
@@ -43,6 +45,7 @@ public sealed class SubmissionService : ISubmissionService
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
         _clock = clock;
+        _transactionManager = transactionManager;
         _fileCleanup = fileCleanup;
     }
 
@@ -67,57 +70,68 @@ public sealed class SubmissionService : ISubmissionService
             throw new ConflictException("The exercise deadline has passed.");
         }
 
-        var submission = await _submissions.GetByExerciseAndStudentAsync(
-            exerciseId,
-            studentId,
-            true,
-            cancellationToken);
-
-        if (submission is not null && submission.Status != SubmissionStatus.Draft)
-        {
-            throw new ConflictException("Only draft work can have its file replaced.");
-        }
-
-        var isNewSubmission = submission is null;
-        submission ??= new Submission(exerciseId, studentId);
         var storedFile = await _fileStorage.UploadAsync(
             upload,
-            $"courses/{exercise.CourseId:N}/submissions/{submission.Id:N}",
+            $"courses/{exercise.CourseId:N}/submissions/{studentId:N}",
             FileUploadPolicy.MaximumCourseFileSizeBytes,
             cancellationToken: cancellationToken);
-        var oldObjectKey = submission.Attachment?.ObjectKey;
+        string? oldObjectKey = null;
+        SubmissionDto? result = null;
 
         try
         {
-            if (submission.Attachment is null)
+            await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
             {
-                if (isNewSubmission)
+                var submission = await _submissions.GetByExerciseAndStudentAsync(
+                    exerciseId,
+                    studentId,
+                    true,
+                    transactionCancellationToken);
+                var isNewSubmission = submission is null;
+                submission ??= new Submission(exerciseId, studentId);
+
+                oldObjectKey = submission.Attachment?.ObjectKey;
+                try
                 {
-                    _submissions.Add(submission);
+                    if (submission.Attachment is null)
+                    {
+                        var attachment = new SubmissionAttachment(
+                            submission.Id,
+                            storedFile.FileName,
+                            storedFile.ObjectKey,
+                            storedFile.ContentType,
+                            storedFile.FileSize);
+                        submission.AddAttachment(attachment, _clock.UtcNow);
+                        if (isNewSubmission)
+                        {
+                            _submissions.Add(submission);
+                        }
+
+                        _submissions.AddAttachment(attachment);
+                    }
+                    else
+                    {
+                        submission.RecordAttachmentChange(_clock.UtcNow);
+                        submission.Attachment.SetFileMetadata(
+                            storedFile.FileName,
+                            storedFile.ObjectKey,
+                            storedFile.ContentType,
+                            storedFile.FileSize);
+                    }
+                }
+                catch (InvalidOperationException exception)
+                {
+                    throw new ConflictException(exception.Message);
                 }
 
-                _submissions.AddAttachment(new SubmissionAttachment(
-                    submission.Id,
-                    storedFile.FileName,
-                    storedFile.ObjectKey,
-                    storedFile.ContentType,
-                    storedFile.FileSize));
-            }
-            else
-            {
-                submission.Attachment.SetFileMetadata(
-                    storedFile.FileName,
-                    storedFile.ObjectKey,
-                    storedFile.ContentType,
-                    storedFile.FileSize);
-            }
+                if (oldObjectKey is not null && _fileCleanup is not null)
+                {
+                    _fileCleanup.Enqueue(oldObjectKey);
+                }
 
-            if (oldObjectKey is not null && _fileCleanup is not null)
-            {
-                _fileCleanup.Enqueue(oldObjectKey);
-            }
-
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+                result = Map(submission);
+            }, cancellationToken);
         }
         catch
         {
@@ -130,12 +144,7 @@ public sealed class SubmissionService : ISubmissionService
             await CleanupFileAsync(oldObjectKey);
         }
 
-        var refreshed = await _submissions.GetByExerciseAndStudentAsync(
-            exerciseId,
-            studentId,
-            true,
-            cancellationToken) ?? submission;
-        return Map(refreshed);
+        return result!;
     }
 
     private Task CleanupFileAsync(string objectKey)
@@ -238,26 +247,31 @@ public sealed class SubmissionService : ISubmissionService
             throw new BadRequestException("Grade must be between 0 and 10 and feedback cannot exceed 4000 characters.");
         }
 
-        var submission = await _submissions.GetByIdAsync(submissionId, true, cancellationToken)
-            ?? throw new NotFoundException("Submission was not found.");
-        var exercise = await GetExerciseAsync(submission.ExerciseId, cancellationToken);
-        var course = await GetCourseAsync(exercise.CourseId, cancellationToken);
-        var graderId = CourseAuthorization.EnsureCanManage(_currentUser, course);
-        try
+        SubmissionDto? result = null;
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
-            submission.GradeSubmission(
-                request.Grade,
-                string.IsNullOrWhiteSpace(request.Feedback) ? null : request.Feedback.Trim(),
-                graderId,
-                _clock.UtcNow);
-        }
-        catch (InvalidOperationException exception)
-        {
-            throw new ConflictException(exception.Message);
-        }
+            var submission = await _submissions.GetByIdAsync(submissionId, true, transactionCancellationToken)
+                ?? throw new NotFoundException("Submission was not found.");
+            var exercise = await GetExerciseAsync(submission.ExerciseId, transactionCancellationToken);
+            var course = await GetCourseAsync(exercise.CourseId, transactionCancellationToken);
+            var graderId = CourseAuthorization.EnsureCanManage(_currentUser, course);
+            try
+            {
+                submission.GradeSubmission(
+                    request.Grade,
+                    string.IsNullOrWhiteSpace(request.Feedback) ? null : request.Feedback.Trim(),
+                    graderId,
+                    _clock.UtcNow);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new ConflictException(exception.Message);
+            }
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(submission);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            result = Map(submission);
+        }, cancellationToken);
+        return result!;
     }
 
     private async Task<SubmissionDto> ChangeStatusAsync(
@@ -265,52 +279,57 @@ public sealed class SubmissionService : ISubmissionService
         bool submit,
         CancellationToken cancellationToken)
     {
-        ValidateId(submissionId, "Submission id");
-        var studentId = EnsureStudent();
-        var submission = await _submissions.GetByIdAsync(submissionId, true, cancellationToken)
-            ?? throw new NotFoundException("Submission was not found.");
+        SubmissionDto? result = null;
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
+        {
+            ValidateId(submissionId, "Submission id");
+            var studentId = EnsureStudent();
+            var submission = await _submissions.GetByIdAsync(submissionId, true, transactionCancellationToken)
+                ?? throw new NotFoundException("Submission was not found.");
 
-        if (submission.StudentId != studentId)
-        {
-            throw new ForbiddenException("Students can only manage their own submissions.");
-        }
-
-        var exercise = await GetExerciseAsync(submission.ExerciseId, cancellationToken);
-        if (exercise.Status != ExerciseStatus.Published)
-        {
-            throw new ConflictException("Submissions can only change while the exercise is published.");
-        }
-        if (exercise.DueAt is not null && exercise.DueAt <= _clock.UtcNow)
-        {
-            throw new ConflictException("The exercise deadline has passed.");
-        }
-
-        if (submit)
-        {
-            if (submission.Attachment is null)
+            if (submission.StudentId != studentId)
             {
-                throw new ConflictException("A file must be uploaded before submitting work.");
+                throw new ForbiddenException("Students can only manage their own submissions.");
             }
 
-            if (submission.Status != SubmissionStatus.Draft)
+            var exercise = await GetExerciseAsync(submission.ExerciseId, transactionCancellationToken);
+            if (exercise.Status != ExerciseStatus.Published)
             {
-                throw new ConflictException("Only draft submissions can be submitted.");
+                throw new ConflictException("Submissions can only change while the exercise is published.");
+            }
+            if (exercise.DueAt is not null && exercise.DueAt <= _clock.UtcNow)
+            {
+                throw new ConflictException("The exercise deadline has passed.");
             }
 
-            submission.Submit();
-        }
-        else
-        {
-            if (submission.Status != SubmissionStatus.Submitted)
+            if (submit)
             {
-                throw new ConflictException("Only submitted work can be unsubmitted.");
+                if (submission.Attachment is null)
+                {
+                    throw new ConflictException("A file must be uploaded before submitting work.");
+                }
+
+                if (submission.Status != SubmissionStatus.Draft)
+                {
+                    throw new ConflictException("Only draft submissions can be submitted.");
+                }
+
+                submission.Submit();
+            }
+            else
+            {
+                if (submission.Status != SubmissionStatus.Submitted)
+                {
+                    throw new ConflictException("Only submitted work can be unsubmitted.");
+                }
+
+                submission.Unsubmit();
             }
 
-            submission.Unsubmit();
-        }
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(submission);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            result = Map(submission);
+        }, cancellationToken);
+        return result!;
     }
 
     private Guid EnsureStudent()

@@ -2,7 +2,7 @@
 
 Ngày rà soát: `2026-10-06`
 
-> Trạng thái sửa lỗi ngày `2026-10-06`: **15/15 finding RF-01..RF-15 đã hoàn thành**. Lần rà soát bổ sung sau đó phát hiện **6 finding RR-01..RR-06 chưa sửa**, được ghi ở mục 7 để xử lý tuần tự về sau. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
+> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 và RR-01 đã hoàn thành**. Lần rà soát bổ sung còn **5 finding RR-02..RR-06 chưa sửa**, được ghi ở mục 7 để xử lý tuần tự. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 ## 1. Phạm vi và phương pháp
 
@@ -240,7 +240,7 @@ Trạng thái xác minh tại thời điểm ghi nhận:
 
 | Mã | Mức | Nhóm | Trạng thái | Tóm tắt |
 |---|---|---|---|---|
-| RR-01 | High | Submission | Chưa sửa | Upload/submit/unsubmit/grade đồng thời có thể phá vòng đời submission |
+| RR-01 | High | Submission | Hoàn thành | Dùng `xmin` và transaction serializable; upload lỗi cạnh tranh dọn file mới |
 | RR-02 | High | Auth | Chưa sửa | Reset password có thể commit nhưng không thu hồi session cũ |
 | RR-03 | Medium | OAuth | Chưa sửa | Khôi phục state không làm authorization code đã redeem dùng lại được |
 | RR-04 | Medium | File | Chưa sửa | Cleanup lỗi có thể che exception gốc; enqueue chưa atomic |
@@ -248,6 +248,8 @@ Trạng thái xác minh tại thời điểm ghi nhận:
 | RR-06 | Medium | Concurrency | Chưa sửa | Retry transaction tạo multiple-choice dùng lại aggregate đã mutate |
 
 ### RR-01 — Submission không bảo vệ transition đồng thời
+
+**Trạng thái: Đã sửa ngày `2026-10-08`.** Chi tiết triển khai và xác minh nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 `SubmissionService.UploadAsync` kiểm tra submission còn `Draft` trước khi upload file, nhưng không khóa record hoặc kiểm tra lại trạng thái khi ghi metadata. `SubmitAsync`, `UnsubmitAsync` và `GradeAsync` cũng là các read-check-write độc lập. Entity `Submission` không có row-version/concurrency token và các transition không chạy trong cùng transaction serializable.
 

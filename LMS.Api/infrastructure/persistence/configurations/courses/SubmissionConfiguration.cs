@@ -23,6 +23,7 @@ public class SubmissionConfiguration : IEntityTypeConfiguration<Submission>
         builder.Property(x => x.GradedById).HasColumnName("graded_by_id");
         builder.Property(x => x.CreatedAt).HasColumnName("created_at");
         builder.Property(x => x.ModifiedAt).HasColumnName("modified_at");
+        builder.Property<uint>("Version").IsRowVersion();
 
         builder.HasIndex(x => new { x.ExerciseId, x.StudentId }).IsUnique();
 

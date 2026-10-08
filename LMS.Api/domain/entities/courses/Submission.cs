@@ -81,4 +81,24 @@ public class Submission
         ModifiedAt = gradedAt;
     }
 
+    public void RecordAttachmentChange(DateTime modifiedAt)
+    {
+        if (Status != SubmissionStatus.Draft)
+            throw new InvalidOperationException("Only draft work can have its file replaced.");
+
+        ModifiedAt = modifiedAt;
+    }
+
+    public void AddAttachment(SubmissionAttachment attachment, DateTime modifiedAt)
+    {
+        ArgumentNullException.ThrowIfNull(attachment);
+        if (attachment.SubmissionId != Id)
+            throw new InvalidOperationException("The attachment does not belong to this submission.");
+        if (Attachment is not null)
+            throw new InvalidOperationException("The submission already has an attachment.");
+
+        RecordAttachmentChange(modifiedAt);
+        Attachment = attachment;
+    }
+
 }

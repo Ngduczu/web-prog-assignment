@@ -961,7 +961,7 @@ Exercise luôn được tạo ở trạng thái `Draft`; `dueAt` nếu có phả
 
 **Quyền:** Student có enrollment `Accepted`.
 
-**Request:** `multipart/form-data`, field bắt buộc là `file` nhỏ hơn 20 MB. Tạo submission `Draft` nếu chưa có; upload lại chỉ thay file của draft hiện tại. Không được upload sau `dueAt` hoặc khi submission không còn là `Draft`. **Response `200 OK`:** Submission object.
+**Request:** `multipart/form-data`, field bắt buộc là `file` nhỏ hơn 20 MB. Tạo submission `Draft` nếu chưa có; upload lại chỉ thay file của draft hiện tại. Không được upload sau `dueAt` hoặc khi submission không còn là `Draft`. Upload/submit đồng thời được tuần tự hóa; nếu trạng thái đã đổi hoặc row-version xung đột, API trả `409 Conflict` và file mới được đưa vào cleanup. **Response `200 OK`:** Submission object.
 
 ### `GET /api/exercises/{exerciseId}/my-submission`
 
@@ -994,6 +994,8 @@ Exercise luôn được tạo ở trạng thái `Draft`; `dueAt` nếu có phả
 **Request body:** Không có body. **Response `200 OK`:** Submission object với status `Draft` và `submittedAt: null`.
 
 Submission đã `Graded` không thể unsubmit hoặc thay file.
+
+Upload, submit, unsubmit và grade áp dụng transaction serializable cùng optimistic concurrency. Request thua trong xung đột đồng thời trả `409 Conflict`, không ghi đè trạng thái hoặc điểm của request đã hoàn tất.
 
 ### `PUT /api/submissions/{submissionId}/grade`
 
