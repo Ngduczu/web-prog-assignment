@@ -58,6 +58,38 @@ public class QuestionApplicationTests
     }
 
     [Fact]
+    public async Task MultipleChoiceBuildsFreshAggregateWhenTransactionIsRetried()
+    {
+        var fixture = CreateFixture();
+        fixture.UnitOfWork.FailOnSaveNumber = 2;
+        fixture.TransactionManager.RetryOnce = true;
+        var request = new CreateMultipleChoiceQuestionRequest(
+            "Question",
+            QuestionDifficulty.Medium,
+            true,
+            [
+                new MultipleChoiceOptionInput("A", false),
+                new MultipleChoiceOptionInput("B", true)
+            ]);
+
+        var result = await fixture.Service.CreateMultipleChoiceAsync(
+            fixture.QuestionBank.Id,
+            request);
+
+        Assert.Equal(2, fixture.TransactionManager.ExecutionCount);
+        Assert.Equal(4, fixture.UnitOfWork.SaveCount);
+        Assert.Equal(2, fixture.Questions.AddedQuestions.Count);
+        Assert.NotEqual(
+            fixture.Questions.AddedQuestions[0].Id,
+            fixture.Questions.AddedQuestions[1].Id);
+        Assert.All(
+            fixture.Questions.CorrectOptionIdsWhenAdded,
+            correctOptionId => Assert.Null(correctOptionId));
+        Assert.Equal(fixture.Questions.AddedQuestions[1].Id, result.Id);
+        Assert.Single(result.Options, option => option.IsCorrect);
+    }
+
+    [Fact]
     public async Task FillInBlankUsesAnswerKeysAndDisablesOptionShuffle()
     {
         var fixture = CreateFixture();
@@ -178,10 +210,16 @@ public class QuestionApplicationTests
     private sealed class FakeUnitOfWork : IUnitOfWork
     {
         public int SaveCount { get; private set; }
+        public int? FailOnSaveNumber { get; set; }
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             SaveCount++;
+            if (SaveCount == FailOnSaveNumber)
+            {
+                throw new InvalidOperationException("Retryable transaction failure");
+            }
+
             return Task.FromResult(1);
         }
     }
@@ -189,13 +227,23 @@ public class QuestionApplicationTests
     private sealed class FakeTransactionManager : ITransactionManager
     {
         public int ExecutionCount { get; private set; }
+        public bool RetryOnce { get; set; }
 
         public async Task ExecuteAsync(
             Func<CancellationToken, Task> action,
             CancellationToken cancellationToken = default)
         {
             ExecutionCount++;
-            await action(cancellationToken);
+            try
+            {
+                await action(cancellationToken);
+            }
+            catch (InvalidOperationException) when (RetryOnce)
+            {
+                RetryOnce = false;
+                ExecutionCount++;
+                await action(cancellationToken);
+            }
         }
     }
 
@@ -267,6 +315,8 @@ public class QuestionApplicationTests
     private sealed class FakeQuestionRepository : IQuestionRepository
     {
         public List<Question> Items { get; } = [];
+        public List<Question> AddedQuestions { get; } = [];
+        public List<Guid?> CorrectOptionIdsWhenAdded { get; } = [];
 
         public Task<Question?> GetByIdAsync(
             Guid id,
@@ -288,6 +338,8 @@ public class QuestionApplicationTests
 
         public void Add(Question question)
         {
+            AddedQuestions.Add(question);
+            CorrectOptionIdsWhenAdded.Add(question.CorrectOptionId);
             Items.Add(question);
         }
 

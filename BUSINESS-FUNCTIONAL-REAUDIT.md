@@ -2,7 +2,7 @@
 
 Ngày rà soát: `2026-10-06`
 
-> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 cùng RR-01, RR-02, RR-04, RR-05 đã hoàn thành**. Lần rà soát bổ sung còn **2 finding RR-03 và RR-06 chưa sửa**, được ghi ở mục 7 để xử lý tuần tự. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
+> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 cùng RR-01, RR-02, RR-04, RR-05, RR-06 đã hoàn thành**. Lần rà soát bổ sung còn **1 finding RR-03 chưa sửa**, được ghi ở mục 7 để xử lý về sau. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 ## 1. Phạm vi và phương pháp
 
@@ -245,7 +245,7 @@ Trạng thái xác minh tại thời điểm ghi nhận:
 | RR-03 | Medium | OAuth | Chưa sửa | Khôi phục state không làm authorization code đã redeem dùng lại được |
 | RR-04 | Medium | File | Hoàn thành | Cleanup best-effort bảo toàn lỗi gốc; enqueue dùng atomic upsert |
 | RR-05 | Medium | Registration | Hoàn thành | Register retry dùng chung cooldown atomic và xác minh password |
-| RR-06 | Medium | Concurrency | Chưa sửa | Retry transaction tạo multiple-choice dùng lại aggregate đã mutate |
+| RR-06 | Medium | Concurrency | Hoàn thành | Mỗi transaction attempt dựng aggregate multiple-choice mới hoàn toàn |
 
 ### RR-01 — Submission không bảo vệ transition đồng thời
 
@@ -304,6 +304,8 @@ Khi email đã thuộc local account `Inactive`, `RegisterAsync` gọi thẳng `
 **Hướng sửa:** chỉ coi register là idempotent khi payload tương thích, hoặc hướng mọi account `Inactive` qua cùng một hàm resend có thao tác acquire cooldown atomic. Không thay code hiện hành nếu cooldown chưa hết. Thêm test gọi register lặp trong một phút và với password khác.
 
 ### RR-06 — Transaction retry dùng lại aggregate multiple-choice đã mutate
+
+**Trạng thái: Đã sửa ngày `2026-10-08`.** Chi tiết triển khai và xác minh nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 `QuestionService.CreateMultipleChoiceAsync` tạo `Question` và options bên ngoài callback transaction. Callback save graph lần đầu, sau đó gán `CorrectOptionId` và save lần hai. `AppDbContext` retry deadlock/serialization bằng cách clear change tracker rồi gọi lại callback.
 

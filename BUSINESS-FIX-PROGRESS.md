@@ -10,9 +10,9 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 4 |
+| Hoàn thành | 5 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 2 |
+| Chưa thực hiện | 1 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
@@ -21,7 +21,7 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 | RR-03 | Chưa thực hiện | OAuth callback chưa resumable sau khi provider redeem code |
 | RR-04 | Hoàn thành | Cleanup best-effort; queue upsert `ON CONFLICT DO NOTHING` trong transaction nghiệp vụ |
 | RR-05 | Hoàn thành | Register retry dùng chung cooldown atomic với resend và yêu cầu password khớp |
-| RR-06 | Chưa thực hiện | Retry tạo multiple-choice dùng lại aggregate đã mutate |
+| RR-06 | Hoàn thành | Transaction callback dựng question/options mới trên từng attempt |
 
 ### RR-01 — Bảo vệ vòng đời submission khi request đồng thời
 
@@ -61,6 +61,14 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - SMTP failure tiếp tục xóa code/attempt/cooldown, nên retry hợp lệ ngay sau lỗi vẫn hoạt động mà không tạo account trùng.
 - Thêm test cho register lặp trong một phút và register retry bằng password khác.
 - Xác minh: **208 passed, 0 failed, 0 skipped**.
+
+### RR-06 — Làm transaction tạo multiple-choice retry-safe
+
+- Di chuyển toàn bộ việc dựng `Question`, options và lựa chọn correct option vào bên trong transaction callback.
+- Mỗi lần retry tạo aggregate mới với ID mới và `CorrectOptionId = null`, rồi thực hiện lại đúng trình tự insert graph trước, cập nhật correct option sau.
+- Kết quả chỉ được gán sau khi cả hai lần save của transaction attempt thành công; attempt thất bại không rò entity đã mutate sang response.
+- Thêm fault-injection test gây lỗi ở lần save thứ hai, chạy lại callback và xác nhận aggregate mới sạch, khác ID và hoàn tất đúng đáp án.
+- Xác minh: **209 passed, 0 failed, 0 skipped**.
 
 ## Tiến độ tái rà soát
 

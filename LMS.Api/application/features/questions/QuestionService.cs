@@ -121,35 +121,37 @@ public sealed class QuestionService : IQuestionService
         ValidateMultipleChoiceOptions(request.Options);
         _ = await GetManagedQuestionBankAsync(questionBankId, cancellationToken);
         var actorId = _currentUser.GetRequiredUserId();
-        var question = new Question(
-            questionBankId,
-            request.Content.Trim(),
-            QuestionType.MultipleChoice,
-            request.Difficulty,
-            request.ShuffleOptions,
-            actorId);
-        MultipleChoiceOption? correctOption = null;
-
-        for (var index = 0; index < request.Options.Count; index++)
-        {
-            var input = request.Options[index];
-            var option = new MultipleChoiceOption(question.Id, input.Content.Trim(), index);
-            question.MultipleChoiceOptions.Add(option);
-            if (input.IsCorrect)
-            {
-                correctOption = option;
-            }
-        }
+        Question? result = null;
 
         await _transactionManager.ExecuteAsync(async transactionCancellationToken =>
         {
+            var question = new Question(
+                questionBankId,
+                request.Content.Trim(),
+                QuestionType.MultipleChoice,
+                request.Difficulty,
+                request.ShuffleOptions,
+                actorId);
+            MultipleChoiceOption? correctOption = null;
+            for (var index = 0; index < request.Options.Count; index++)
+            {
+                var input = request.Options[index];
+                var option = new MultipleChoiceOption(question.Id, input.Content.Trim(), index);
+                question.MultipleChoiceOptions.Add(option);
+                if (input.IsCorrect)
+                {
+                    correctOption = option;
+                }
+            }
+
             _questions.Add(question);
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
             question.SetCorrectOption(correctOption!.Id);
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            result = question;
         }, cancellationToken);
 
-        return Map(question);
+        return Map(result!);
     }
 
     public async Task<QuestionDto> CreateFillInBlankAsync(
