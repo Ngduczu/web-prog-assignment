@@ -1,6 +1,3 @@
-using System.Net.Mail;
-using System.Security.Cryptography;
-using System.Text;
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.caching;
 using LMS.Api.application.abstractions.time;
@@ -29,8 +26,8 @@ public sealed class AuthenticationService : IAuthenticationService
     public AuthenticationService(IUserRepository users, IPasswordHasher hasher, ITokenProvider tokens, ICache cache, IClock clock, OAuthResolver oauthResolver, IUnitOfWork unitOfWork) { _users = users; _hasher = hasher; _tokens = tokens; _cache = cache; _clock = clock; _oauthResolver = oauthResolver; _unitOfWork = unitOfWork; }
     public async Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
-        var email = request.Email?.Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(email) || !MailAddress.TryCreate(email, out var address) || address.Address != email || string.IsNullOrWhiteSpace(request.Password))
+        if (!AuthValidation.TryNormalizeEmail(request.Email, out var email) ||
+            string.IsNullOrWhiteSpace(request.Password))
             throw new BadRequestException("Email and password are required.");
         var user = await _users.GetByEmailAsync(email, cancellationToken);
         if (user is null || user.PasswordHash is null || !_hasher.Verify(request.Password, user.PasswordHash))
@@ -43,9 +40,8 @@ public sealed class AuthenticationService : IAuthenticationService
     public async Task<LoginResponse> RefreshAsync(RefreshTokenRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.RefreshToken)) throw new BadRequestException("Refresh token is required.");
-        var hash = HashRefreshToken(request.RefreshToken.Trim());
-        var key = $"auth:refresh:{hash}";
-        var session = await _cache.ConsumeAsync<RefreshSession>(key, cancellationToken) ?? throw new UnauthorizeException("Refresh token is invalid or expired.");
+        var key = AuthCacheKeys.RefreshToken(request.RefreshToken.Trim());
+        var session = await _cache.ConsumeAsync<RefreshSessionCacheEntry>(key, cancellationToken) ?? throw new UnauthorizeException("Refresh token is invalid or expired.");
         try
         {
             var user = await _users.GetByIdAsync(session.UserId, cancellationToken) ?? throw new UnauthorizeException("Refresh token is invalid or expired.");
@@ -53,7 +49,7 @@ public sealed class AuthenticationService : IAuthenticationService
             if (user.Status != AccountStatus.Active) throw new UnauthorizeException("Account is not active.");
             return await IssueTokensAsync(user, cancellationToken);
         }
-        catch (Exception exception) when (IsCredentialRestorableFailure(exception))
+        catch (Exception exception) when (AuthFailurePolicy.IsCredentialRestorable(exception))
         {
             await TryRestoreCredentialAsync(key, session);
             throw;
@@ -74,7 +70,7 @@ public sealed class AuthenticationService : IAuthenticationService
         var user = await _users.GetByExternalLoginAsync(providerType, externalInfo.ProviderUserId, cancellationToken);
         if (user is null)
         {
-            var email = NormalizeExternalEmail(externalInfo.Email);
+            var email = AuthValidation.NormalizeExternalEmail(externalInfo.Email);
             user = await _users.GetByEmailAsync(email, cancellationToken);
             if (user is not null)
             {
@@ -84,7 +80,7 @@ public sealed class AuthenticationService : IAuthenticationService
 
             user = new User(
                 email,
-                NormalizeExternalFullName(externalInfo.FullName, email),
+                AuthValidation.NormalizeExternalFullName(externalInfo.FullName, email),
                 null,
                 null,
                 Role.Student,
@@ -114,8 +110,9 @@ public sealed class AuthenticationService : IAuthenticationService
             throw new BadRequestException("OAuth login code is required.");
         }
 
-        var entry = await _cache.ConsumeAsync<OAuthLoginCodeEntry>(
-            OAuthLoginCodeKey(loginCode),
+        var loginCodeKey = AuthCacheKeys.OAuthLoginCode(loginCode);
+        var entry = await _cache.ConsumeAsync<OAuthLoginCodeCacheEntry>(
+            loginCodeKey,
             cancellationToken) ?? throw new UnauthorizeException("OAuth login code is invalid or expired.");
         try
         {
@@ -128,9 +125,9 @@ public sealed class AuthenticationService : IAuthenticationService
 
             return await IssueTokensAsync(user, cancellationToken);
         }
-        catch (Exception exception) when (IsCredentialRestorableFailure(exception))
+        catch (Exception exception) when (AuthFailurePolicy.IsCredentialRestorable(exception))
         {
-            await TryRestoreCredentialAsync(OAuthLoginCodeKey(loginCode), entry);
+            await TryRestoreCredentialAsync(loginCodeKey, entry);
             throw;
         }
     }
@@ -157,7 +154,7 @@ public sealed class AuthenticationService : IAuthenticationService
             request.RedirectUri,
             request.CodeVerifier,
             cancellationToken);
-        var externalEmail = NormalizeExternalEmail(externalInfo.Email);
+        var externalEmail = AuthValidation.NormalizeExternalEmail(externalInfo.Email);
         var owner = await _users.GetByExternalLoginAsync(
             providerType,
             externalInfo.ProviderUserId,
@@ -196,12 +193,12 @@ public sealed class AuthenticationService : IAuthenticationService
             throw new BadRequestException("OAuth provider, code, redirect URI and code verifier are required.");
         }
 
-        var recoveryKey = PendingOAuthIdentityKey(
+        var recoveryKey = AuthCacheKeys.PendingOAuthIdentity(
             providerType,
             code,
             redirectUri,
             codeVerifier);
-        var pendingIdentity = await _cache.GetAsync<PendingOAuthIdentity>(
+        var pendingIdentity = await _cache.GetAsync<PendingOAuthIdentityCacheEntry>(
             recoveryKey,
             cancellationToken);
         if (pendingIdentity is not null)
@@ -225,32 +222,10 @@ public sealed class AuthenticationService : IAuthenticationService
 
         await _cache.SetAsync(
             recoveryKey,
-            new PendingOAuthIdentity(externalInfo),
+            new PendingOAuthIdentityCacheEntry(externalInfo),
             OAuthIdentityRecoveryLifetime,
             cancellationToken);
         return (providerType, externalInfo, recoveryKey);
-    }
-
-    private static string NormalizeExternalEmail(string email)
-    {
-        var normalized = email?.Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(normalized) ||
-            normalized.Length > 255 ||
-            !MailAddress.TryCreate(normalized, out var address) ||
-            address.Address != normalized)
-        {
-            throw new UnauthorizeException("The external account returned an invalid email address.");
-        }
-
-        return normalized;
-    }
-
-    private static string NormalizeExternalFullName(string? fullName, string normalizedEmail)
-    {
-        var value = string.IsNullOrWhiteSpace(fullName)
-            ? normalizedEmail[..normalizedEmail.IndexOf('@')]
-            : fullName.Trim();
-        return value.Length <= 100 ? value : value[..100];
     }
 
     private async Task<LoginResponse> IssueTokensAsync(User user, CancellationToken cancellationToken)
@@ -263,8 +238,8 @@ public sealed class AuthenticationService : IAuthenticationService
         var refresh = _tokens.CreateRefreshToken();
         var refreshExpires = _clock.UtcNow.Add(RefreshLifetime);
         await _cache.SetAsync(
-            $"auth:refresh:{HashRefreshToken(refresh)}",
-            new RefreshSession(user.Id, user.AuthVersion),
+            AuthCacheKeys.RefreshToken(refresh),
+            new RefreshSessionCacheEntry(user.Id, user.AuthVersion),
             RefreshLifetime,
             cancellationToken);
         return new LoginResponse(access.Token, access.ExpiresAt, refresh, refreshExpires);
@@ -298,23 +273,16 @@ public sealed class AuthenticationService : IAuthenticationService
         }
     }
 
-    private static bool IsCredentialRestorableFailure(Exception exception) =>
-        exception is not BadRequestException
-            and not UnauthorizeException
-            and not ForbiddenException
-            and not NotFoundException
-            and not ConflictException;
-
     private async Task<OAuthLoginCodeResponse> CreateOAuthLoginCodeAsync(
         Guid userId,
         CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            var loginCode = Base64Url(RandomNumberGenerator.GetBytes(32));
+            var loginCode = AuthSecurity.GenerateUrlToken(32);
             if (await _cache.SetIfNotExistsAsync(
-                    OAuthLoginCodeKey(loginCode),
-                    new OAuthLoginCodeEntry(userId),
+                    AuthCacheKeys.OAuthLoginCode(loginCode),
+                    new OAuthLoginCodeCacheEntry(userId),
                     OAuthLoginCodeLifetime,
                     cancellationToken))
             {
@@ -324,23 +292,4 @@ public sealed class AuthenticationService : IAuthenticationService
 
         throw new InvalidOperationException("Could not create a unique OAuth login code.");
     }
-
-    private sealed record RefreshSession(Guid UserId, long AuthVersion);
-    private sealed record OAuthLoginCodeEntry(Guid UserId);
-    private sealed record PendingOAuthIdentity(OAuthUserInfo ExternalInfo);
-
-    private static string HashRefreshToken(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
-    private static string OAuthLoginCodeKey(string loginCode) =>
-        $"auth:oauth-login-code:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(loginCode))).ToLowerInvariant()}";
-    private static string PendingOAuthIdentityKey(
-        ExternalProvider provider,
-        string code,
-        string redirectUri,
-        string codeVerifier)
-    {
-        var binding = $"{provider}\n{code.Length}:{code}\n{redirectUri.Length}:{redirectUri}\n{codeVerifier.Length}:{codeVerifier}";
-        return $"auth:oauth-identity:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(binding))).ToLowerInvariant()}";
-    }
-    private static string Base64Url(byte[] value) =>
-        Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

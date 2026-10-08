@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.caching;
 using LMS.Api.domain.exceptions;
@@ -51,8 +49,8 @@ public sealed class OAuthFlowService : IOAuthFlowService
         OAuthCallbackRequest request,
         CancellationToken cancellationToken = default)
     {
-        var stateKey = GetStateKey(request.State);
-        var storedState = await _cache.GetAsync<OAuthState>(stateKey, cancellationToken)
+        var stateKey = AuthCacheKeys.OAuthState(request.State);
+        var storedState = await _cache.GetAsync<OAuthStateCacheEntry>(stateKey, cancellationToken)
             ?? throw new BadRequestException("OAuth state is invalid or expired.");
         if (!storedState.Provider.Equals(request.Provider, StringComparison.OrdinalIgnoreCase))
         {
@@ -60,14 +58,14 @@ public sealed class OAuthFlowService : IOAuthFlowService
         }
 
         if (string.IsNullOrWhiteSpace(request.BrowserBinding) ||
-            !FixedTimeEquals(
+            !AuthSecurity.FixedTimeEquals(
                 storedState.BrowserBindingHash,
-                HashBrowserBinding(request.BrowserBinding)))
+                AuthSecurity.Sha256Base64Url(request.BrowserBinding)))
         {
             throw new BadRequestException("OAuth state is not valid for this browser.");
         }
 
-        storedState = await _cache.ConsumeAsync<OAuthState>(stateKey, cancellationToken)
+        storedState = await _cache.ConsumeAsync<OAuthStateCacheEntry>(stateKey, cancellationToken)
             ?? throw new BadRequestException("OAuth state is invalid or expired.");
         try
         {
@@ -95,7 +93,7 @@ public sealed class OAuthFlowService : IOAuthFlowService
 
             return new OAuthCallbackResult(payload);
         }
-        catch (Exception exception) when (IsCredentialRestorableFailure(exception))
+        catch (Exception exception) when (AuthFailurePolicy.IsCredentialRestorable(exception))
         {
             await TryRestoreStateAsync(stateKey, storedState);
             throw;
@@ -119,20 +117,20 @@ public sealed class OAuthFlowService : IOAuthFlowService
             throw new InvalidOperationException("OAuth:Google:RedirectUri must be configured.");
         }
 
-        var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
-        var codeChallenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
-        var browserBinding = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var codeVerifier = AuthSecurity.GenerateUrlToken(32);
+        var codeChallenge = AuthSecurity.Sha256AsciiBase64Url(codeVerifier);
+        var browserBinding = AuthSecurity.GenerateUrlToken(32);
         string? state = null;
         for (var attempt = 0; attempt < 3 && state is null; attempt++)
         {
-            var candidate = Base64Url(RandomNumberGenerator.GetBytes(32));
+            var candidate = AuthSecurity.GenerateUrlToken(32);
             if (await _cache.SetIfNotExistsAsync(
-                    GetStateKey(candidate),
-                    new OAuthState(
+                    AuthCacheKeys.OAuthState(candidate),
+                    new OAuthStateCacheEntry(
                         provider,
                         redirectUri,
                         codeVerifier,
-                        HashBrowserBinding(browserBinding),
+                        AuthSecurity.Sha256Base64Url(browserBinding),
                         purpose,
                         userId),
                     StateLifetime,
@@ -156,7 +154,7 @@ public sealed class OAuthFlowService : IOAuthFlowService
             StateLifetime);
     }
 
-    private async Task TryRestoreStateAsync(string key, OAuthState state)
+    private async Task TryRestoreStateAsync(string key, OAuthStateCacheEntry state)
     {
         try
         {
@@ -172,27 +170,4 @@ public sealed class OAuthFlowService : IOAuthFlowService
         }
     }
 
-    private static string GetStateKey(string state) => $"auth:oauth-state:{state}";
-    private static string HashBrowserBinding(string value) =>
-        Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
-    private static bool FixedTimeEquals(string expected, string actual) =>
-        CryptographicOperations.FixedTimeEquals(
-            Encoding.ASCII.GetBytes(expected),
-            Encoding.ASCII.GetBytes(actual));
-    private static bool IsCredentialRestorableFailure(Exception exception) =>
-        exception is not BadRequestException
-            and not UnauthorizeException
-            and not ForbiddenException
-            and not NotFoundException
-            and not ConflictException;
-    private static string Base64Url(byte[] value) =>
-        Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    private sealed record OAuthState(
-        string Provider,
-        string RedirectUri,
-        string CodeVerifier,
-        string BrowserBindingHash,
-        OAuthFlowPurpose Purpose,
-        Guid? UserId);
 }
