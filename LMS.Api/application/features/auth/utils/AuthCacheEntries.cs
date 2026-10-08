@@ -1,6 +1,6 @@
 using LMS.Api.application.abstractions.auth;
 
-namespace LMS.Api.application.features.auth;
+namespace LMS.Api.application.features.auth.utils;
 
 internal sealed record RefreshSessionCacheEntry(Guid UserId, long AuthVersion);
 internal sealed record OAuthLoginCodeCacheEntry(Guid UserId);

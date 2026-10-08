@@ -1,5 +1,6 @@
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.caching;
+using LMS.Api.application.features.auth.utils;
 using LMS.Api.domain.exceptions;
 using LMS.Api.infrastructure.authentication.OAuth;
 using Microsoft.Extensions.Options;

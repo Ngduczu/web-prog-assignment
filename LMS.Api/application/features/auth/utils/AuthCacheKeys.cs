@@ -1,6 +1,6 @@
 using LMS.Api.domain.Enums.Users;
 
-namespace LMS.Api.application.features.auth;
+namespace LMS.Api.application.features.auth.utils;
 
 internal static class AuthCacheKeys
 {

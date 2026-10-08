@@ -3,7 +3,7 @@ using LMS.Api.application.abstractions.caching;
 using LMS.Api.application.abstractions.mail;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.abstractions.time;
-using LMS.Api.application.features.auth;
+using LMS.Api.application.features.auth.utils;
 using LMS.Api.domain.Enums.Users;
 using LMS.Api.domain.exceptions;
 using LMS.Api.domain.repositories;

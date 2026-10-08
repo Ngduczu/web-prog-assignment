@@ -1,6 +1,6 @@
 using LMS.Api.domain.exceptions;
 
-namespace LMS.Api.application.features.auth;
+namespace LMS.Api.application.features.auth.utils;
 
 internal static class AuthFailurePolicy
 {

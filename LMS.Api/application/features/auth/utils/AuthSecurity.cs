@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace LMS.Api.application.features.auth;
+namespace LMS.Api.application.features.auth.utils;
 
 internal static class AuthSecurity
 {

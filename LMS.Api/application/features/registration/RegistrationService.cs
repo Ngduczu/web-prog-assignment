@@ -7,7 +7,7 @@ using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Users;
 using LMS.Api.domain.exceptions;
 using LMS.Api.domain.repositories;
-using LMS.Api.application.features.auth;
+using LMS.Api.application.features.auth.utils;
 
 namespace LMS.Api.application.features.registration;
 
