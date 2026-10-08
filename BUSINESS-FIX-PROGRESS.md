@@ -10,9 +10,9 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 3 |
+| Hoàn thành | 4 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 3 |
+| Chưa thực hiện | 2 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
@@ -20,7 +20,7 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 | RR-02 | Hoàn thành | `AuthVersion` lưu trong PostgreSQL và tăng atomic cùng password/status/role |
 | RR-03 | Chưa thực hiện | OAuth callback chưa resumable sau khi provider redeem code |
 | RR-04 | Hoàn thành | Cleanup best-effort; queue upsert `ON CONFLICT DO NOTHING` trong transaction nghiệp vụ |
-| RR-05 | Chưa thực hiện | Register retry bỏ qua cooldown verification |
+| RR-05 | Hoàn thành | Register retry dùng chung cooldown atomic với resend và yêu cầu password khớp |
 | RR-06 | Chưa thực hiện | Retry tạo multiple-choice dùng lại aggregate đã mutate |
 
 ### RR-01 — Bảo vệ vòng đời submission khi request đồng thời
@@ -52,6 +52,15 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Cleanup file cũ sau khi DB đã commit cũng không còn biến một thao tác thành công thành response lỗi giả.
 - Thêm fault-injection tests cho queue/storage cùng lỗi và integration test hai DbContext enqueue đồng thời cùng object key trên PostgreSQL thật.
 - Xác minh: **206 passed, 0 failed, 0 skipped**; test PostgreSQL xác nhận cả hai save thành công và chỉ có một task; EF báo **không có model change cần migration mới**.
+
+### RR-05 — Thống nhất cooldown register retry và resend
+
+- Register trên local account `Inactive` chỉ được retry khi password gửi lại khớp password hash đã lưu; payload khác trả `409` và không đổi verification state.
+- Register mới, register retry và resend dùng chung thao tác acquire cooldown atomic bằng `SetIfNotExists`.
+- Request register lặp trong cooldown không phát email, không thay verification code hiện hành và code cũ vẫn verify được.
+- SMTP failure tiếp tục xóa code/attempt/cooldown, nên retry hợp lệ ngay sau lỗi vẫn hoạt động mà không tạo account trùng.
+- Thêm test cho register lặp trong một phút và register retry bằng password khác.
+- Xác minh: **208 passed, 0 failed, 0 skipped**.
 
 ## Tiến độ tái rà soát
 

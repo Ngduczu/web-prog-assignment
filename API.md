@@ -126,7 +126,7 @@ Refresh token cũ bị xoá ngay khi dùng (rotation), hash được lưu Redis 
 }
 ```
 
-Flow: validate → hash password → PostgreSQL → Redis mã 6 ký tự với TTL 15 phút → SMTP. Nếu SMTP lỗi, verification state/cooldown được dọn và cùng request đăng ký có thể retry trên account local `Inactive` mà không tạo user trùng.
+Flow: validate → hash password → PostgreSQL → acquire cooldown atomic → Redis mã 6 ký tự với TTL 15 phút → SMTP. Nếu SMTP lỗi, verification state/cooldown được dọn và cùng request đăng ký có thể retry trên account local `Inactive` mà không tạo user trùng. Register retry phải dùng đúng password đã đăng ký và chịu cùng cooldown một phút như resend; request trong cooldown không thay code hiện hành.
 
 ### `POST /api/auth/verify-email`
 

@@ -2,7 +2,7 @@
 
 Ngày rà soát: `2026-10-06`
 
-> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 cùng RR-01, RR-02, RR-04 đã hoàn thành**. Lần rà soát bổ sung còn **3 finding RR-03, RR-05, RR-06 chưa sửa**, được ghi ở mục 7 để xử lý tuần tự. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
+> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 cùng RR-01, RR-02, RR-04, RR-05 đã hoàn thành**. Lần rà soát bổ sung còn **2 finding RR-03 và RR-06 chưa sửa**, được ghi ở mục 7 để xử lý tuần tự. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 ## 1. Phạm vi và phương pháp
 
@@ -244,7 +244,7 @@ Trạng thái xác minh tại thời điểm ghi nhận:
 | RR-02 | High | Auth | Hoàn thành | Password và auth version cùng commit trong PostgreSQL; token cũ bị từ chối |
 | RR-03 | Medium | OAuth | Chưa sửa | Khôi phục state không làm authorization code đã redeem dùng lại được |
 | RR-04 | Medium | File | Hoàn thành | Cleanup best-effort bảo toàn lỗi gốc; enqueue dùng atomic upsert |
-| RR-05 | Medium | Registration | Chưa sửa | Retry qua endpoint register bỏ qua cooldown resend |
+| RR-05 | Medium | Registration | Hoàn thành | Register retry dùng chung cooldown atomic và xác minh password |
 | RR-06 | Medium | Concurrency | Chưa sửa | Retry transaction tạo multiple-choice dùng lại aggregate đã mutate |
 
 ### RR-01 — Submission không bảo vệ transition đồng thời
@@ -294,6 +294,8 @@ Các catch sau upload gọi `CleanupFileAsync`/`EnqueueImmediatelyAsync` rồi m
 **Hướng sửa:** cleanup trong catch phải là best-effort và luôn bảo toàn exception gốc; dùng upsert/`ON CONFLICT DO NOTHING` cho enqueue. Cân nhắc fallback xóa trực tiếp có log khi persistent queue không khả dụng và thêm test queue failure/race.
 
 ### RR-05 — Register retry bỏ qua cooldown verification
+
+**Trạng thái: Đã sửa ngày `2026-10-08`.** Chi tiết triển khai và xác minh nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 Khi email đã thuộc local account `Inactive`, `RegisterAsync` gọi thẳng `CreateAndSendVerificationCodeAsync`. Đường này dùng `SetAsync` để ghi cooldown, trong khi endpoint `ResendVerificationAsync` dùng `SetIfNotExistsAsync` và từ chối khi cooldown còn hiệu lực. Register retry cũng không xác nhận password gửi lại khớp với password hash đã lưu.
 

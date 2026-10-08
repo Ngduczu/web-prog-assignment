@@ -67,6 +67,44 @@ public class RegistrationApplicationTests
     }
 
     [Fact]
+    public async Task RepeatedRegisterDuringCooldownDoesNotReplaceVerificationCode()
+    {
+        var fixture = CreateFixture();
+        var request = new RegisterAccountRequest(
+            "user@example.com",
+            "password123",
+            "password123");
+        await fixture.Service.RegisterAsync(request);
+        var firstCode = fixture.Mail.LastCode;
+
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.RegisterAsync(request));
+
+        Assert.Equal(1, fixture.Mail.VerificationMessagesSent);
+        Assert.Equal(firstCode, fixture.Mail.LastCode);
+        await fixture.Service.VerifyEmailAsync(new VerifyEmailRequest("user@example.com", firstCode));
+    }
+
+    [Fact]
+    public async Task RegisterRetryWithDifferentPasswordIsRejectedWithoutReplacingCode()
+    {
+        var fixture = CreateFixture();
+        await fixture.Service.RegisterAsync(new RegisterAccountRequest(
+            "user@example.com",
+            "password123",
+            "password123"));
+        var firstCode = fixture.Mail.LastCode;
+
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.RegisterAsync(
+            new RegisterAccountRequest(
+                "user@example.com",
+                "different-password",
+                "different-password")));
+
+        Assert.Equal(1, fixture.Mail.VerificationMessagesSent);
+        Assert.Equal(firstCode, fixture.Mail.LastCode);
+    }
+
+    [Fact]
     public async Task CorrectCodeActivatesAccountAndRemovesVerificationState()
     {
         var fixture = CreateFixture();
@@ -236,6 +274,7 @@ public class RegistrationApplicationTests
     private sealed class FakeMailSender : IMailSender
     {
         public bool FailNext { get; set; }
+        public int VerificationMessagesSent { get; private set; }
         public string LastEmail { get; private set; } = string.Empty;
         public string LastCode { get; private set; } = string.Empty;
 
@@ -253,6 +292,7 @@ public class RegistrationApplicationTests
 
             LastEmail = email;
             LastCode = verificationCode;
+            VerificationMessagesSent++;
             return Task.CompletedTask;
         }
 

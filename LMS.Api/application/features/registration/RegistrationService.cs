@@ -54,7 +54,13 @@ public sealed class RegistrationService : IRegistrationService
         {
             if (existingUser.Status == AccountStatus.Inactive && existingUser.PasswordHash is not null)
             {
-                await CreateAndSendVerificationCodeAsync(existingUser, cancellationToken);
+                if (!_passwordHasher.Verify(request.Password, existingUser.PasswordHash))
+                {
+                    throw new ConflictException(
+                        "The registration request does not match the existing inactive account.");
+                }
+
+                await AcquireCooldownAndSendVerificationCodeAsync(existingUser, cancellationToken);
                 return new RegistrationDto(
                     existingUser.Id,
                     existingUser.Email,
@@ -76,7 +82,7 @@ public sealed class RegistrationService : IRegistrationService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         var expiresAt = _clock.UtcNow.Add(VerificationTimeToLive);
-        await CreateAndSendVerificationCodeAsync(user, cancellationToken);
+        await AcquireCooldownAndSendVerificationCodeAsync(user, cancellationToken);
         return new RegistrationDto(user.Id, user.Email, user.Status, expiresAt);
     }
 
@@ -164,6 +170,13 @@ public sealed class RegistrationService : IRegistrationService
             throw new ConflictException("OAuth accounts do not require email verification.");
         }
 
+        await AcquireCooldownAndSendVerificationCodeAsync(user, cancellationToken);
+    }
+
+    private async Task AcquireCooldownAndSendVerificationCodeAsync(
+        User user,
+        CancellationToken cancellationToken)
+    {
         var cooldownAcquired = await _cache.SetIfNotExistsAsync(
             GetCooldownKey(user.Id),
             true,
@@ -174,13 +187,12 @@ public sealed class RegistrationService : IRegistrationService
             throw new ConflictException("Please wait before requesting another verification code.");
         }
 
-        await CreateAndSendVerificationCodeAsync(user, cancellationToken, setCooldown: false);
+        await CreateAndSendVerificationCodeAsync(user, cancellationToken);
     }
 
     private async Task CreateAndSendVerificationCodeAsync(
         User user,
-        CancellationToken cancellationToken,
-        bool setCooldown = true)
+        CancellationToken cancellationToken)
     {
         var verificationCode = GenerateVerificationCode();
         var cacheEntry = new EmailVerificationCacheEntry(
@@ -193,11 +205,6 @@ public sealed class RegistrationService : IRegistrationService
             VerificationTimeToLive,
             cancellationToken);
         await _cache.RemoveAsync(GetAttemptsKey(user.Id), cancellationToken);
-
-        if (setCooldown)
-        {
-            await _cache.SetAsync(GetCooldownKey(user.Id), true, ResendCooldown, cancellationToken);
-        }
 
         try
         {
