@@ -39,13 +39,6 @@ public sealed class FileCleanupQueue : IFileCleanupQueue
         }
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        if (await dbContext.FileCleanupTasks.AnyAsync(
-                task => task.ObjectKey == objectKey,
-                cancellationToken))
-        {
-            return;
-        }
-
         dbContext.FileCleanupTasks.Add(new FileCleanupTask(objectKey, DateTime.UtcNow));
         await dbContext.SaveChangesAsync(cancellationToken);
     }

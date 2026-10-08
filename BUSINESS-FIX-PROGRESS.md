@@ -10,16 +10,16 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 
 | Trạng thái | Số lượng |
 |---|---:|
-| Hoàn thành | 2 |
+| Hoàn thành | 3 |
 | Đang thực hiện | 0 |
-| Chưa thực hiện | 4 |
+| Chưa thực hiện | 3 |
 
 | Mã | Trạng thái | Ghi chú |
 |---|---|---|
 | RR-01 | Hoàn thành | Submission dùng PostgreSQL `xmin`; upload/submit/unsubmit/grade chạy trong transaction serializable |
 | RR-02 | Hoàn thành | `AuthVersion` lưu trong PostgreSQL và tăng atomic cùng password/status/role |
 | RR-03 | Chưa thực hiện | OAuth callback chưa resumable sau khi provider redeem code |
-| RR-04 | Chưa thực hiện | Cleanup có thể che exception gốc; enqueue chưa atomic |
+| RR-04 | Hoàn thành | Cleanup best-effort; queue upsert `ON CONFLICT DO NOTHING` trong transaction nghiệp vụ |
 | RR-05 | Chưa thực hiện | Register retry bỏ qua cooldown verification |
 | RR-06 | Chưa thực hiện | Retry tạo multiple-choice dùng lại aggregate đã mutate |
 
@@ -42,6 +42,16 @@ Nguồn công việc: `BUSINESS-FUNCTIONAL-AUDIT.md`.
 - Cleanup attempts/cooldown sau commit là best-effort và không thể đổi một reset đã commit thành response lỗi.
 - Thêm migration `PersistUserAuthVersion` và test cho DB rollback, Redis cleanup failure, refresh-token revocation, access-token revocation cùng metadata concurrency.
 - Xác minh: **203 passed, 0 failed, 0 skipped**; migration đã áp dụng lên PostgreSQL local; EF báo **không có model change chưa tạo migration**.
+
+### RR-04 — Cleanup bảo toàn lỗi gốc và enqueue idempotent
+
+- `AppDbContext.SaveChangesAsync` tách cleanup task mới khỏi EF insert thông thường và ghi bằng PostgreSQL `INSERT ... ON CONFLICT (object_key) DO NOTHING`.
+- Upsert cleanup chạy trong chính transaction của thay đổi nghiệp vụ; task trùng không còn làm rollback metadata/course/chat hợp lệ.
+- `EnqueueImmediatelyAsync` bỏ chuỗi `AnyAsync` rồi insert dễ race và dùng chung đường upsert atomic.
+- Cleanup sau upload lỗi ở lesson, exercise, submission và chat trở thành best-effort: ưu tiên persistent queue, queue hỏng thì fallback xóa storage trực tiếp, cả hai hỏng vẫn `throw;` đúng exception ban đầu.
+- Cleanup file cũ sau khi DB đã commit cũng không còn biến một thao tác thành công thành response lỗi giả.
+- Thêm fault-injection tests cho queue/storage cùng lỗi và integration test hai DbContext enqueue đồng thời cùng object key trên PostgreSQL thật.
+- Xác minh: **206 passed, 0 failed, 0 skipped**; test PostgreSQL xác nhận cả hai save thành công và chỉ có một task; EF báo **không có model change cần migration mới**.
 
 ## Tiến độ tái rà soát
 

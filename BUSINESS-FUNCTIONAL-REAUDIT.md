@@ -2,7 +2,7 @@
 
 Ngày rà soát: `2026-10-06`
 
-> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 và RR-01..RR-02 đã hoàn thành**. Lần rà soát bổ sung còn **4 finding RR-03..RR-06 chưa sửa**, được ghi ở mục 7 để xử lý tuần tự. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
+> Trạng thái sửa lỗi ngày `2026-10-08`: **15/15 finding RF-01..RF-15 cùng RR-01, RR-02, RR-04 đã hoàn thành**. Lần rà soát bổ sung còn **3 finding RR-03, RR-05, RR-06 chưa sửa**, được ghi ở mục 7 để xử lý tuần tự. Nội dung RF bên dưới được giữ làm bằng chứng audit ban đầu; lịch sử triển khai, test và quyết định nghiệp vụ nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 ## 1. Phạm vi và phương pháp
 
@@ -243,7 +243,7 @@ Trạng thái xác minh tại thời điểm ghi nhận:
 | RR-01 | High | Submission | Hoàn thành | Dùng `xmin` và transaction serializable; upload lỗi cạnh tranh dọn file mới |
 | RR-02 | High | Auth | Hoàn thành | Password và auth version cùng commit trong PostgreSQL; token cũ bị từ chối |
 | RR-03 | Medium | OAuth | Chưa sửa | Khôi phục state không làm authorization code đã redeem dùng lại được |
-| RR-04 | Medium | File | Chưa sửa | Cleanup lỗi có thể che exception gốc; enqueue chưa atomic |
+| RR-04 | Medium | File | Hoàn thành | Cleanup best-effort bảo toàn lỗi gốc; enqueue dùng atomic upsert |
 | RR-05 | Medium | Registration | Chưa sửa | Retry qua endpoint register bỏ qua cooldown resend |
 | RR-06 | Medium | Concurrency | Chưa sửa | Retry transaction tạo multiple-choice dùng lại aggregate đã mutate |
 
@@ -282,6 +282,8 @@ Callback consume OAuth state trước khi gọi provider. Khi downstream lỗi, 
 **Hướng sửa:** sau khi exchange thành công, ghi một pending OAuth identity nội bộ có TTL/idempotency key và cho callback retry tiếp tục từ kết quả đó. Không quảng bá việc khôi phục state như bảo đảm toàn bộ callback có thể chạy lại.
 
 ### RR-04 — Persistent file cleanup vẫn có thể che lỗi gốc
+
+**Trạng thái: Đã sửa ngày `2026-10-08`.** Chi tiết triển khai và xác minh nằm trong `BUSINESS-FIX-PROGRESS.md`.
 
 Các catch sau upload gọi `CleanupFileAsync`/`EnqueueImmediatelyAsync` rồi mới `throw`. Nếu cleanup queue cũng không ghi được — đặc biệt khi PostgreSQL chính là thành phần đang lỗi — exception từ cleanup thay thế exception nghiệp vụ/persistence ban đầu. `EnqueueImmediatelyAsync` còn dùng chuỗi `AnyAsync` rồi `Insert`, nên hai request có thể cùng vượt qua bước kiểm tra và va unique constraint.
 

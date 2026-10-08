@@ -74,7 +74,7 @@ public class AppDbContext : DbContext, IUnitOfWork, ITransactionManager
     {
         try
         {
-            return await base.SaveChangesAsync(cancellationToken);
+            return await SaveChangesWithIdempotentCleanupQueueAsync(cancellationToken);
         }
         catch (DbUpdateConcurrencyException exception)
         {
@@ -84,6 +84,62 @@ public class AppDbContext : DbContext, IUnitOfWork, ITransactionManager
         {
             throw new ConflictException("The record already exists.", exception);
         }
+    }
+
+    private async Task<int> SaveChangesWithIdempotentCleanupQueueAsync(
+        CancellationToken cancellationToken)
+    {
+        var cleanupEntries = ChangeTracker
+            .Entries<FileCleanupTask>()
+            .Where(entry => entry.State == EntityState.Added)
+            .ToArray();
+        if (cleanupEntries.Length == 0)
+        {
+            return await base.SaveChangesAsync(cancellationToken);
+        }
+
+        var cleanupTasks = cleanupEntries
+            .Select(entry => entry.Entity)
+            .GroupBy(task => task.ObjectKey, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToArray();
+        foreach (var entry in cleanupEntries)
+        {
+            entry.State = EntityState.Detached;
+        }
+
+        if (Database.CurrentTransaction is not null)
+        {
+            return await SaveBusinessChangesAndUpsertCleanupTasksAsync(
+                cleanupTasks,
+                cancellationToken);
+        }
+
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        var affected = await SaveBusinessChangesAndUpsertCleanupTasksAsync(
+            cleanupTasks,
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return affected;
+    }
+
+    private async Task<int> SaveBusinessChangesAndUpsertCleanupTasksAsync(
+        IReadOnlyCollection<FileCleanupTask> cleanupTasks,
+        CancellationToken cancellationToken)
+    {
+        var affected = await base.SaveChangesAsync(cancellationToken);
+        foreach (var task in cleanupTasks)
+        {
+            affected += await Database.ExecuteSqlInterpolatedAsync($$"""
+                INSERT INTO file_cleanup_tasks
+                    (id, object_key, attempt_count, next_attempt_at, last_error, created_at)
+                VALUES
+                    ({{task.Id}}, {{task.ObjectKey}}, {{task.AttemptCount}}, {{task.NextAttemptAt}}, NULL, {{task.CreatedAt}})
+                ON CONFLICT (object_key) DO NOTHING
+                """, cancellationToken);
+        }
+
+        return affected;
     }
 
     private async Task ExecuteWithIsolationAsync(

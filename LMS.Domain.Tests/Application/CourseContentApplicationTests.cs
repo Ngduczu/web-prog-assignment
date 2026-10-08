@@ -60,6 +60,34 @@ public class CourseContentApplicationTests
     }
 
     [Fact]
+    public async Task CleanupFailuresDoNotReplaceOriginalDatabaseFailure()
+    {
+        var teacher = CreateTeacher();
+        var course = CreateCourse(teacher);
+        var lesson = new Lesson(course.Id, "Lesson", null, 0, teacher.Id);
+        var storage = new FakeFileStorage { FailDelete = true };
+        var cleanup = new FailingFileCleanupQueue();
+        var service = CreateLessonService(
+            teacher,
+            course,
+            lesson,
+            new FakeMaterialRepository(),
+            storage,
+            new FakeUnitOfWork(shouldFail: true),
+            cleanup);
+        await using var content = new MemoryStream([1, 2, 3]);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UploadMaterialAsync(
+                lesson.Id,
+                new FileUpload("lesson.pdf", "application/pdf", content.Length, content)));
+
+        Assert.Equal("Database failure", exception.Message);
+        Assert.Equal(["stored/object.pdf"], cleanup.EnqueuedObjectKeys);
+        Assert.Equal(["stored/object.pdf"], storage.DeletedObjectKeys);
+    }
+
+    [Fact]
     public async Task MaterialLargerThanCourseLimitIsRejectedBeforeStorageUpload()
     {
         var teacher = CreateTeacher();
@@ -359,7 +387,8 @@ public class CourseContentApplicationTests
         Lesson lesson,
         FakeMaterialRepository materials,
         FakeFileStorage storage,
-        FakeUnitOfWork unitOfWork) =>
+        FakeUnitOfWork unitOfWork,
+        IFileCleanupQueue? fileCleanup = null) =>
         new(
             new FakeLessonRepository(lesson),
             materials,
@@ -367,7 +396,8 @@ public class CourseContentApplicationTests
             new FakeEnrollmentRepository(),
             storage,
             unitOfWork,
-            new FakeCurrentUser(teacher));
+            new FakeCurrentUser(teacher),
+            fileCleanup);
 
     private static User CreateTeacher() => new(
         $"{Guid.NewGuid():N}@example.com",
@@ -423,6 +453,7 @@ public class CourseContentApplicationTests
 
     private sealed class FakeFileStorage : IFileStorage
     {
+        public bool FailDelete { get; init; }
         public int UploadCount { get; private set; }
         public List<string> DeletedObjectKeys { get; } = [];
         public string? LastOpenedObjectKey { get; private set; }
@@ -454,7 +485,27 @@ public class CourseContentApplicationTests
             CancellationToken cancellationToken = default)
         {
             DeletedObjectKeys.Add(objectKey);
+            if (FailDelete)
+            {
+                throw new InvalidOperationException("Storage cleanup failure");
+            }
+
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FailingFileCleanupQueue : IFileCleanupQueue
+    {
+        public List<string> EnqueuedObjectKeys { get; } = [];
+
+        public void Enqueue(string objectKey) => EnqueuedObjectKeys.Add(objectKey);
+
+        public Task EnqueueImmediatelyAsync(
+            string objectKey,
+            CancellationToken cancellationToken = default)
+        {
+            EnqueuedObjectKeys.Add(objectKey);
+            throw new InvalidOperationException("Cleanup queue failure");
         }
     }
 

@@ -23,6 +23,7 @@ public sealed class ChatService : IChatService
     private readonly IFileStorage _fileStorage;
     private readonly IFileCleanupQueue? _fileCleanup;
     private readonly ITransactionManager? _transactionManager;
+    private readonly ILogger<ChatService>? _logger;
 
     public ChatService(
         ICurrentUser currentUser,
@@ -34,7 +35,8 @@ public sealed class ChatService : IChatService
         IUnitOfWork unitOfWork,
         IFileStorage fileStorage,
         IFileCleanupQueue? fileCleanup = null,
-        ITransactionManager? transactionManager = null)
+        ITransactionManager? transactionManager = null,
+        ILogger<ChatService>? logger = null)
     {
         _currentUser = currentUser;
         _rooms = rooms;
@@ -46,6 +48,7 @@ public sealed class ChatService : IChatService
         _fileStorage = fileStorage;
         _fileCleanup = fileCleanup;
         _transactionManager = transactionManager;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyList<ChatRoomDto>> ListRoomsAsync(CancellationToken cancellationToken)
@@ -265,18 +268,37 @@ public sealed class ChatService : IChatService
         {
             if (uploadedObjectKey is not null)
             {
-                if (_fileCleanup is null)
-                {
-                    await _fileStorage.DeleteIfExistsAsync(uploadedObjectKey, CancellationToken.None);
-                }
-                else
-                {
-                    await _fileCleanup.EnqueueImmediatelyAsync(
-                        uploadedObjectKey,
-                        CancellationToken.None);
-                }
+                await CleanupFileBestEffortAsync(uploadedObjectKey);
             }
             throw;
+        }
+    }
+
+    private async Task CleanupFileBestEffortAsync(string objectKey)
+    {
+        if (_fileCleanup is not null)
+        {
+            try
+            {
+                await _fileCleanup.EnqueueImmediatelyAsync(objectKey, CancellationToken.None);
+                return;
+            }
+            catch (Exception exception)
+            {
+                _logger?.LogWarning(
+                    exception,
+                    "Could not enqueue file cleanup for {ObjectKey}; falling back to direct deletion.",
+                    objectKey);
+            }
+        }
+
+        try
+        {
+            await _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError(exception, "Best-effort file cleanup failed for {ObjectKey}.", objectKey);
         }
     }
 

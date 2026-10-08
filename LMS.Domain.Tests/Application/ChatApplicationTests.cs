@@ -339,6 +339,56 @@ public class ChatApplicationTests
     }
 
     [Fact]
+    public async Task AttachmentCleanupFailuresPreserveOriginalMessageSaveFailure()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var course = new Course("Course", null, otherUserId, 30, CourseStatus.Open, otherUserId);
+        var room = ChatRoom.CreateDirectMessage(userId, otherUserId);
+        var fixture = CreateFixture(userId, Role.Student, course, room);
+        var persistenceFailure = new InvalidOperationException("Message database failure");
+        fixture.UnitOfWork
+            .Setup(unit => unit.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(persistenceFailure);
+        fixture.FileStorage
+            .Setup(storage => storage.UploadAsync(
+                It.IsAny<FileUpload>(),
+                It.IsAny<string>(),
+                It.IsAny<long?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StoredFile("chat.pdf", "chat/object.pdf", "application/pdf", 3));
+        fixture.FileCleanup
+            .Setup(queue => queue.EnqueueImmediatelyAsync(
+                "chat/object.pdf",
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Cleanup queue failure"));
+        fixture.FileStorage
+            .Setup(storage => storage.DeleteIfExistsAsync(
+                "chat/object.pdf",
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Storage cleanup failure"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.SendMessageWithAttachmentAsync(
+                room.Id,
+                null,
+                null,
+                "chat.pdf",
+                "application/pdf",
+                3,
+                new MemoryStream([1, 2, 3]),
+                CancellationToken.None));
+
+        Assert.Same(persistenceFailure, exception);
+        fixture.FileCleanup.Verify(queue => queue.EnqueueImmediatelyAsync(
+            "chat/object.pdf",
+            It.IsAny<CancellationToken>()), Times.Once);
+        fixture.FileStorage.Verify(storage => storage.DeleteIfExistsAsync(
+            "chat/object.pdf",
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task ReadReceiptNeverMovesBackward()
     {
         var userId = Guid.NewGuid();
@@ -434,6 +484,7 @@ public class ChatApplicationTests
         var messages = new Mock<IChatMessageRepository>();
 
         var fileStorage = new Mock<IFileStorage>();
+        var fileCleanup = new Mock<IFileCleanupQueue>();
         var service = new ChatService(
             currentUser.Object,
             rooms.Object,
@@ -442,9 +493,10 @@ public class ChatApplicationTests
             enrollments.Object,
             Mock.Of<IUserRepository>(),
             unitOfWork.Object,
-            fileStorage.Object);
+            fileStorage.Object,
+            fileCleanup.Object);
 
-        return new Fixture(service, courses, enrollments, messages, unitOfWork, fileStorage);
+        return new Fixture(service, courses, enrollments, messages, unitOfWork, fileStorage, fileCleanup);
     }
 
     private sealed record Fixture(
@@ -453,5 +505,6 @@ public class ChatApplicationTests
         Mock<IEnrollmentRepository> Enrollments,
         Mock<IChatMessageRepository> Messages,
         Mock<IUnitOfWork> UnitOfWork,
-        Mock<IFileStorage> FileStorage);
+        Mock<IFileStorage> FileStorage,
+        Mock<IFileCleanupQueue> FileCleanup);
 }

@@ -20,6 +20,7 @@ public sealed class ExerciseService : IExerciseService
     private readonly ICurrentUser _currentUser;
     private readonly IClock? _clock;
     private readonly IFileCleanupQueue? _fileCleanup;
+    private readonly ILogger<ExerciseService>? _logger;
 
     public ExerciseService(
         IExerciseRepository exercises,
@@ -29,7 +30,8 @@ public sealed class ExerciseService : IExerciseService
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
         IClock? clock = null,
-        IFileCleanupQueue? fileCleanup = null)
+        IFileCleanupQueue? fileCleanup = null,
+        ILogger<ExerciseService>? logger = null)
     {
         _exercises = exercises;
         _courses = courses;
@@ -39,6 +41,7 @@ public sealed class ExerciseService : IExerciseService
         _currentUser = currentUser;
         _clock = clock;
         _fileCleanup = fileCleanup;
+        _logger = logger;
     }
 
     public async Task<ExerciseDto> CreateAsync(
@@ -191,13 +194,13 @@ public sealed class ExerciseService : IExerciseService
         }
         catch
         {
-            await CleanupFileAsync(storedFile.ObjectKey);
+            await CleanupFileBestEffortAsync(storedFile.ObjectKey);
             throw;
         }
 
         if (oldObjectKey is not null && _fileCleanup is null)
         {
-            await CleanupFileAsync(oldObjectKey);
+            await CleanupFileBestEffortAsync(oldObjectKey);
         }
 
         var refreshed = await GetExerciseAsync(exerciseId, true, cancellationToken);
@@ -231,18 +234,36 @@ public sealed class ExerciseService : IExerciseService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         if (objectKey is not null && _fileCleanup is null)
         {
-            await CleanupFileAsync(objectKey);
+            await CleanupFileBestEffortAsync(objectKey);
         }
     }
 
-    private Task CleanupFileAsync(string objectKey)
+    private async Task CleanupFileBestEffortAsync(string objectKey)
     {
-        if (_fileCleanup is null)
+        if (_fileCleanup is not null)
         {
-            return _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
+            try
+            {
+                await _fileCleanup.EnqueueImmediatelyAsync(objectKey, CancellationToken.None);
+                return;
+            }
+            catch (Exception exception)
+            {
+                _logger?.LogWarning(
+                    exception,
+                    "Could not enqueue file cleanup for {ObjectKey}; falling back to direct deletion.",
+                    objectKey);
+            }
         }
 
-        return _fileCleanup.EnqueueImmediatelyAsync(objectKey, CancellationToken.None);
+        try
+        {
+            await _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError(exception, "Best-effort file cleanup failed for {ObjectKey}.", objectKey);
+        }
     }
 
     private async Task<ExerciseDto> ChangeStatusAsync(

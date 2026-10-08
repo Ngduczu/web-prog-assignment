@@ -19,6 +19,7 @@ public sealed class LessonService : ILessonService
     private readonly IFileCleanupQueue? _fileCleanup;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
+    private readonly ILogger<LessonService>? _logger;
 
     public LessonService(
         ILessonRepository lessons,
@@ -28,7 +29,8 @@ public sealed class LessonService : ILessonService
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
-        IFileCleanupQueue? fileCleanup = null)
+        IFileCleanupQueue? fileCleanup = null,
+        ILogger<LessonService>? logger = null)
     {
         _lessons = lessons;
         _materials = materials;
@@ -38,6 +40,7 @@ public sealed class LessonService : ILessonService
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
         _fileCleanup = fileCleanup;
+        _logger = logger;
     }
 
     public async Task<LessonDto> CreateAsync(
@@ -198,7 +201,7 @@ public sealed class LessonService : ILessonService
         }
         catch
         {
-            await CleanupFileAsync(storedFile.ObjectKey);
+            await CleanupFileBestEffortAsync(storedFile.ObjectKey);
             throw;
         }
     }
@@ -223,7 +226,7 @@ public sealed class LessonService : ILessonService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         if (_fileCleanup is null)
         {
-            await CleanupFileAsync(material.ObjectKey);
+            await CleanupFileBestEffortAsync(material.ObjectKey);
         }
     }
 
@@ -248,19 +251,37 @@ public sealed class LessonService : ILessonService
         {
             foreach (var material in materials)
             {
-                await CleanupFileAsync(material.ObjectKey);
+                await CleanupFileBestEffortAsync(material.ObjectKey);
             }
         }
     }
 
-    private Task CleanupFileAsync(string objectKey)
+    private async Task CleanupFileBestEffortAsync(string objectKey)
     {
-        if (_fileCleanup is null)
+        if (_fileCleanup is not null)
         {
-            return _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
+            try
+            {
+                await _fileCleanup.EnqueueImmediatelyAsync(objectKey, CancellationToken.None);
+                return;
+            }
+            catch (Exception exception)
+            {
+                _logger?.LogWarning(
+                    exception,
+                    "Could not enqueue file cleanup for {ObjectKey}; falling back to direct deletion.",
+                    objectKey);
+            }
         }
 
-        return _fileCleanup.EnqueueImmediatelyAsync(objectKey, CancellationToken.None);
+        try
+        {
+            await _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError(exception, "Best-effort file cleanup failed for {ObjectKey}.", objectKey);
+        }
     }
 
     private void EnsureStudentCanAccessPublishedLesson(Course course, Lesson lesson)

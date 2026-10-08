@@ -24,6 +24,7 @@ public sealed class SubmissionService : ISubmissionService
     private readonly IClock _clock;
     private readonly ITransactionManager _transactionManager;
     private readonly IFileCleanupQueue? _fileCleanup;
+    private readonly ILogger<SubmissionService>? _logger;
 
     public SubmissionService(
         ISubmissionRepository submissions,
@@ -35,7 +36,8 @@ public sealed class SubmissionService : ISubmissionService
         ICurrentUser currentUser,
         IClock clock,
         ITransactionManager transactionManager,
-        IFileCleanupQueue? fileCleanup = null)
+        IFileCleanupQueue? fileCleanup = null,
+        ILogger<SubmissionService>? logger = null)
     {
         _submissions = submissions;
         _exercises = exercises;
@@ -47,6 +49,7 @@ public sealed class SubmissionService : ISubmissionService
         _clock = clock;
         _transactionManager = transactionManager;
         _fileCleanup = fileCleanup;
+        _logger = logger;
     }
 
     public async Task<SubmissionDto> UploadAsync(
@@ -135,26 +138,44 @@ public sealed class SubmissionService : ISubmissionService
         }
         catch
         {
-            await CleanupFileAsync(storedFile.ObjectKey);
+            await CleanupFileBestEffortAsync(storedFile.ObjectKey);
             throw;
         }
 
         if (oldObjectKey is not null && _fileCleanup is null)
         {
-            await CleanupFileAsync(oldObjectKey);
+            await CleanupFileBestEffortAsync(oldObjectKey);
         }
 
         return result!;
     }
 
-    private Task CleanupFileAsync(string objectKey)
+    private async Task CleanupFileBestEffortAsync(string objectKey)
     {
-        if (_fileCleanup is null)
+        if (_fileCleanup is not null)
         {
-            return _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
+            try
+            {
+                await _fileCleanup.EnqueueImmediatelyAsync(objectKey, CancellationToken.None);
+                return;
+            }
+            catch (Exception exception)
+            {
+                _logger?.LogWarning(
+                    exception,
+                    "Could not enqueue file cleanup for {ObjectKey}; falling back to direct deletion.",
+                    objectKey);
+            }
         }
 
-        return _fileCleanup.EnqueueImmediatelyAsync(objectKey, CancellationToken.None);
+        try
+        {
+            await _fileStorage.DeleteIfExistsAsync(objectKey, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError(exception, "Best-effort file cleanup failed for {ObjectKey}.", objectKey);
+        }
     }
 
     public Task<SubmissionDto> SubmitAsync(
