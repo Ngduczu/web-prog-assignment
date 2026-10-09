@@ -276,6 +276,32 @@ public class ExaminationAttemptApplicationTests
             second.Single(question => question.Id == multipleChoice.Id).Options.Select(option => option.Id).ToArray());
     }
 
+    [Fact]
+    public async Task AdministratorCanListClassAttemptResults()
+    {
+        var fixture = CreateFixture(currentUserRole: Role.Admin);
+        var attempt = new ExaminationAttempt(
+            fixture.Examination.Id,
+            fixture.Student.Id,
+            fixture.Clock.UtcNow,
+            fixture.Examination.Questions.Count);
+        attempt.SetResult(1, fixture.Examination.Questions.Count);
+        attempt.Submit();
+        fixture.Attempts.Items.Add(attempt);
+        fixture.Attempts.ResultItems.Add(new ExaminationAttemptOverview(attempt, fixture.Student));
+
+        var result = await fixture.Service.ListResultsAsync(
+            fixture.Examination.Id,
+            new ExaminationAttemptQuery(1, 20));
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal(fixture.Student.Id, item.StudentId);
+        Assert.Equal(fixture.Student.Email, item.StudentEmail);
+        Assert.Equal(1, item.CorrectAnswers);
+        Assert.Equal(5m, item.Score);
+        Assert.Equal(1, result.TotalCount);
+    }
+
     private static Fixture CreateFixture(
         int maxViolations = 5,
         bool enrollmentAccepted = true,
@@ -397,6 +423,7 @@ public class ExaminationAttemptApplicationTests
     private sealed class FakeExaminationAttemptRepository : IExaminationAttemptRepository
     {
         public List<ExaminationAttempt> Items { get; } = [];
+        public List<ExaminationAttemptOverview> ResultItems { get; } = [];
         public List<ExaminationViolation> Violations { get; } = [];
 
         public Task<ExaminationAttempt?> GetByIdAsync(
@@ -435,6 +462,22 @@ public class ExaminationAttemptApplicationTests
             Task.FromResult<IReadOnlyList<ExaminationAttempt>>(Items.Where(attempt =>
                 attempt.ExaminationId == examinationId &&
                 attempt.Status is ExaminationAttemptStatus.InProgress or ExaminationAttemptStatus.Disconnected).ToArray());
+
+        public Task<IReadOnlyList<ExaminationAttemptOverview>> ListByExaminationAsync(
+            Guid examinationId,
+            int skip,
+            int take,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ExaminationAttemptOverview>>(ResultItems
+                .Where(item => item.Attempt.ExaminationId == examinationId)
+                .Skip(skip)
+                .Take(take)
+                .ToArray());
+
+        public Task<int> CountByExaminationAsync(
+            Guid examinationId,
+            CancellationToken cancellationToken) => Task.FromResult(ResultItems.Count(item =>
+                item.Attempt.ExaminationId == examinationId));
 
         public Task<StudentAnswer?> GetAnswerAsync(
             Guid attemptId,
@@ -496,12 +539,21 @@ public class ExaminationAttemptApplicationTests
             CancellationToken cancellationToken) =>
             Task.FromResult<Examination?>(_examination.Id == id ? _examination : null);
 
+        public Task<Examination?> GetByIdForUpdateAsync(
+            Guid id,
+            bool includeDefinition,
+            CancellationToken cancellationToken) => GetByIdAsync(id, includeDefinition, cancellationToken);
+
         public Task<IReadOnlyList<Examination>> ListByCourseAsync(
             Guid courseId,
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<Examination>>([_examination]);
 
         public void Add(Examination examination)
+        {
+        }
+
+        public void RemoveQuestionDefinition(Examination examination)
         {
         }
     }
