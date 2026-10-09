@@ -26,6 +26,15 @@ public sealed class LessonRepository : ILessonRepository
             .ThenBy(lesson => lesson.Id)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Lesson>> ListForUpdateByCourseAsync(
+        Guid courseId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.Lessons
+            .Where(lesson => lesson.CourseId == courseId)
+            .OrderBy(lesson => lesson.Order)
+            .ThenBy(lesson => lesson.Id)
+            .ToListAsync(cancellationToken);
+
     public Task<bool> OrderExistsAsync(
         Guid courseId,
         int order,
