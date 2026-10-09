@@ -4,6 +4,9 @@ using LMS.Api.application.features.passwordreset;
 using LMS.Api.application.features.auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Options;
+using LMS.Api.infrastructure.authentication.OAuth;
 using LMS.Api.presentation;
 
 namespace LMS.Api.presentation.controllers;
@@ -104,11 +107,12 @@ public class AuthController : ControllerBase
 
     [HttpGet("oauth/{provider}/callback")]
     [AllowAnonymous]
-    public async Task<ActionResult<object>> OAuthCallback(
+    public async Task<IActionResult> OAuthCallback(
         string provider,
         [FromQuery] string code,
         [FromQuery] string state,
         [FromServices] IOAuthFlowService oauthFlow,
+        [FromServices] IOptions<GoogleOAuthOptions> googleOptions,
         CancellationToken ct)
     {
         Request.Cookies.TryGetValue(
@@ -119,6 +123,17 @@ public class AuthController : ControllerBase
             ct);
         Response.SetNoStore();
         Response.DeleteOAuthBindingCookie(state);
+
+        if (result.Payload is OAuthLoginCodeResponse loginCode &&
+            provider.Equals("Google", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(googleOptions.Value.ClientCallbackUri))
+        {
+            return Redirect(QueryHelpers.AddQueryString(
+                googleOptions.Value.ClientCallbackUri,
+                "loginCode",
+                loginCode.LoginCode));
+        }
+
         return Ok(result.Payload);
     }
 }
