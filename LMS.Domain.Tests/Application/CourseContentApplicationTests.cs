@@ -381,6 +381,53 @@ public class CourseContentApplicationTests
         Assert.Empty(exercises.Items);
     }
 
+    [Fact]
+    public async Task CourseManagerCanReorderEveryLessonInCourse()
+    {
+        var teacher = CreateTeacher();
+        var course = CreateCourse(teacher);
+        var first = new Lesson(course.Id, "First", null, 1, teacher.Id);
+        var second = new Lesson(course.Id, "Second", null, 2, teacher.Id);
+        var lessons = new FakeLessonRepository(first, second);
+        var unitOfWork = new FakeUnitOfWork();
+        var service = new LessonService(
+            lessons,
+            new FakeMaterialRepository(),
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(),
+            new FakeFileStorage(),
+            unitOfWork,
+            new FakeCurrentUser(teacher));
+
+        var result = await service.ReorderAsync(
+            course.Id,
+            new ReorderLessonsRequest([second.Id, first.Id]));
+
+        Assert.Equal([second.Id, first.Id], result.Select(lesson => lesson.Id));
+        Assert.Equal([1, 2], result.Select(lesson => lesson.Order));
+        Assert.Equal(2, unitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task ReorderingRequiresCompleteLessonList()
+    {
+        var teacher = CreateTeacher();
+        var course = CreateCourse(teacher);
+        var first = new Lesson(course.Id, "First", null, 1, teacher.Id);
+        var second = new Lesson(course.Id, "Second", null, 2, teacher.Id);
+        var service = new LessonService(
+            new FakeLessonRepository(first, second),
+            new FakeMaterialRepository(),
+            new FakeCourseRepository(course),
+            new FakeEnrollmentRepository(),
+            new FakeFileStorage(),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher));
+
+        await Assert.ThrowsAsync<LMS.Api.domain.exceptions.BadRequestException>(() =>
+            service.ReorderAsync(course.Id, new ReorderLessonsRequest([first.Id])));
+    }
+
     private static LessonService CreateLessonService(
         User teacher,
         Course course,
@@ -599,6 +646,12 @@ public class CourseContentApplicationTests
             Task.FromResult(Items.SingleOrDefault(lesson => lesson.Id == id));
 
         public Task<IReadOnlyList<Lesson>> ListByCourseAsync(
+            Guid courseId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Lesson>>(
+                Items.Where(lesson => lesson.CourseId == courseId).ToArray());
+
+        public Task<IReadOnlyList<Lesson>> ListForUpdateByCourseAsync(
             Guid courseId,
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<Lesson>>(
