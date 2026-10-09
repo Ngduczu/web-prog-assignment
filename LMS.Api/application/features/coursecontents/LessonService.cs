@@ -20,6 +20,7 @@ public sealed class LessonService : ILessonService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
     private readonly ILogger<LessonService>? _logger;
+    private readonly ITransactionManager? _transactionManager;
 
     public LessonService(
         ILessonRepository lessons,
@@ -30,7 +31,8 @@ public sealed class LessonService : ILessonService
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
         IFileCleanupQueue? fileCleanup = null,
-        ILogger<LessonService>? logger = null)
+        ILogger<LessonService>? logger = null,
+        ITransactionManager? transactionManager = null)
     {
         _lessons = lessons;
         _materials = materials;
@@ -41,6 +43,7 @@ public sealed class LessonService : ILessonService
         _currentUser = currentUser;
         _fileCleanup = fileCleanup;
         _logger = logger;
+        _transactionManager = transactionManager;
     }
 
     public async Task<LessonDto> CreateAsync(
@@ -132,6 +135,78 @@ public sealed class LessonService : ILessonService
         lesson.SetModifiedBy(actorId);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Map(lesson);
+    }
+
+    public async Task<IReadOnlyList<LessonDto>> ReorderAsync(
+        Guid courseId,
+        ReorderLessonsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(courseId, "Course id");
+        var course = await GetCourseAsync(courseId, cancellationToken);
+        var actorId = CourseAuthorization.EnsureCanManage(_currentUser, course);
+        var requestedIds = request.LessonIds?.ToArray()
+            ?? throw new BadRequestException("Lesson ids are required.");
+
+        if (requestedIds.Any(id => id == Guid.Empty) || requestedIds.Distinct().Count() != requestedIds.Length)
+        {
+            throw new BadRequestException("Lesson ids must be unique and valid.");
+        }
+
+        IReadOnlyList<LessonDto> result = [];
+
+        async Task Reorder(CancellationToken transactionCancellationToken)
+        {
+            var lessons = await _lessons.ListForUpdateByCourseAsync(courseId, transactionCancellationToken);
+            if (lessons.Count != requestedIds.Length ||
+                !lessons.Select(lesson => lesson.Id).ToHashSet().SetEquals(requestedIds))
+            {
+                throw new BadRequestException("The complete lesson list for this course is required.");
+            }
+
+            if (lessons.Count == 0)
+            {
+                result = [];
+                return;
+            }
+
+            var temporaryEnd = (long)lessons.Max(lesson => lesson.Order) + (lessons.Count * 2L);
+            if (temporaryEnd > int.MaxValue)
+            {
+                throw new ConflictException("Lesson order values are too large to reorder safely.");
+            }
+
+            var temporaryStart = lessons.Max(lesson => lesson.Order) + lessons.Count + 1;
+            var byId = lessons.ToDictionary(lesson => lesson.Id);
+
+            for (var index = 0; index < requestedIds.Length; index++)
+            {
+                var lesson = byId[requestedIds[index]];
+                lesson.SetOrder(temporaryStart + index);
+                lesson.SetModifiedBy(actorId);
+            }
+
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+
+            for (var index = 0; index < requestedIds.Length; index++)
+            {
+                byId[requestedIds[index]].SetOrder(index + 1);
+            }
+
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            result = requestedIds.Select(id => Map(byId[id])).ToArray();
+        }
+
+        if (_transactionManager is null)
+        {
+            await Reorder(cancellationToken);
+        }
+        else
+        {
+            await _transactionManager.ExecuteSerializableAsync(Reorder, cancellationToken);
+        }
+
+        return result;
     }
 
     public async Task<FileContent> GetMaterialContentAsync(
