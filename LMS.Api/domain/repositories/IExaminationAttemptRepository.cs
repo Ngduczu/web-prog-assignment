@@ -1,6 +1,9 @@
 using LMS.Api.domain.Entities.Examinations;
+using LMS.Api.domain.Entities.Users;
 
 namespace LMS.Api.domain.repositories;
+
+public sealed record ExaminationAttemptOverview(ExaminationAttempt Attempt, User Student);
 
 public interface IExaminationAttemptRepository
 {
@@ -18,6 +21,14 @@ public interface IExaminationAttemptRepository
         bool includeAnswers,
         CancellationToken cancellationToken);
     Task<IReadOnlyList<ExaminationAttempt>> ListActiveByExaminationAsync(
+        Guid examinationId,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<ExaminationAttemptOverview>> ListByExaminationAsync(
+        Guid examinationId,
+        int skip,
+        int take,
+        CancellationToken cancellationToken);
+    Task<int> CountByExaminationAsync(
         Guid examinationId,
         CancellationToken cancellationToken);
     Task<IReadOnlyList<ExaminationAttempt>> ListExpiredAsync(
