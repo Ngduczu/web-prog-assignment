@@ -403,6 +403,12 @@ public sealed class SubmissionService : ISubmissionService
         submission.Id,
         submission.ExerciseId,
         submission.StudentId,
+        submission.Student is null
+            ? null
+            : new SubmissionStudentDto(
+                submission.Student.Id,
+                submission.Student.FullName,
+                submission.Student.Email),
         submission.Status,
         submission.SubmittedAt,
         submission.Grade,
