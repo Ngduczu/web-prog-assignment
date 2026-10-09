@@ -56,5 +56,6 @@ public class Examination
     }
     public void SetDisplayOptions(bool shuffleQuestions, bool showScoreImmediately) { ShuffleQuestions = shuffleQuestions; ShowScoreImmediately = showScoreImmediately; Touch(); }
     public void SetModifiedBy(Guid modifiedById) { ModifiedById = modifiedById; Touch(); }
+    public void ClearQuestionDefinition() { Questions.Clear(); QuestionSelectionRules.Clear(); Touch(); }
     private void Touch() { ModifiedAt = DateTime.UtcNow; }
 }
