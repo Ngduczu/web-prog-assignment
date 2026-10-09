@@ -614,6 +614,16 @@ public class CourseApplicationTests
             Task.FromResult<IReadOnlyList<ChatRoom>>(
                 _rooms.Where(room => room.Participants.Any(participant => participant.UserId == userId)).ToArray());
 
+        public Task<ChatRoom?> EnsureCourseParticipantAsync(
+            Guid roomId,
+            Guid userId,
+            CancellationToken cancellationToken)
+        {
+            var room = _rooms.SingleOrDefault(item => item.Id == roomId);
+            room?.AddCourseParticipant(userId);
+            return Task.FromResult(room);
+        }
+
         public void Add(ChatRoom room) => _rooms.Add(room);
     }
 }
