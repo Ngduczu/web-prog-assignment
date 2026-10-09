@@ -1,5 +1,6 @@
 using LMS.Api.domain.Enums.Examinations;
 using LMS.Api.domain.Enums.Questions;
+using LMS.Api.application.common;
 
 namespace LMS.Api.application.features.examinationattempts;
 
@@ -27,6 +28,22 @@ public sealed record ExaminationAttemptDto(
     int ViolationCount,
     int? CorrectAnswers,
     int? TotalQuestions,
+    decimal? Score);
+
+public sealed record ExaminationAttemptQuery(int Page = 1, int PageSize = 20);
+public sealed record ExaminationAttemptResultDto(
+    Guid Id,
+    Guid ExaminationId,
+    Guid StudentId,
+    string StudentFullName,
+    string StudentEmail,
+    ExaminationAttemptStatus Status,
+    ExaminationSubmitReason? SubmitReason,
+    DateTime StartedAt,
+    DateTime? SubmittedAt,
+    int ViolationCount,
+    int? CorrectAnswers,
+    int TotalQuestions,
     decimal? Score);
 
 public sealed record StudentExamOptionDto(Guid Id, string Content, int Order);
@@ -70,5 +87,9 @@ public interface IExaminationAttemptService
     Task<ExaminationAttemptDto> AutoSubmitAsync(
         Guid attemptId,
         ExaminationSubmitReason reason,
+        CancellationToken cancellationToken = default);
+    Task<PagedResult<ExaminationAttemptResultDto>> ListResultsAsync(
+        Guid examinationId,
+        ExaminationAttemptQuery query,
         CancellationToken cancellationToken = default);
 }
