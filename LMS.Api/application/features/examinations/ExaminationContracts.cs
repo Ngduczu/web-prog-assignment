@@ -27,7 +27,9 @@ public sealed record CreateExaminationRequest(
     bool ShuffleQuestions,
     bool ShowScoreImmediately,
     ExaminationSecuritySettings Security,
-    IReadOnlyList<QuestionSelectionRuleInput> QuestionSelectionRules);
+    IReadOnlyList<QuestionSelectionRuleInput> QuestionSelectionRules,
+    ExaminationQuestionSelectionMode SelectionMode = ExaminationQuestionSelectionMode.Random,
+    IReadOnlyList<Guid>? QuestionIds = null);
 
 public sealed record UpdateExaminationRequest(
     string Title,
@@ -38,6 +40,11 @@ public sealed record UpdateExaminationRequest(
     bool ShuffleQuestions,
     bool ShowScoreImmediately,
     ExaminationSecuritySettings Security);
+
+public sealed record UpdateExaminationQuestionSetRequest(
+    ExaminationQuestionSelectionMode SelectionMode,
+    IReadOnlyList<QuestionSelectionRuleInput>? QuestionSelectionRules,
+    IReadOnlyList<Guid>? QuestionIds);
 
 public sealed record QuestionSelectionRuleDto(
     Guid Id,
@@ -58,6 +65,8 @@ public sealed record ExaminationDto(
     bool ShowScoreImmediately,
     ExaminationSecuritySettings Security,
     IReadOnlyList<QuestionSelectionRuleDto> QuestionSelectionRules,
+    ExaminationQuestionSelectionMode SelectionMode,
+    IReadOnlyList<Guid> SelectedQuestionIds,
     int QuestionCount,
     DateTime CreatedAt,
     DateTime ModifiedAt);
@@ -99,6 +108,10 @@ public interface IExaminationService
     Task<ExaminationDto> UpdateAsync(
         Guid examinationId,
         UpdateExaminationRequest request,
+        CancellationToken cancellationToken = default);
+    Task<ExaminationDto> UpdateQuestionSetAsync(
+        Guid examinationId,
+        UpdateExaminationQuestionSetRequest request,
         CancellationToken cancellationToken = default);
     Task<ExaminationDto> PublishAsync(
         Guid examinationId,
