@@ -2,6 +2,7 @@ using System.Net.Mail;
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.common;
+using LMS.Api.application.features.auth.utils;
 using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Users;
 using LMS.Api.domain.exceptions;
@@ -33,7 +34,78 @@ public sealed class UserService : IUserService
         }
 
         var user = await _users.GetByIdAsync(userId, cancellationToken) ?? throw new NotFoundException("User was not found.");
+        var isGoogleLinked = await _users.GetExternalLoginAsync(
+            userId,
+            ExternalProvider.Google,
+            cancellationToken) is not null;
+        return Map(user) with { IsGoogleLinked = isGoogleLinked };
+    }
+
+    public async Task<ChatUserSearchDto> FindForChatByEmailAsync(
+        string email,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedEmail = NormalizeEmail(email);
+        var actorId = _currentUser.GetRequiredUserId();
+        var user = await _users.GetByEmailAsync(normalizedEmail, cancellationToken);
+        if (user is null || user.Status != AccountStatus.Active)
+            throw new NotFoundException("An active user with this email was not found.");
+        if (user.Id == actorId)
+            throw new BadRequestException("You cannot start a direct conversation with yourself.");
+        return new ChatUserSearchDto(user.Id, user.Email, user.FullName, user.AvatarUrl);
+    }
+
+    public async Task<UserProfileDto> UpdateMyProfileAsync(
+        UpdateMyProfileRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 100)
+            throw new BadRequestException("Full name is invalid.");
+        if (request.Phone?.Trim().Length > 20)
+            throw new BadRequestException("Phone cannot exceed 20 characters.");
+
+        var actorId = _currentUser.GetRequiredUserId();
+        var user = await _users.GetByIdAsync(actorId, cancellationToken)
+            ?? throw new NotFoundException("User was not found.");
+        user.SetFullName(request.FullName.Trim());
+        user.SetPhone(request.Phone?.Trim() ?? string.Empty);
+        user.SetModifiedBy(actorId);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Map(user);
+    }
+
+    public async Task ChangeMyPasswordAsync(
+        ChangeMyPasswordRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!AuthValidation.IsPasswordValid(request.NewPassword) ||
+            request.NewPassword != request.PasswordConfirm)
+        {
+            throw new BadRequestException("Password is invalid or confirmation does not match.");
+        }
+
+        var actorId = _currentUser.GetRequiredUserId();
+        var user = await _users.GetByIdAsync(actorId, cancellationToken)
+            ?? throw new NotFoundException("User was not found.");
+
+        if (user.PasswordHash is not null)
+        {
+            if (string.IsNullOrEmpty(request.CurrentPassword) ||
+                !_hasher.Verify(request.CurrentPassword, user.PasswordHash))
+            {
+                throw new BadRequestException("Current password is incorrect.");
+            }
+
+            if (_hasher.Verify(request.NewPassword, user.PasswordHash))
+            {
+                throw new BadRequestException("New password must be different from the current password.");
+            }
+        }
+
+        user.SetPasswordHash(_hasher.Hash(request.NewPassword));
+        user.SetModifiedBy(actorId);
+        user.RevokeSessions();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<PagedResult<UserProfileDto>> ListAsync(UserQuery query, CancellationToken cancellationToken = default)
@@ -133,5 +205,5 @@ public sealed class UserService : IUserService
     }
     private static void ValidatePage(int page, int size) { if (page <= 0 || size is < 1 or > 100) throw new BadRequestException("Invalid pagination."); }
     private static string NormalizeEmail(string email) { var value = email?.Trim().ToLowerInvariant(); if (string.IsNullOrWhiteSpace(value) || value.Length > 255 || !MailAddress.TryCreate(value, out var address) || address.Address != value) throw new BadRequestException("Email address is invalid."); return value; }
-    private static UserProfileDto Map(User u) => new(u.Id, u.Email, u.FullName, u.Phone, u.Role, u.Status, u.AvatarUrl, u.CreatedAt);
+    private static UserProfileDto Map(User u) => new(u.Id, u.Email, u.FullName, u.Phone, u.Role, u.Status, u.AvatarUrl, u.CreatedAt, u.PasswordHash is not null);
 }
