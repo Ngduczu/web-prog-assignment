@@ -160,7 +160,155 @@ public class UserApplicationTests
                 Role.Student)));
     }
 
-    private static Fixture CreateFixture(User actor, User target, int adminCount)
+    [Fact]
+    public async Task AuthenticatedUserCanUpdateOwnProfile()
+    {
+        var actor = CreateAdmin();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+
+        var result = await fixture.Service.UpdateMyProfileAsync(
+            new UpdateMyProfileRequest("  Updated profile  ", " 0901234567 "));
+
+        Assert.Equal("Updated profile", result.FullName);
+        Assert.Equal("0901234567", result.Phone);
+        Assert.Equal(actor.Id, actor.ModifiedById);
+        fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProfileReportsWhetherGoogleAccountIsLinked(bool linked)
+    {
+        var actor = CreateAdmin();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+        var externalAccount = linked
+            ? new ExternalUser(actor.Id, ExternalProvider.Google, "google-user-id")
+            : null;
+        fixture.Users.Setup(repository => repository.GetExternalLoginAsync(
+                actor.Id,
+                ExternalProvider.Google,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(externalAccount);
+
+        var result = await fixture.Service.GetProfileAsync(actor.Id);
+
+        Assert.Equal(linked, result.IsGoogleLinked);
+        fixture.Users.Verify(repository => repository.GetExternalLoginAsync(
+            actor.Id,
+            ExternalProvider.Google,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task LocalUserCanChangePasswordAndRevokeAllSessions()
+    {
+        var actor = CreateAdmin();
+        var hasher = new Mock<IPasswordHasher>();
+        hasher.Setup(item => item.Verify("current-password", "hash")).Returns(true);
+        hasher.Setup(item => item.Verify("new-password", "hash")).Returns(false);
+        hasher.Setup(item => item.Hash("new-password")).Returns("new-hash");
+        var fixture = CreateFixture(actor, actor, adminCount: 1, hasher.Object);
+
+        await fixture.Service.ChangeMyPasswordAsync(new ChangeMyPasswordRequest(
+            "current-password",
+            "new-password",
+            "new-password"));
+
+        Assert.Equal("new-hash", actor.PasswordHash);
+        Assert.Equal(2, actor.AuthVersion);
+        Assert.Equal(actor.Id, actor.ModifiedById);
+        fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ChangePasswordRejectsIncorrectCurrentPassword()
+    {
+        var actor = CreateAdmin();
+        var hasher = new Mock<IPasswordHasher>();
+        hasher.Setup(item => item.Verify(It.IsAny<string>(), "hash")).Returns(false);
+        var fixture = CreateFixture(actor, actor, adminCount: 1, hasher.Object);
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            fixture.Service.ChangeMyPasswordAsync(new ChangeMyPasswordRequest(
+                "incorrect-password",
+                "new-password",
+                "new-password")));
+
+        Assert.Equal("hash", actor.PasswordHash);
+        Assert.Equal(1, actor.AuthVersion);
+        fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task OAuthOnlyUserCanCreateLocalPassword()
+    {
+        var actor = new User(
+            $"{Guid.NewGuid():N}@example.com",
+            "OAuth user",
+            null,
+            null,
+            Role.Student,
+            AccountStatus.Active);
+        var hasher = new Mock<IPasswordHasher>();
+        hasher.Setup(item => item.Hash("new-password")).Returns("new-hash");
+        var fixture = CreateFixture(actor, actor, adminCount: 1, hasher.Object);
+
+        await fixture.Service.ChangeMyPasswordAsync(new ChangeMyPasswordRequest(
+            null,
+            "new-password",
+            "new-password"));
+
+        Assert.Equal("new-hash", actor.PasswordHash);
+        Assert.Equal(2, actor.AuthVersion);
+    }
+
+    [Fact]
+    public async Task ChatSearchReturnsMinimalProfileForAnotherActiveUser()
+    {
+        var actor = CreateAdmin();
+        var target = new User(
+            "friend@example.com",
+            "Chat friend",
+            null,
+            "hash",
+            Role.Student,
+            AccountStatus.Active);
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+        fixture.Users.Setup(repository => repository.GetByEmailAsync(
+                "friend@example.com",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(target);
+
+        var result = await fixture.Service.FindForChatByEmailAsync(" FRIEND@example.com ");
+
+        Assert.Equal(target.Id, result.Id);
+        Assert.Equal(target.Email, result.Email);
+        Assert.Equal(target.FullName, result.FullName);
+    }
+
+    [Fact]
+    public async Task ChatSearchRejectsSearchingForSelf()
+    {
+        var actor = CreateAdmin();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+        fixture.Users.Setup(repository => repository.GetByEmailAsync(
+                actor.Email,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(actor);
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            fixture.Service.FindForChatByEmailAsync(actor.Email));
+    }
+
+    private static Fixture CreateFixture(
+        User actor,
+        User target,
+        int adminCount,
+        IPasswordHasher? passwordHasher = null)
     {
         var users = new Mock<IUserManagementRepository>();
         users.Setup(repository => repository.GetByIdAsync(target.Id, It.IsAny<CancellationToken>()))
@@ -179,7 +327,7 @@ public class UserApplicationTests
 
         var service = new UserService(
             users.Object,
-            Mock.Of<IPasswordHasher>(),
+            passwordHasher ?? Mock.Of<IPasswordHasher>(),
             unitOfWork.Object,
             currentUser.Object,
             Mock.Of<ICourseRepository>(),
