@@ -63,7 +63,12 @@ public sealed class ExaminationService : IExaminationService
             request.DueAt,
             request.DurationMinutes,
             request.Security);
-        ValidateSelectionRules(request.QuestionSelectionRules);
+        ValidateQuestionSelection(
+            request.SelectionMode,
+            request.QuestionSelectionRules,
+            request.QuestionIds);
+        var selectionRules = request.QuestionSelectionRules ?? [];
+        var selectedQuestionIds = request.QuestionIds ?? [];
 
         Examination? examination = null;
         await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
@@ -81,75 +86,32 @@ public sealed class ExaminationService : IExaminationService
             examination.SetDisplayOptions(request.ShuffleQuestions, request.ShowScoreImmediately);
             ApplySecurity(examination, request.Security);
 
-            var questionBankIds = request.QuestionSelectionRules
-                .Select(rule => rule.QuestionBankId)
-                .Distinct()
-                .ToArray();
-            var questionBanks = await _questionBanks.ListByIdsAsync(
-                questionBankIds,
+            var definition = await BuildQuestionDefinitionAsync(
+                examination.Id,
+                course,
+                request.SelectionMode,
+                selectionRules,
+                selectedQuestionIds,
                 transactionCancellationToken);
-            if (questionBanks.Count != questionBankIds.Length)
+            foreach (var rule in definition.Rules)
             {
-                throw new NotFoundException("A selected question bank was not found.");
+                examination.QuestionSelectionRules.Add(rule);
             }
 
-            var questionBanksById = questionBanks.ToDictionary(questionBank => questionBank.Id);
-            if (questionBanks.Any(questionBank => questionBank.TeacherId != course.TeacherId))
+            foreach (var question in definition.Questions)
             {
-                throw new ForbiddenException(
-                    "Examinations can only use question banks owned by the course teacher.");
-            }
-
-            var sourceQuestions = await _questions.ListByQuestionBankIdsAsync(
-                questionBankIds,
-                transactionCancellationToken);
-            var questionsByBankId = sourceQuestions
-                .GroupBy(question => question.QuestionBankId)
-                .ToDictionary(group => group.Key, group => group.ToList());
-
-            var snapshotCorrectOptions = new List<(ExaminationQuestion Question, Guid CorrectOptionId)>();
-            var questionOrder = 0;
-
-            foreach (var ruleInput in request.QuestionSelectionRules)
-            {
-                var questionBank = questionBanksById[ruleInput.QuestionBankId];
-                var candidates = questionsByBankId.GetValueOrDefault(ruleInput.QuestionBankId, [])
-                    .Where(question => question.Difficulty == ruleInput.Difficulty)
-                    .ToList();
-
-                if (candidates.Count < ruleInput.QuestionCount)
-                {
-                    throw new ConflictException(
-                        $"Question bank '{questionBank.Name}' does not contain enough {ruleInput.Difficulty} questions.");
-                }
-
-                examination.QuestionSelectionRules.Add(new ExaminationQuestionSelectionRule(
-                    examination.Id,
-                    questionBank.Id,
-                    ruleInput.Difficulty,
-                    ruleInput.QuestionCount));
-
-                Shuffle(candidates);
-                foreach (var sourceQuestion in candidates.Take(ruleInput.QuestionCount))
-                {
-                    var snapshot = CreateSnapshot(
-                        examination.Id,
-                        sourceQuestion,
-                        questionOrder++,
-                        snapshotCorrectOptions);
-                    examination.Questions.Add(snapshot);
-                }
+                examination.Questions.Add(question);
             }
 
             _examinations.Add(examination);
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
 
-            foreach (var (question, correctOptionId) in snapshotCorrectOptions)
+            foreach (var (question, correctOptionId) in definition.CorrectOptions)
             {
                 question.SetCorrectOption(correctOptionId);
             }
 
-            if (snapshotCorrectOptions.Count > 0)
+            if (definition.CorrectOptions.Count > 0)
             {
                 await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
             }
@@ -241,22 +203,91 @@ public sealed class ExaminationService : IExaminationService
             request.DueAt,
             request.DurationMinutes,
             request.Security);
-        var examination = await GetExaminationAsync(examinationId, true, cancellationToken);
-        var actorId = await EnsureCanManageAsync(examination, cancellationToken);
-
-        if (examination.Status != ExaminationStatus.Draft)
+        Examination? examination = null;
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
-            throw new ConflictException("Only draft examinations can be updated.");
-        }
+            examination = await _examinations.GetByIdForUpdateAsync(
+                examinationId,
+                true,
+                transactionCancellationToken)
+                ?? throw new NotFoundException("Examination was not found.");
+            var actorId = await EnsureCanManageAsync(examination, transactionCancellationToken);
 
-        examination.SetTitle(request.Title.Trim());
-        examination.SetDescription(NormalizeOptional(request.Description));
-        examination.SetSchedule(request.StartAt, request.DueAt, request.DurationMinutes);
-        examination.SetDisplayOptions(request.ShuffleQuestions, request.ShowScoreImmediately);
-        ApplySecurity(examination, request.Security);
-        examination.SetModifiedBy(actorId);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(examination);
+            if (examination.Status != ExaminationStatus.Draft)
+            {
+                throw new ConflictException("Only draft examinations can be updated.");
+            }
+
+            examination.SetTitle(request.Title.Trim());
+            examination.SetDescription(NormalizeOptional(request.Description));
+            examination.SetSchedule(request.StartAt, request.DueAt, request.DurationMinutes);
+            examination.SetDisplayOptions(request.ShuffleQuestions, request.ShowScoreImmediately);
+            ApplySecurity(examination, request.Security);
+            examination.SetModifiedBy(actorId);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
+        return Map(examination!);
+    }
+
+    public async Task<ExaminationDto> UpdateQuestionSetAsync(
+        Guid examinationId,
+        UpdateExaminationQuestionSetRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(examinationId, "Examination id");
+        ValidateQuestionSelection(request.SelectionMode, request.QuestionSelectionRules, request.QuestionIds);
+        Examination? examination = null;
+
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
+        {
+            examination = await _examinations.GetByIdForUpdateAsync(
+                examinationId,
+                true,
+                transactionCancellationToken)
+                ?? throw new NotFoundException("Examination was not found.");
+            var actorId = await EnsureCanManageAsync(examination, transactionCancellationToken);
+            if (examination.Status != ExaminationStatus.Draft)
+            {
+                throw new ConflictException("Only draft examinations can be updated.");
+            }
+
+            var course = await GetCourseAsync(examination.CourseId, transactionCancellationToken);
+            var definition = await BuildQuestionDefinitionAsync(
+                examination.Id,
+                course,
+                request.SelectionMode,
+                request.QuestionSelectionRules ?? [],
+                request.QuestionIds ?? [],
+                transactionCancellationToken);
+
+            _examinations.RemoveQuestionDefinition(examination);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            examination.ClearQuestionDefinition();
+            foreach (var rule in definition.Rules)
+            {
+                examination.QuestionSelectionRules.Add(rule);
+            }
+
+            foreach (var question in definition.Questions)
+            {
+                examination.Questions.Add(question);
+            }
+
+            examination.SetModifiedBy(actorId);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+
+            foreach (var (question, correctOptionId) in definition.CorrectOptions)
+            {
+                question.SetCorrectOption(correctOptionId);
+            }
+
+            if (definition.CorrectOptions.Count > 0)
+            {
+                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            }
+        }, cancellationToken);
+
+        return Map(examination!);
     }
 
     public async Task<ExaminationDto> PublishAsync(
@@ -264,28 +295,36 @@ public sealed class ExaminationService : IExaminationService
         CancellationToken cancellationToken = default)
     {
         ValidateId(examinationId, "Examination id");
-        var examination = await GetExaminationAsync(examinationId, true, cancellationToken);
-        var actorId = await EnsureCanManageAsync(examination, cancellationToken);
-
-        if (examination.Status != ExaminationStatus.Draft)
+        Examination? examination = null;
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
-            throw new ConflictException("Only draft examinations can be published.");
-        }
+            examination = await _examinations.GetByIdForUpdateAsync(
+                examinationId,
+                true,
+                transactionCancellationToken)
+                ?? throw new NotFoundException("Examination was not found.");
+            var actorId = await EnsureCanManageAsync(examination, transactionCancellationToken);
 
-        if (examination.Questions.Count == 0)
-        {
-            throw new ConflictException("An examination requires at least one snapshotted question before publishing.");
-        }
+            if (examination.Status != ExaminationStatus.Draft)
+            {
+                throw new ConflictException("Only draft examinations can be published.");
+            }
 
-        if (examination.DueAt <= _clock.UtcNow)
-        {
-            throw new ConflictException("An examination cannot be published after its due time.");
-        }
+            if (examination.Questions.Count == 0)
+            {
+                throw new ConflictException("An examination requires at least one snapshotted question before publishing.");
+            }
 
-        examination.SetStatus(ExaminationStatus.Published);
-        examination.SetModifiedBy(actorId);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(examination);
+            if (examination.DueAt <= _clock.UtcNow)
+            {
+                throw new ConflictException("An examination cannot be published after its due time.");
+            }
+
+            examination.SetStatus(ExaminationStatus.Published);
+            examination.SetModifiedBy(actorId);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
+        return Map(examination!);
     }
 
     public async Task<ExaminationDto> CloseAsync(
@@ -296,7 +335,11 @@ public sealed class ExaminationService : IExaminationService
         Examination? examination = null;
         await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
         {
-            examination = await GetExaminationAsync(examinationId, true, transactionCancellationToken);
+            examination = await _examinations.GetByIdForUpdateAsync(
+                examinationId,
+                true,
+                transactionCancellationToken)
+                ?? throw new NotFoundException("Examination was not found.");
             var actorId = await EnsureCanManageAsync(examination, transactionCancellationToken);
 
             if (examination.Status != ExaminationStatus.Published)
@@ -321,6 +364,89 @@ public sealed class ExaminationService : IExaminationService
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
         }, cancellationToken);
         return Map(examination!);
+    }
+
+    private async Task<(List<ExaminationQuestion> Questions, List<ExaminationQuestionSelectionRule> Rules, List<(ExaminationQuestion Question, Guid CorrectOptionId)> CorrectOptions)> BuildQuestionDefinitionAsync(
+        Guid examinationId,
+        Course course,
+        ExaminationQuestionSelectionMode selectionMode,
+        IReadOnlyList<QuestionSelectionRuleInput> selectionRules,
+        IReadOnlyList<Guid> selectedQuestionIds,
+        CancellationToken cancellationToken)
+    {
+        var questions = new List<ExaminationQuestion>();
+        var rules = new List<ExaminationQuestionSelectionRule>();
+        var correctOptions = new List<(ExaminationQuestion Question, Guid CorrectOptionId)>();
+        var questionOrder = 0;
+
+        if (selectionMode == ExaminationQuestionSelectionMode.Random)
+        {
+            var questionBankIds = selectionRules.Select(rule => rule.QuestionBankId).Distinct().ToArray();
+            var questionBanks = await _questionBanks.ListByIdsAsync(questionBankIds, cancellationToken);
+            if (questionBanks.Count != questionBankIds.Length)
+            {
+                throw new NotFoundException("A selected question bank was not found.");
+            }
+
+            EnsureQuestionBanksBelongToCourseTeacher(questionBanks, course);
+            var questionBanksById = questionBanks.ToDictionary(questionBank => questionBank.Id);
+            var sourceQuestions = await _questions.ListByQuestionBankIdsAsync(questionBankIds, cancellationToken);
+            var questionsByBankId = sourceQuestions
+                .GroupBy(question => question.QuestionBankId)
+                .ToDictionary(group => group.Key, group => group.ToList());
+
+            foreach (var ruleInput in selectionRules)
+            {
+                var questionBank = questionBanksById[ruleInput.QuestionBankId];
+                var candidates = questionsByBankId.GetValueOrDefault(ruleInput.QuestionBankId, [])
+                    .Where(question => question.Difficulty == ruleInput.Difficulty)
+                    .ToList();
+                if (candidates.Count < ruleInput.QuestionCount)
+                {
+                    throw new ConflictException(
+                        $"Question bank '{questionBank.Name}' does not contain enough {ruleInput.Difficulty} questions.");
+                }
+
+                rules.Add(new ExaminationQuestionSelectionRule(
+                    examinationId,
+                    questionBank.Id,
+                    ruleInput.Difficulty,
+                    ruleInput.QuestionCount));
+                Shuffle(candidates);
+                foreach (var sourceQuestion in candidates.Take(ruleInput.QuestionCount))
+                {
+                    questions.Add(CreateSnapshot(examinationId, sourceQuestion, questionOrder++, correctOptions));
+                }
+            }
+        }
+        else
+        {
+            var sourceQuestions = await _questions.ListByIdsAsync(selectedQuestionIds, cancellationToken);
+            if (sourceQuestions.Count != selectedQuestionIds.Count)
+            {
+                throw new NotFoundException("A selected question was not found.");
+            }
+
+            var questionBankIds = sourceQuestions.Select(question => question.QuestionBankId).Distinct().ToArray();
+            var questionBanks = await _questionBanks.ListByIdsAsync(questionBankIds, cancellationToken);
+            if (questionBanks.Count != questionBankIds.Length)
+            {
+                throw new NotFoundException("A question bank for a selected question was not found.");
+            }
+
+            EnsureQuestionBanksBelongToCourseTeacher(questionBanks, course);
+            var questionsById = sourceQuestions.ToDictionary(question => question.Id);
+            foreach (var questionId in selectedQuestionIds)
+            {
+                questions.Add(CreateSnapshot(
+                    examinationId,
+                    questionsById[questionId],
+                    questionOrder++,
+                    correctOptions));
+            }
+        }
+
+        return (questions, rules, correctOptions);
     }
 
     private async Task<Guid> EnsureCanManageAsync(
@@ -439,24 +565,71 @@ public sealed class ExaminationService : IExaminationService
         }
     }
 
-    private static void ValidateSelectionRules(IReadOnlyList<QuestionSelectionRuleInput> rules)
+    private static void ValidateQuestionSelection(
+        ExaminationQuestionSelectionMode selectionMode,
+        IReadOnlyList<QuestionSelectionRuleInput>? rules,
+        IReadOnlyList<Guid>? questionIds)
     {
-        if (rules.Count == 0)
+        if (!Enum.IsDefined(selectionMode))
         {
-            throw new BadRequestException("At least one question selection rule is required.");
+            throw new BadRequestException("Question selection mode is invalid.");
         }
 
-        if (rules.Any(rule =>
-                rule.QuestionBankId == Guid.Empty ||
-                !Enum.IsDefined(rule.Difficulty) ||
-                rule.QuestionCount <= 0))
+        rules ??= [];
+        questionIds ??= [];
+
+        if (selectionMode == ExaminationQuestionSelectionMode.Random)
         {
-            throw new BadRequestException("Question selection rules are invalid.");
+            if (rules.Count == 0 || questionIds.Count != 0)
+            {
+                throw new BadRequestException("Random selection requires rules and cannot include explicit question ids.");
+            }
+
+            if (rules.Any(rule =>
+                    rule.QuestionBankId == Guid.Empty ||
+                    !Enum.IsDefined(rule.Difficulty) ||
+                    rule.QuestionCount <= 0))
+            {
+                throw new BadRequestException("Question selection rules are invalid.");
+            }
+
+            if (rules.GroupBy(rule => new { rule.QuestionBankId, rule.Difficulty }).Any(group => group.Count() > 1))
+            {
+                throw new ConflictException("Duplicate question selection rules are not allowed.");
+            }
+
+            if (rules.Sum(rule => (long)rule.QuestionCount) > 500)
+            {
+                throw new BadRequestException("An examination cannot contain more than 500 questions.");
+            }
+
+            return;
         }
 
-        if (rules.GroupBy(rule => new { rule.QuestionBankId, rule.Difficulty }).Any(group => group.Count() > 1))
+        if (rules.Count != 0 || questionIds.Count == 0)
         {
-            throw new ConflictException("Duplicate question selection rules are not allowed.");
+            throw new BadRequestException("Manual selection requires question ids and cannot include random selection rules.");
+        }
+
+        if (questionIds.Count > 500 || questionIds.Any(id => id == Guid.Empty))
+        {
+            throw new BadRequestException("Manual question selection is invalid or exceeds 500 questions.");
+        }
+
+        if (questionIds.Distinct().Count() != questionIds.Count)
+        {
+            throw new ConflictException("Duplicate manually selected questions are not allowed.");
+        }
+    }
+
+    private static void EnsureQuestionBanksBelongToCourseTeacher(
+        IReadOnlyList<QuestionBank> questionBanks,
+        Course course)
+    {
+        if (questionBanks.Any(questionBank => questionBank.TeacherId != course.TeacherId))
+        {
+            throw new ForbiddenException(
+                "Examinations can only use question banks owned by the course teacher.");
         }
     }
 
@@ -511,6 +684,14 @@ public sealed class ExaminationService : IExaminationService
                 rule.QuestionBankId,
                 rule.Difficulty,
                 rule.QuestionCount))
+            .ToArray(),
+        examination.QuestionSelectionRules.Count > 0
+            ? ExaminationQuestionSelectionMode.Random
+            : ExaminationQuestionSelectionMode.Manual,
+        examination.Questions
+            .OrderBy(question => question.Order)
+            .Where(question => question.SourceQuestionId.HasValue)
+            .Select(question => question.SourceQuestionId!.Value)
             .ToArray(),
         examination.Questions.Count,
         examination.CreatedAt,
