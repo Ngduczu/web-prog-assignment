@@ -53,6 +53,23 @@ public sealed class QuestionRepository : IQuestionRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Question>> ListByIdsAsync(
+        IReadOnlyCollection<Guid> questionIds,
+        CancellationToken cancellationToken)
+    {
+        if (questionIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.Questions
+            .Include(question => question.MultipleChoiceOptions)
+            .Include(question => question.FillInBlankAnswerKeys)
+            .Where(question => questionIds.Contains(question.Id))
+            .AsSplitQuery()
+            .ToListAsync(cancellationToken);
+    }
+
     public void Add(Question question)
     {
         _dbContext.Questions.Add(question);
