@@ -228,8 +228,30 @@ public class CourseApplicationTests
 
         Assert.Equal(EnrollmentStatus.Waiting, result.Status);
         Assert.Equal(student.Id, result.StudentId);
+        Assert.Equal(course.Name, result.Course?.Name);
         Assert.Single(enrollments.Items);
         Assert.Equal(1, unitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task StudentEnrollmentListIncludesCourseSummary()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var course = CreateCourse(teacher);
+        var enrollment = new Enrollment(student.Id, course.Id);
+        var service = new EnrollmentService(
+            new FakeEnrollmentRepository(enrollment),
+            new FakeCourseRepository(course),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student));
+
+        var result = await service.ListMineAsync();
+
+        var item = Assert.Single(result);
+        Assert.Equal(course.Id, item.Course?.Id);
+        Assert.Equal(course.Name, item.Course?.Name);
+        Assert.Equal(course.Status, item.Course?.Status);
     }
 
     [Fact]

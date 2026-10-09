@@ -60,7 +60,7 @@ public sealed class EnrollmentService : IEnrollmentService
             {
                 existing.RequestAgain();
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-                return Map(existing);
+                return Map(existing, course);
             }
 
             throw new ConflictException("An active enrollment for this student and course already exists.");
@@ -69,7 +69,7 @@ public sealed class EnrollmentService : IEnrollmentService
         var enrollment = new Enrollment(studentId, courseId);
         _enrollments.Add(enrollment);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(enrollment);
+        return Map(enrollment, course);
     }
 
     public async Task<PagedResult<EnrollmentDto>> ListByCourseAsync(
@@ -89,7 +89,7 @@ public sealed class EnrollmentService : IEnrollmentService
         var totalCount = await _enrollments.CountByCourseAsync(course.Id, cancellationToken);
 
         return new PagedResult<EnrollmentDto>(
-            enrollments.Select(Map).ToArray(),
+            enrollments.Select(enrollment => Map(enrollment, course)).ToArray(),
             query.Page,
             query.PageSize,
             totalCount);
@@ -116,7 +116,14 @@ public sealed class EnrollmentService : IEnrollmentService
         var items = await _enrollments.ListByStudentAsync(
             _currentUser.GetRequiredUserId(),
             cancellationToken);
-        return items.Select(Map).ToArray();
+        var courseIds = items.Select(enrollment => enrollment.CourseId).Distinct().ToArray();
+        IReadOnlyList<Course> courses = courseIds.Length == 0
+            ? Array.Empty<Course>()
+            : await _courses.ListByIdsAsync(courseIds, cancellationToken);
+        var coursesById = courses.ToDictionary(course => course.Id);
+        return items
+            .Select(enrollment => Map(enrollment, coursesById.GetValueOrDefault(enrollment.CourseId)))
+            .ToArray();
     }
 
     public async Task<EnrollmentDto> CancelAsync(
@@ -145,7 +152,7 @@ public sealed class EnrollmentService : IEnrollmentService
         ValidateId(enrollmentId, "Enrollment id");
         var enrollment = await _enrollments.GetByIdAsync(enrollmentId, cancellationToken)
             ?? throw new NotFoundException("Enrollment was not found.");
-        _ = await GetManagedCourseAsync(enrollment.CourseId, cancellationToken);
+        var course = await GetManagedCourseAsync(enrollment.CourseId, cancellationToken);
         if (enrollment.Status != EnrollmentStatus.Accepted)
         {
             throw new ConflictException("Only accepted enrollments can be revoked.");
@@ -153,7 +160,7 @@ public sealed class EnrollmentService : IEnrollmentService
 
         enrollment.Cancel();
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(enrollment);
+        return Map(enrollment, course);
     }
 
     private async Task<EnrollmentDto> TransitionAsync(
@@ -206,7 +213,7 @@ public sealed class EnrollmentService : IEnrollmentService
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(enrollment);
+        return Map(enrollment, course);
     }
 
     private async Task<Course> GetManagedCourseAsync(Guid courseId, CancellationToken cancellationToken)
@@ -241,7 +248,7 @@ public sealed class EnrollmentService : IEnrollmentService
         }
     }
 
-    private static EnrollmentDto Map(Enrollment enrollment) => new(
+    private static EnrollmentDto Map(Enrollment enrollment, Course? course = null) => new(
         enrollment.Id,
         enrollment.StudentId,
         enrollment.CourseId,
@@ -253,5 +260,6 @@ public sealed class EnrollmentService : IEnrollmentService
                 enrollment.Student.FullName,
                 enrollment.Student.Email),
         enrollment.CreatedAt,
-        enrollment.ModifiedAt);
+        enrollment.ModifiedAt,
+        course is null ? null : new EnrollmentCourseDto(course.Id, course.Name, course.Status));
 }

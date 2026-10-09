@@ -5,6 +5,7 @@ namespace LMS.Api.application.features.enrollments;
 
 public sealed record EnrollmentQuery(int Page = 1, int PageSize = 20);
 public sealed record EnrollmentStudentDto(Guid Id, string FullName, string Email);
+public sealed record EnrollmentCourseDto(Guid Id, string Name, CourseStatus Status);
 
 public sealed record EnrollmentDto(
     Guid Id,
@@ -13,7 +14,8 @@ public sealed record EnrollmentDto(
     EnrollmentStatus Status,
     EnrollmentStudentDto? Student,
     DateTime CreatedAt,
-    DateTime ModifiedAt);
+    DateTime ModifiedAt,
+    EnrollmentCourseDto? Course = null);
 
 public interface IEnrollmentService
 {
