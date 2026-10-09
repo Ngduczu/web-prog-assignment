@@ -11,11 +11,22 @@ using System.Text.Json.Serialization;
 DotNetEnv.Env.NoClobber().TraversePath().Load();
 
 var builder = WebApplication.CreateBuilder(args);
+var frontendOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>() ?? [];
 
 // Add services to the container.
 builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSignalR();
+if (frontendOrigins.Length > 0)
+{
+    builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
+        policy.WithOrigins(frontendOrigins)
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials()));
+}
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();
 builder.Services.AddPresentation();
@@ -45,6 +56,10 @@ if (app.Environment.IsDevelopment())
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();
 app.UseRateLimiter();
+if (frontendOrigins.Length > 0)
+{
+    app.UseCors("Frontend");
+}
 
 if (!app.Environment.IsEnvironment("Testing"))
 {
