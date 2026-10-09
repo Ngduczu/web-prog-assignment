@@ -22,6 +22,9 @@ public sealed class CourseContentController : ControllerBase
     [HttpPut("lessons/{lessonId:guid}")]
     public async Task<ActionResult<LessonDto>> UpdateLesson(Guid lessonId, UpdateLessonRequest request, ILessonService service, CancellationToken ct) => Ok(await service.UpdateAsync(lessonId, request, ct));
 
+    [HttpPut("courses/{courseId:guid}/lessons/reorder")]
+    public async Task<ActionResult<IReadOnlyList<LessonDto>>> ReorderLessons(Guid courseId, ReorderLessonsRequest request, ILessonService service, CancellationToken ct) => Ok(await service.ReorderAsync(courseId, request, ct));
+
     [HttpDelete("lessons/{lessonId:guid}")]
     public async Task<IActionResult> DeleteLesson(Guid lessonId, ILessonService service, CancellationToken ct) { await service.DeleteAsync(lessonId, ct); return NoContent(); }
 
