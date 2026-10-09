@@ -234,6 +234,8 @@ Password hash mới và `AuthVersion` tăng được commit atomic trong Postgre
 
 Frontend browser phải gọi endpoint này với cookie credentials, sau đó điều hướng trang tới `authorizationUrl`.
 
+Khi cấu hình `OAuth:Google:ClientCallbackUri` (ví dụ `http://localhost:3000/oauth/callback`), callback backend sẽ redirect về frontend với `loginCode` một lần trong query string để frontend đổi lấy session cookie. Nếu không cấu hình, endpoint giữ response JSON như bên dưới để tương thích với client gọi API trực tiếp.
+
 State có TTL 10 phút, dùng một lần, dùng PKCE và được gắn với cookie bảo mật của trình duyệt khởi tạo. Nếu Google trả về email đã thuộc một tài khoản local nhưng external identity chưa được liên kết, callback trả `409 Conflict`. Người dùng phải đăng nhập tài khoản local rồi dùng luồng liên kết bên dưới.
 
 ### `GET /api/auth/oauth/Google/link/authorize`
@@ -296,13 +298,59 @@ Các endpoint trả user profile dùng object sau:
   "role": "Teacher",
   "status": "Active",
   "avatarUrl": null,
-  "createdAt": "2026-09-04T10:00:00Z"
+  "createdAt": "2026-09-04T10:00:00Z",
+  "hasPassword": true,
+  "isGoogleLinked": null
 }
 ```
+
+`isGoogleLinked` is `true` or `false` in `GET /api/users/{userId}/profile`, based on whether the user has a Google external account. Other profile responses return `null` because they do not query external account state.
 
 ### `GET /api/users/{userId}/profile`
 
 **Quyền:** User đã đăng nhập xem chính mình; Admin xem được mọi user. **Response `200 OK`:** User profile object.
+
+### `GET /api/users/search-for-chat?email=student@example.com`
+
+**Quyền:** User đã đăng nhập. Tìm chính xác theo email đã chuẩn hóa, chỉ trả tài khoản `Active` và không cho phép tìm chính mình. Endpoint chỉ trả dữ liệu tối thiểu dùng để tạo phòng chat trực tiếp.
+
+```json
+{
+  "id": "00000000-0000-0000-0000-000000000001",
+  "email": "student@example.com",
+  "fullName": "Student",
+  "avatarUrl": null
+}
+```
+
+### `PUT /api/users/me`
+
+**Quyền:** User đã đăng nhập. Email, role, status và avatar không thể thay đổi qua endpoint này.
+
+```json
+{
+  "fullName": "Updated Name",
+  "phone": "0900000000"
+}
+```
+
+**Response `200 OK`:** User profile object đã cập nhật.
+
+### `PUT /api/users/me/password`
+
+**Quyền:** User đã đăng nhập. Với tài khoản local, `currentPassword` phải khớp mật khẩu hiện tại. Tài khoản OAuth chưa có mật khẩu gửi `currentPassword: null` để tạo mật khẩu local lần đầu.
+
+```json
+{
+  "currentPassword": "current-password",
+  "newPassword": "new-password",
+  "passwordConfirm": "new-password"
+}
+```
+
+Mật khẩu mới dài từ 8 đến 128 ký tự, phải khớp phần xác nhận và khác mật khẩu hiện tại. Thao tác đổi password và tăng `auth_version` được lưu trong cùng một lần commit, vì vậy mọi access token và refresh token đã phát trước đó đều bị thu hồi.
+
+**Response:** `204 No Content`. FrontEnd phải xóa token/cookie hiện tại và yêu cầu đăng nhập lại.
 
 ### `GET /api/users?search=&page=1&pageSize=20`
 
@@ -319,7 +367,8 @@ Các endpoint trả user profile dùng object sau:
       "role": "Teacher",
       "status": "Active",
       "avatarUrl": null,
-      "createdAt": "2026-09-04T10:00:00Z"
+      "createdAt": "2026-09-04T10:00:00Z",
+      "hasPassword": true
     }
   ],
   "page": 1,
@@ -809,6 +858,21 @@ Teacher sở hữu course hoặc Admin được tạo/sửa nội dung. Student 
 
 **Response `200 OK`:** Lesson object.
 
+### `PUT /api/courses/{courseId}/lessons/reorder`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Body phải chứa đầy đủ lesson hiện có của course, theo đúng thứ tự mới mong muốn.
+
+```json
+{
+  "lessonIds": [
+    "00000000-0000-0000-0000-000000000012",
+    "00000000-0000-0000-0000-000000000011"
+  ]
+}
+```
+
+Thao tác được thực hiện trong transaction và đánh lại `order` liên tục từ `1`. **Response `200 OK`:** Mảng lesson object theo thứ tự mới.
+
 ### `DELETE /api/lessons/{lessonId}`
 
 **Quyền:** Teacher sở hữu course hoặc Admin. Xóa lesson, metadata material và đưa file vật lý vào hàng đợi cleanup. **Response `204 No Content`**.
@@ -941,6 +1005,11 @@ Exercise luôn được tạo ở trạng thái `Draft`; `dueAt` nếu có phả
   "id": "00000000-0000-0000-0000-000000000015",
   "exerciseId": "00000000-0000-0000-0000-000000000013",
   "studentId": "00000000-0000-0000-0000-000000000001",
+  "student": {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "fullName": "Student",
+    "email": "student@example.com"
+  },
   "status": "Draft",
   "submittedAt": null,
   "grade": null,
@@ -975,7 +1044,7 @@ Exercise luôn được tạo ở trạng thái `Draft`; `dueAt` nếu có phả
 
 **Quyền:** Teacher sở hữu course hoặc Admin. Chỉ trả submission đã `Submitted` hoặc `Graded`; không hiển thị draft của student.
 
-**Response `200 OK`:** Paged result chứa các Submission object.
+**Response `200 OK`:** Paged result chứa các Submission object. Trường `student` gồm tên và email học viên để phục vụ danh sách chấm bài; có thể là `null` ở các response không nạp thông tin người dùng.
 
 ### `GET /api/submissions/{submissionId}/content?download=false`
 
@@ -1014,7 +1083,7 @@ Upload, submit, unsubmit và grade áp dụng transaction serializable cùng opt
 
 ## Examination Authoring
 
-Luồng teacher: tạo exam `Draft` và snapshot câu hỏi → chỉnh cấu hình khi còn `Draft` → publish → close. Khi tạo, mỗi rule chọn ngẫu nhiên `questionCount` câu theo question bank và difficulty; question bank phải thuộc teacher của course và phải đủ số câu.
+Luồng teacher: tạo exam `Draft` và snapshot câu hỏi → chỉnh cấu hình khi còn `Draft` → publish → close. Khi tạo có thể dùng `Random` để chọn theo question bank/difficulty/số lượng hoặc `Manual` để chỉ định từng `questionId`. Hai chế độ loại trừ nhau; question bank phải thuộc teacher của course và mỗi kỳ thi tối đa 500 câu.
 
 ### Examination object
 
@@ -1048,6 +1117,10 @@ Luồng teacher: tạo exam `Draft` và snapshot câu hỏi → chỉnh cấu h�
       "questionCount": 20
     }
   ],
+  "selectionMode": "Random",
+  "selectedQuestionIds": [
+    "00000000-0000-0000-0000-000000000021"
+  ],
   "questionCount": 20,
   "createdAt": "2026-09-04T10:00:00Z",
   "modifiedAt": "2026-09-04T10:00:00Z"
@@ -1079,15 +1152,32 @@ Luồng teacher: tạo exam `Draft` và snapshot câu hỏi → chỉnh cấu h�
     "detectDevTools": false,
     "maxDisconnectMinutes": 5
   },
+  "selectionMode": "Random",
   "questionSelectionRules": [
     {
       "questionBankId": "00000000-0000-0000-0000-000000000005",
       "difficulty": "Medium",
       "questionCount": 20
     }
+  ],
+  "questionIds": []
+}
+```
+
+Với chế độ chọn thủ công, gửi `selectionMode: "Manual"`, `questionSelectionRules: []` và danh sách ID duy nhất theo đúng thứ tự mong muốn:
+
+```json
+{
+  "selectionMode": "Manual",
+  "questionSelectionRules": [],
+  "questionIds": [
+    "00000000-0000-0000-0000-000000000021",
+    "00000000-0000-0000-0000-000000000022"
   ]
 }
 ```
+
+Backend xác minh toàn bộ câu hỏi tồn tại, thuộc ngân hàng của giảng viên phụ trách course và có đáp án hợp lệ trước khi tạo snapshot. Không được gửi đồng thời rule ngẫu nhiên và ID thủ công.
 
 `startAt` và `dueAt` bắt buộc là timestamp UTC (hậu tố `Z`); giá trị local hoặc không có timezone bị từ chối với `400`.
 
@@ -1107,7 +1197,7 @@ Luồng teacher: tạo exam `Draft` và snapshot câu hỏi → chỉnh cấu h�
 
 **Response `200 OK`:** Mảng student examination object. Với student, endpoint chỉ loại `Draft`; exam chưa tới giờ, đã quá hạn hoặc `Closed` vẫn có thể xuất hiện để hiển thị lịch sử/lịch thi. FrontEnd dùng `status`, `startAt`, `dueAt` để quyết định nhãn hiển thị; backend kiểm tra lại khi bắt đầu thi.
 
-Student examination object giống examination object nhưng không có `questionSelectionRules`; vẫn có `questionCount` và cấu hình `security`.
+Student examination object giống examination object nhưng không có `questionSelectionRules`, `selectionMode` và `selectedQuestionIds`; vẫn có `questionCount` và cấu hình `security`.
 
 ### `GET /api/examinations/{examinationId}/student`
 
@@ -1117,7 +1207,13 @@ Student examination object giống examination object nhưng không có `questio
 
 ### `PUT /api/examinations/{examinationId}`
 
-**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ exam `Draft` được sửa. **Request body:** Giống request tạo examination nhưng không có `questionSelectionRules`. **Response `200 OK`:** Examination object.
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ exam `Draft` được sửa. **Request body:** Giống request tạo examination nhưng không có `selectionMode`, `questionSelectionRules` và `questionIds`; snapshot câu hỏi không đổi. **Response `200 OK`:** Examination object.
+
+### `PUT /api/examinations/{examinationId}/question-set`
+
+**Quyền:** Teacher sở hữu course hoặc Admin. Chỉ exam `Draft` được sửa. Endpoint thay thế toàn bộ question snapshot và selection rules; request dùng cùng semantics `selectionMode`, `questionSelectionRules` và `questionIds` như endpoint tạo examination. Với `Random`, backend chọn và lưu một bộ câu hỏi mới ngay khi cập nhật; bộ câu hỏi không được chọn lại cho từng attempt. Với `Manual`, `questionIds` xác định danh sách và thứ tự mới.
+
+Backend xác minh ngân hàng thuộc giảng viên của course, câu hỏi tồn tại và đáp án hợp lệ trước khi thay thế. Toàn bộ thao tác thay thế chạy trong transaction; Published/Closed không thể thay đổi question set. **Response `200 OK`:** Examination object với snapshot hiện hành.
 
 ### `POST /api/examinations/{examinationId}/publish`
 
@@ -1173,6 +1269,36 @@ Khi đóng, backend chấm và auto-submit ngay mọi attempt `InProgress`/`Disc
 Ưu tiên trả attempt đang `InProgress`/`Disconnected` của chính student; nếu không còn attempt active thì trả attempt hoàn thành gần nhất. FrontEnd gọi endpoint này khi reload để lấy lại `attempt.id`; nếu attempt đang `Disconnected` thì gọi tiếp endpoint `reconnect`. Trả `404` nếu student chưa từng bắt đầu examination.
 
 **Response `200 OK`:** Examination attempt object.
+
+### `GET /api/examinations/{examinationId}/attempts?page=1&pageSize=20`
+
+**Quyền:** Teacher sở hữu course chứa examination hoặc Admin. Trả danh sách phân trang kết quả/attempt của cả lớp, gồm tên và email student. Attempt còn `InProgress`/`Disconnected` không lộ `correctAnswers` hoặc `score`.
+
+```json
+{
+  "items": [
+    {
+      "id": "00000000-0000-0000-0000-000000000019",
+      "examinationId": "00000000-0000-0000-0000-000000000017",
+      "studentId": "00000000-0000-0000-0000-000000000001",
+      "studentFullName": "Student",
+      "studentEmail": "student@example.com",
+      "status": "Submitted",
+      "submitReason": "StudentSubmitted",
+      "startedAt": "2026-09-10T08:00:00Z",
+      "submittedAt": "2026-09-10T08:45:00Z",
+      "violationCount": 0,
+      "correctAnswers": 8,
+      "totalQuestions": 10,
+      "score": 8.0
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "totalCount": 1,
+  "totalPages": 1
+}
+```
 
 ### `GET /api/examination-attempts/{attemptId}/questions`
 
@@ -1314,6 +1440,8 @@ Chat message object:
   "id": "00000000-0000-0000-0000-000000000031",
   "chatRoomId": "00000000-0000-0000-0000-000000000030",
   "senderId": "00000000-0000-0000-0000-000000000001",
+  "senderFullName": "Student Name",
+  "senderRole": "Student",
   "content": "Hello",
   "replyToMessageId": null,
   "createdAt": "2026-09-04T10:00:00Z",
@@ -1331,10 +1459,22 @@ Chat message object:
 ```
 
 Chat attachment không lộ storage `objectKey`; client dùng endpoint `content` để đọc file.
+`senderFullName` và `senderRole` giúp client nhận diện người gửi trong course room mà không phải gọi thêm API cho từng message.
 
 ### `GET /api/chat/rooms`
 
 **Response `200 OK`:** Mảng room mà user hiện còn quyền truy cập.
+
+### `POST /api/chat/realtime-token`
+
+Phát JWT chuyên dụng cho SignalR, thời gian sống 2 phút. Token vẫn mang `auth_version` và bị từ chối ngay khi tài khoản bị khóa, đổi role hoặc thu hồi session. Claim `token_use=chat_realtime` khiến token chỉ hợp lệ trên `/hubs/chat`; dùng token này với REST API sẽ trả `401`.
+
+```json
+{
+  "accessToken": "short-lived-chat-jwt",
+  "expiresAt": "2026-10-09T10:02:00Z"
+}
+```
 
 ### `POST /api/chat/courses/{courseId}`
 
@@ -1393,7 +1533,11 @@ Sender hoặc moderator course room được xóa. **Response `204 No Content`:*
 
 ### Realtime WebSocket
 
-SignalR hub: `/hubs/chat`. Client cần JWT và có thể gọi `JoinRoom(roomId)`, `LeaveRoom(roomId)`, `SendMessage(roomId, request)`. Server broadcast event `MessageReceived` với payload Chat message object tới các connection trong room.
+SignalR hub: `/hubs/chat`. Client lấy JWT ngắn hạn từ `POST /api/chat/realtime-token`, sau đó có thể gọi `JoinRoom(roomId)`, `LeaveRoom(roomId)`, `SendMessage(roomId, request)`. Server phát các event:
+
+- `MessageReceived`: payload Chat message object khi có tin nhắn hoặc attachment mới.
+- `MessageUpdated`: payload Chat message object sau khi sender chỉnh sửa.
+- `MessageDeleted`: payload message ID sau khi sender hoặc moderator xóa.
 
 `JoinRoom`/reconnect và `SendMessage` kiểm tra lại quyền course hiện tại. Room archived không được join hoặc gửi; connection đã tham gia trước đó cũng bị từ chối ở lần ghi tiếp theo nếu enrollment bị revoke hoặc course đã archive.
 
@@ -1410,7 +1554,9 @@ const connection = new signalR.HubConnectionBuilder()
   .build();
 ```
 
-Frontend nên tải lịch sử bằng REST, sau đó `JoinRoom` và lắng nghe `MessageReceived`. Gửi text qua hub hoặc hai endpoint REST (text/attachment) đều phát cùng event sau khi lưu thành công.
+Frontend tải lịch sử bằng REST, sau đó `JoinRoom` và lắng nghe ba event trên. Khi reconnect phải lấy ticket mới, join lại room hiện tại và đồng bộ lại trang lịch sử gần nhất để bù event có thể bị lỡ. Gửi text qua hub hoặc hai endpoint REST (text/attachment) đều phát cùng event sau khi lưu thành công.
+
+Browser frontend chạy khác origin phải được liệt kê chính xác trong `Cors:AllowedOrigins`; wildcard không được dùng cùng credentialed SignalR negotiation.
 
 ## Lưu ý khi nối FrontEnd
 
