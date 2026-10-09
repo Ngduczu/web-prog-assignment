@@ -103,6 +103,32 @@ public sealed class SignalRAuthenticationTests : IClassFixture<ApiWebApplication
     }
 
     [Fact]
+    public async Task ShortLivedChatTokenAuthenticatesHubButNotRestApi()
+    {
+        using var factory = new ApiWebApplicationFactory { UseRealJwtAuthentication = true };
+        using var client = factory.CreateClient();
+        var token = factory.Services.GetRequiredService<ITokenProvider>()
+            .CreateChatRealtimeToken(
+                factory.SignalRUserId,
+                "signalr@example.com",
+                "Student",
+                1);
+
+        using var negotiation = await NegotiateAsync(client, token.Token);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/users/{factory.SignalRUserId}/profile");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer",
+            token.Token);
+        using var restResponse = await client.SendAsync(request);
+
+        negotiation.EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Unauthorized, restResponse.StatusCode);
+        Assert.InRange(token.ExpiresAt, DateTime.UtcNow.AddMinutes(1), DateTime.UtcNow.AddMinutes(3));
+    }
+
+    [Fact]
     public async Task PersistentAuthVersionRevokesExistingAccessToken()
     {
         using var factory = new ApiWebApplicationFactory { UseRealJwtAuthentication = true };
