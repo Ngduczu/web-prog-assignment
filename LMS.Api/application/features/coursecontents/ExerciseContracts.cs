@@ -14,6 +14,11 @@ public sealed record FileAttachmentDto(
     string ContentType,
     long FileSize);
 
+public sealed record SubmissionStudentDto(
+    Guid Id,
+    string FullName,
+    string Email);
+
 public sealed record ExerciseDto(
     Guid Id,
     Guid CourseId,
@@ -29,6 +34,7 @@ public sealed record SubmissionDto(
     Guid Id,
     Guid ExerciseId,
     Guid StudentId,
+    SubmissionStudentDto? Student,
     SubmissionStatus Status,
     DateTime? SubmittedAt,
     decimal? Grade,
