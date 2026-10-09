@@ -9,6 +9,9 @@ public interface IQuestionRepository
     Task<IReadOnlyList<Question>> ListByQuestionBankIdsAsync(
         IReadOnlyCollection<Guid> questionBankIds,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<Question>> ListByIdsAsync(
+        IReadOnlyCollection<Guid> questionIds,
+        CancellationToken cancellationToken);
     void Add(Question question);
     void Remove(Question question) => throw new NotSupportedException();
 }
