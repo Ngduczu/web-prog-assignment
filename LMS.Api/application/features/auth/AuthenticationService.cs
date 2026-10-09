@@ -75,19 +75,31 @@ public sealed class AuthenticationService : IAuthenticationService
             user = await _users.GetByEmailAsync(email, cancellationToken);
             if (user is not null)
             {
-                throw new ConflictException(
-                    "An account with this email already exists. Sign in to that account and link Google from account settings.");
+                if (user.Status != AccountStatus.Active)
+                {
+                    throw new UnauthorizeException("Account is not active.");
+                }
+
+                if (await _users.GetExternalLoginAsync(user.Id, providerType, cancellationToken) is not null)
+                {
+                    throw new ConflictException($"Your account already has a different linked {providerType} account.");
+                }
+
+                _users.AddExternalUser(new ExternalUser(user.Id, providerType, externalInfo.ProviderUserId));
+            }
+            else
+            {
+                user = new User(
+                    email,
+                    AuthValidation.NormalizeExternalFullName(externalInfo.FullName, email),
+                    null,
+                    null,
+                    Role.Student,
+                    AccountStatus.Active);
+                _users.Add(user);
+                _users.AddExternalUser(new ExternalUser(user.Id, providerType, externalInfo.ProviderUserId));
             }
 
-            user = new User(
-                email,
-                AuthValidation.NormalizeExternalFullName(externalInfo.FullName, email),
-                null,
-                null,
-                Role.Student,
-                AccountStatus.Active);
-            _users.Add(user);
-            _users.AddExternalUser(new ExternalUser(user.Id, providerType, externalInfo.ProviderUserId));
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
