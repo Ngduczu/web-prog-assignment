@@ -202,13 +202,79 @@ public sealed class QuestionService : IQuestionService
     {
         ValidateId(questionId, "Question id");
         ValidateQuestion(request.Content, request.Difficulty);
+        if (request.Options is not null)
+        {
+            ValidateMultipleChoiceOptions(request.Options);
+        }
+
+        if (request.Answers is not null)
+        {
+            ValidateFillInBlankAnswers(request.Answers);
+        }
+
         var question = await _questions.GetByIdAsync(questionId, true, cancellationToken)
             ?? throw new NotFoundException("Question was not found.");
         _ = await GetManagedQuestionBankAsync(question.QuestionBankId, cancellationToken);
-        question.SetContent(request.Content.Trim());
-        question.SetDifficulty(request.Difficulty);
-        question.SetModifiedBy(_currentUser.GetRequiredUserId());
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        if (request.Options is not null && question.Type != QuestionType.MultipleChoice)
+        {
+            throw new BadRequestException("Options can only be updated on a multiple-choice question.");
+        }
+
+        if (request.Answers is not null && question.Type != QuestionType.FillInBlank)
+        {
+            throw new BadRequestException("Answers can only be updated on a fill-in-blank question.");
+        }
+
+        var actorId = _currentUser.GetRequiredUserId();
+        await _transactionManager.ExecuteAsync(async transactionCancellationToken =>
+        {
+            question.SetContent(request.Content.Trim());
+            question.SetDifficulty(request.Difficulty);
+            if (request.ShuffleOptions is not null && question.Type == QuestionType.MultipleChoice)
+            {
+                question.SetShuffleOptions(request.ShuffleOptions.Value);
+            }
+
+            question.SetModifiedBy(actorId);
+
+            // Removed rows are saved first so unique (question, order) indexes never collide with new rows.
+            if (request.Options is not null)
+            {
+                question.SetCorrectOption(null);
+                question.MultipleChoiceOptions.Clear();
+                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+
+                MultipleChoiceOption? correctOption = null;
+                for (var index = 0; index < request.Options.Count; index++)
+                {
+                    var input = request.Options[index];
+                    var option = new MultipleChoiceOption(question.Id, input.Content.Trim(), index);
+                    question.MultipleChoiceOptions.Add(option);
+                    if (input.IsCorrect)
+                    {
+                        correctOption = option;
+                    }
+                }
+
+                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+                question.SetCorrectOption(correctOption!.Id);
+            }
+            else if (request.Answers is not null)
+            {
+                question.FillInBlankAnswerKeys.Clear();
+                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+                foreach (var answer in request.Answers)
+                {
+                    question.FillInBlankAnswerKeys.Add(new FillInBlankAnswerKey(
+                        question.Id,
+                        answer.BlankOrder,
+                        answer.ExpectedAnswer.Trim()));
+                }
+            }
+
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
+
         return Map(question);
     }
 
