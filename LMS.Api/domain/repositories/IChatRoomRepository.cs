@@ -8,5 +8,6 @@ public interface IChatRoomRepository
     Task<ChatRoom?> GetByCourseIdAsync(Guid courseId, CancellationToken cancellationToken);
     Task<ChatRoom?> GetByDirectMessageKeyAsync(string key, CancellationToken cancellationToken);
     Task<IReadOnlyList<ChatRoom>> ListForUserAsync(Guid userId, CancellationToken cancellationToken);
+    Task<ChatRoom?> EnsureCourseParticipantAsync(Guid roomId, Guid userId, CancellationToken cancellationToken);
     void Add(ChatRoom room);
 }
