@@ -51,6 +51,95 @@ public class ExaminationAuthoringTests
         Assert.Equal(1, fixture.TransactionManager.ExecutionCount);
     }
 
+    [Fact]
+    public async Task CreateCanSnapshotExplicitlySelectedQuestionsInRequestedOrder()
+    {
+        var fixture = CreateFixture();
+        var sourceQuestions = await fixture.Questions.ListByQuestionBankAsync(
+            fixture.QuestionBank.Id,
+            CancellationToken.None);
+        var requestedIds = sourceQuestions.Reverse().Select(question => question.Id).ToArray();
+        var request = fixture.CreateRequest(questionCount: 2) with
+        {
+            SelectionMode = ExaminationQuestionSelectionMode.Manual,
+            QuestionSelectionRules = [],
+            QuestionIds = requestedIds
+        };
+
+        var result = await fixture.Service.CreateAsync(fixture.Course.Id, request);
+
+        Assert.Equal(ExaminationQuestionSelectionMode.Manual, result.SelectionMode);
+        Assert.Equal(requestedIds, result.SelectedQuestionIds);
+        Assert.Empty(result.QuestionSelectionRules);
+        Assert.Equal(
+            requestedIds,
+            fixture.Examinations.Items[0].Questions
+                .OrderBy(question => question.Order)
+                .Select(question => question.SourceQuestionId!.Value));
+    }
+
+    [Fact]
+    public async Task UpdateQuestionSetReplacesDraftSnapshotAndSelectionRules()
+    {
+        var fixture = CreateFixture();
+        var created = await fixture.Service.CreateAsync(fixture.Course.Id, fixture.CreateRequest(questionCount: 2));
+        var multipleChoice = Assert.Single(
+            await fixture.Questions.ListByQuestionBankAsync(fixture.QuestionBank.Id, CancellationToken.None),
+            question => question.Type == QuestionType.MultipleChoice);
+
+        var updated = await fixture.Service.UpdateQuestionSetAsync(
+            created.Id,
+            new UpdateExaminationQuestionSetRequest(
+                ExaminationQuestionSelectionMode.Manual,
+                [],
+                [multipleChoice.Id]));
+
+        Assert.Equal(ExaminationQuestionSelectionMode.Manual, updated.SelectionMode);
+        Assert.Equal([multipleChoice.Id], updated.SelectedQuestionIds);
+        Assert.Empty(updated.QuestionSelectionRules);
+        Assert.Equal(1, updated.QuestionCount);
+        Assert.Single(fixture.Examinations.Items[0].Questions);
+        Assert.Empty(fixture.Examinations.Items[0].QuestionSelectionRules);
+        Assert.Equal(2, fixture.TransactionManager.ExecutionCount);
+    }
+
+    [Fact]
+    public async Task UpdateQuestionSetRejectsPublishedExamination()
+    {
+        var fixture = CreateFixture();
+        var created = await fixture.Service.CreateAsync(fixture.Course.Id, fixture.CreateRequest(questionCount: 2));
+        await fixture.Service.PublishAsync(created.Id);
+
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.UpdateQuestionSetAsync(
+            created.Id,
+            new UpdateExaminationQuestionSetRequest(
+                ExaminationQuestionSelectionMode.Manual,
+                [],
+                created.SelectedQuestionIds)));
+
+        Assert.Equal(2, fixture.Examinations.Items[0].Questions.Count);
+    }
+
+    [Fact]
+    public async Task CreateRejectsMixingRandomRulesWithExplicitQuestionIds()
+    {
+        var fixture = CreateFixture();
+        var question = Assert.Single(
+            await fixture.Questions.ListByQuestionBankAsync(
+                fixture.QuestionBank.Id,
+                CancellationToken.None),
+            item => item.Type == QuestionType.MultipleChoice);
+        var request = fixture.CreateRequest(questionCount: 1) with
+        {
+            QuestionIds = [question.Id]
+        };
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            fixture.Service.CreateAsync(fixture.Course.Id, request));
+
+        Assert.Equal(0, fixture.TransactionManager.ExecutionCount);
+    }
+
     [Theory]
     [InlineData(DateTimeKind.Local)]
     [InlineData(DateTimeKind.Unspecified)]
@@ -157,18 +246,19 @@ public class ExaminationAuthoringTests
         var attempts = new FakeExaminationAttemptRepository();
         var unitOfWork = new FakeUnitOfWork();
         var transactionManager = new FakeTransactionManager();
+        var questions = new FakeQuestionRepository(multipleChoice, fillInBlank);
         var service = new ExaminationService(
             examinations,
             new FakeCourseRepository(course),
             new FakeEnrollmentRepository(),
             new FakeQuestionBankRepository(questionBank),
-            new FakeQuestionRepository(multipleChoice, fillInBlank),
+            questions,
             attempts,
             unitOfWork,
             transactionManager,
             new FakeCurrentUser(teacher),
             new FakeClock(new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc)));
-        return new Fixture(service, course, questionBank, examinations, attempts, unitOfWork, transactionManager);
+        return new Fixture(service, course, questionBank, examinations, questions, attempts, unitOfWork, transactionManager);
     }
 
     private sealed record Fixture(
@@ -176,6 +266,7 @@ public class ExaminationAuthoringTests
         Course Course,
         QuestionBank QuestionBank,
         FakeExaminationRepository Examinations,
+        FakeQuestionRepository Questions,
         FakeExaminationAttemptRepository Attempts,
         FakeUnitOfWork UnitOfWork,
         FakeTransactionManager TransactionManager)
@@ -245,6 +336,11 @@ public class ExaminationAuthoringTests
             CancellationToken cancellationToken) =>
             Task.FromResult(Items.SingleOrDefault(examination => examination.Id == id));
 
+        public Task<Examination?> GetByIdForUpdateAsync(
+            Guid id,
+            bool includeDefinition,
+            CancellationToken cancellationToken) => GetByIdAsync(id, includeDefinition, cancellationToken);
+
         public Task<IReadOnlyList<Examination>> ListByCourseAsync(
             Guid courseId,
             CancellationToken cancellationToken) =>
@@ -254,6 +350,10 @@ public class ExaminationAuthoringTests
         public void Add(Examination examination)
         {
             Items.Add(examination);
+        }
+
+        public void RemoveQuestionDefinition(Examination examination)
+        {
         }
     }
 
@@ -277,6 +377,16 @@ public class ExaminationAuthoringTests
             Task.FromResult<IReadOnlyList<ExaminationAttempt>>(Items.Where(attempt =>
                 attempt.ExaminationId == examinationId &&
                 attempt.Status is ExaminationAttemptStatus.InProgress or ExaminationAttemptStatus.Disconnected).ToArray());
+
+        public Task<IReadOnlyList<ExaminationAttemptOverview>> ListByExaminationAsync(
+            Guid examinationId,
+            int skip,
+            int take,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ExaminationAttemptOverview>>([]);
+
+        public Task<int> CountByExaminationAsync(Guid examinationId, CancellationToken cancellationToken) =>
+            Task.FromResult(0);
 
         public Task<IReadOnlyList<ExaminationAttempt>> ListExpiredAsync(DateTime now, int take, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<ExaminationAttempt>>([]);
@@ -385,6 +495,12 @@ public class ExaminationAuthoringTests
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<Question>>(
                 _questions.Where(question => questionBankIds.Contains(question.QuestionBankId)).ToArray());
+
+        public Task<IReadOnlyList<Question>> ListByIdsAsync(
+            IReadOnlyCollection<Guid> questionIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Question>>(
+                _questions.Where(question => questionIds.Contains(question.Id)).ToArray());
 
         public void Add(Question question)
         {
