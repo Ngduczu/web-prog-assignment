@@ -100,6 +100,34 @@ public sealed class ExaminationAttemptRepository : IExaminationAttemptRepository
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<ExaminationAttemptOverview>> ListByExaminationAsync(
+        Guid examinationId,
+        int skip,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        var attempts = await _dbContext.ExaminationAttempts
+            .Include(attempt => attempt.Student)
+            .Where(attempt => attempt.ExaminationId == examinationId)
+            .OrderByDescending(attempt => attempt.StartedAt)
+            .ThenByDescending(attempt => attempt.Id)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return attempts.Select(attempt =>
+            new ExaminationAttemptOverview(
+                attempt,
+                attempt.Student ?? throw new InvalidOperationException("Attempt student was not loaded.")))
+            .ToArray();
+    }
+
+    public Task<int> CountByExaminationAsync(
+        Guid examinationId,
+        CancellationToken cancellationToken) =>
+        _dbContext.ExaminationAttempts.CountAsync(
+            attempt => attempt.ExaminationId == examinationId,
+            cancellationToken);
+
     public async Task<IReadOnlyList<ExaminationAttempt>> ListExpiredAsync(
         DateTime now,
         int take,
