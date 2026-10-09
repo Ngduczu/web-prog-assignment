@@ -27,8 +27,18 @@ public sealed class ExaminationsController : ControllerBase
     [HttpGet("examinations/{id:guid}/my-attempt")]
     public async Task<ActionResult<ExaminationAttemptDto>> GetMyAttempt(Guid id, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.GetMineAsync(id, ct));
 
+    [HttpGet("examinations/{id:guid}/attempts")]
+    public async Task<ActionResult<LMS.Api.application.common.PagedResult<ExaminationAttemptResultDto>>> ListAttempts(
+        Guid id,
+        [FromQuery] ExaminationAttemptQuery query,
+        IExaminationAttemptService service,
+        CancellationToken ct) => Ok(await service.ListResultsAsync(id, query, ct));
+
     [HttpPut("examinations/{id:guid}")]
     public async Task<ActionResult<ExaminationDto>> Update(Guid id, UpdateExaminationRequest request, IExaminationService service, CancellationToken ct) => Ok(await service.UpdateAsync(id, request, ct));
+
+    [HttpPut("examinations/{id:guid}/question-set")]
+    public async Task<ActionResult<ExaminationDto>> UpdateQuestionSet(Guid id, UpdateExaminationQuestionSetRequest request, IExaminationService service, CancellationToken ct) => Ok(await service.UpdateQuestionSetAsync(id, request, ct));
 
     [HttpPost("examinations/{id:guid}/publish")]
     public async Task<ActionResult<ExaminationDto>> Publish(Guid id, IExaminationService service, CancellationToken ct) => Ok(await service.PublishAsync(id, ct));
