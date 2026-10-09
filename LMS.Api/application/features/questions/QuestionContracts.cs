@@ -26,7 +26,12 @@ public sealed record CreateFillInBlankQuestionRequest(
     string Content,
     QuestionDifficulty Difficulty,
     IReadOnlyList<FillInBlankAnswerInput> Answers);
-public sealed record UpdateQuestionRequest(string Content, QuestionDifficulty Difficulty);
+public sealed record UpdateQuestionRequest(
+    string Content,
+    QuestionDifficulty Difficulty,
+    bool? ShuffleOptions = null,
+    IReadOnlyList<MultipleChoiceOptionInput>? Options = null,
+    IReadOnlyList<FillInBlankAnswerInput>? Answers = null);
 
 public sealed record MultipleChoiceOptionDto(Guid Id, string Content, int Order, bool IsCorrect);
 public sealed record FillInBlankAnswerDto(Guid Id, int BlankOrder, string ExpectedAnswer);
