@@ -11,6 +11,12 @@ namespace LMS.Api.presentation.controllers;
 [Authorize]
 public sealed class ChatsController : ControllerBase
 {
+    [HttpPost("realtime-token")]
+    public async Task<ActionResult<ChatRealtimeTokenDto>> CreateRealtimeToken(
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken) =>
+        Ok(await service.CreateRealtimeTokenAsync(cancellationToken));
+
     [HttpGet("rooms")]
     public async Task<ActionResult<IReadOnlyList<ChatRoomDto>>> ListRooms(
         [FromServices] IChatService service,
@@ -27,6 +33,12 @@ public sealed class ChatsController : ControllerBase
         Guid userId,
         [FromServices] IChatService service,
         CancellationToken cancellationToken) => Ok(await service.GetOrCreateDirectRoomAsync(userId, cancellationToken));
+
+    [HttpPost("rooms/{roomId:guid}/join")]
+    public async Task<ActionResult<ChatRoomDto>> JoinRoom(
+        Guid roomId,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken) => Ok(await service.JoinRoomAsync(roomId, cancellationToken));
 
     [HttpGet("rooms/{roomId:guid}/messages")]
     public async Task<ActionResult<IReadOnlyList<ChatMessageDto>>> ListMessages(
@@ -83,15 +95,25 @@ public sealed class ChatsController : ControllerBase
         Guid messageId,
         [FromBody] EditChatMessageRequest request,
         [FromServices] IChatService service,
-        CancellationToken cancellationToken) => Ok(await service.EditMessageAsync(messageId, request, cancellationToken));
+        [FromServices] IHubContext<ChatHub> hub,
+        CancellationToken cancellationToken)
+    {
+        var message = await service.EditMessageAsync(messageId, request, cancellationToken);
+        await hub.Clients.Group(ChatHub.GroupName(message.ChatRoomId))
+            .SendAsync("MessageUpdated", message, cancellationToken);
+        return Ok(message);
+    }
 
     [HttpDelete("messages/{messageId:guid}")]
     public async Task<IActionResult> DeleteMessage(
         Guid messageId,
         [FromServices] IChatService service,
+        [FromServices] IHubContext<ChatHub> hub,
         CancellationToken cancellationToken)
     {
-        await service.DeleteMessageAsync(messageId, cancellationToken);
+        var roomId = await service.DeleteMessageAsync(messageId, cancellationToken);
+        await hub.Clients.Group(ChatHub.GroupName(roomId))
+            .SendAsync("MessageDeleted", messageId, cancellationToken);
         return NoContent();
     }
 
