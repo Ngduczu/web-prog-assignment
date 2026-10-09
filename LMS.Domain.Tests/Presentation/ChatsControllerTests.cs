@@ -18,6 +18,8 @@ public sealed class ChatsControllerTests
             Guid.NewGuid(),
             roomId,
             Guid.NewGuid(),
+            "Student name",
+            "Student",
             "Hello",
             null,
             DateTime.UtcNow,
@@ -51,5 +53,79 @@ public sealed class ChatsControllerTests
             "MessageReceived",
             It.Is<object?[]>(arguments => arguments.Length == 1 && ReferenceEquals(arguments[0], message)),
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task EditMessageBroadcastsUpdatedPayload()
+    {
+        var roomId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        var message = new ChatMessageDto(
+            messageId,
+            roomId,
+            Guid.NewGuid(),
+            "Teacher name",
+            "Teacher",
+            "Updated",
+            null,
+            DateTime.UtcNow,
+            DateTime.UtcNow,
+            null,
+            []);
+        var service = new Mock<IChatService>();
+        service.Setup(item => item.EditMessageAsync(
+                messageId,
+                It.IsAny<EditChatMessageRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(message);
+        var (hub, client) = CreateHub(roomId);
+
+        var result = await new ChatsController().EditMessage(
+            messageId,
+            new EditChatMessageRequest("Updated"),
+            service.Object,
+            hub.Object,
+            CancellationToken.None);
+
+        Assert.Same(message, Assert.IsType<OkObjectResult>(result.Result).Value);
+        client.Verify(item => item.SendCoreAsync(
+            "MessageUpdated",
+            It.Is<object?[]>(arguments => arguments.Length == 1 && ReferenceEquals(arguments[0], message)),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteMessageBroadcastsMessageId()
+    {
+        var roomId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        var service = new Mock<IChatService>();
+        service.Setup(item => item.DeleteMessageAsync(
+                messageId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(roomId);
+        var (hub, client) = CreateHub(roomId);
+
+        var result = await new ChatsController().DeleteMessage(
+            messageId,
+            service.Object,
+            hub.Object,
+            CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        client.Verify(item => item.SendCoreAsync(
+            "MessageDeleted",
+            It.Is<object?[]>(arguments => arguments.Length == 1 && Equals(arguments[0], messageId)),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private static (Mock<IHubContext<ChatHub>> Hub, Mock<IClientProxy> Client) CreateHub(Guid roomId)
+    {
+        var client = new Mock<IClientProxy>();
+        var clients = new Mock<IHubClients>();
+        clients.Setup(item => item.Group(ChatHub.GroupName(roomId))).Returns(client.Object);
+        var hub = new Mock<IHubContext<ChatHub>>();
+        hub.SetupGet(item => item.Clients).Returns(clients.Object);
+        return (hub, client);
     }
 }
