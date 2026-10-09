@@ -33,6 +33,27 @@ public sealed class ExaminationRepository : IExaminationRepository
         return query.SingleOrDefaultAsync(examination => examination.Id == id, cancellationToken);
     }
 
+    public Task<Examination?> GetByIdForUpdateAsync(
+        Guid id,
+        bool includeDefinition,
+        CancellationToken cancellationToken)
+    {
+        IQueryable<Examination> query = _dbContext.Examinations
+            .FromSqlInterpolated($"SELECT * FROM examinations WHERE id = {id} FOR UPDATE");
+        if (includeDefinition)
+        {
+            query = query
+                .Include(examination => examination.QuestionSelectionRules)
+                .Include(examination => examination.Questions)
+                    .ThenInclude(question => question.MultipleChoiceOptions)
+                .Include(examination => examination.Questions)
+                    .ThenInclude(question => question.FillInBlankAnswerKeys)
+                .AsSplitQuery();
+        }
+
+        return query.SingleOrDefaultAsync(examination => examination.Id == id, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Examination>> ListByCourseAsync(
         Guid courseId,
         CancellationToken cancellationToken) =>
@@ -49,5 +70,11 @@ public sealed class ExaminationRepository : IExaminationRepository
     public void Add(Examination examination)
     {
         _dbContext.Examinations.Add(examination);
+    }
+
+    public void RemoveQuestionDefinition(Examination examination)
+    {
+        _dbContext.ExaminationQuestions.RemoveRange(examination.Questions);
+        _dbContext.ExaminationQuestionSelectionRules.RemoveRange(examination.QuestionSelectionRules);
     }
 }
