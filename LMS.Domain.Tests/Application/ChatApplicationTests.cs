@@ -4,6 +4,7 @@ using LMS.Api.application.abstractions.storage;
 using LMS.Api.application.features.chats;
 using LMS.Api.domain.Entities.Chats;
 using LMS.Api.domain.Entities.Courses;
+using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Courses;
 using LMS.Api.domain.Enums.Users;
 using LMS.Api.domain.exceptions;
@@ -14,6 +15,38 @@ namespace LMS.Domain.Tests.Application;
 
 public class ChatApplicationTests
 {
+    [Fact]
+    public async Task AuthenticatedUserCanCreateShortLivedRealtimeToken()
+    {
+        var user = new User(
+            "student@example.com",
+            "Student",
+            null,
+            "hash",
+            Role.Student,
+            AccountStatus.Active);
+        var teacherId = Guid.NewGuid();
+        var course = new Course("Course", null, teacherId, 30, CourseStatus.Open, teacherId);
+        var room = ChatRoom.CreateForCourse(course.Id, teacherId);
+        var fixture = CreateFixture(user.Id, Role.Student, course, room);
+        fixture.Users.Setup(repository => repository.GetByIdAsync(
+                user.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+        var expiresAt = DateTime.UtcNow.AddMinutes(2);
+        fixture.Tokens.Setup(provider => provider.CreateChatRealtimeToken(
+                user.Id,
+                user.Email,
+                "Student",
+                user.AuthVersion))
+            .Returns(new AccessToken("chat-ticket", expiresAt));
+
+        var result = await fixture.Service.CreateRealtimeTokenAsync(CancellationToken.None);
+
+        Assert.Equal("chat-ticket", result.AccessToken);
+        Assert.Equal(expiresAt, result.ExpiresAt);
+    }
+
     [Fact]
     public async Task HistoricalCourseParticipantMustStillHaveCurrentCourseAccess()
     {
@@ -91,6 +124,58 @@ public class ChatApplicationTests
 
         var returnedRoom = Assert.Single(result);
         Assert.Equal(directRoom.Id, returnedRoom.Id);
+    }
+
+    [Fact]
+    public async Task RoomListMarksRoomsThatContainUnreadMessages()
+    {
+        var teacherId = Guid.NewGuid();
+        var course = new Course("Course", null, teacherId, 30, CourseStatus.Open, teacherId);
+        var room = ChatRoom.CreateForCourse(course.Id, teacherId);
+        room.AddCourseParticipant(teacherId);
+        var fixture = CreateFixture(teacherId, Role.Teacher, course, room);
+        fixture.Messages.Setup(repository => repository.ListUnreadRoomIdsAsync(
+                teacherId,
+                It.Is<IReadOnlyCollection<Guid>>(ids => ids.Contains(room.Id)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<Guid> { room.Id });
+
+        var result = await fixture.Service.ListRoomsAsync(CancellationToken.None);
+
+        Assert.True(Assert.Single(result).HasUnread);
+    }
+
+    [Fact]
+    public async Task RoomListIncludesLatestMessageAndSortsByRecentActivity()
+    {
+        var userId = Guid.NewGuid();
+        var teacherId = Guid.NewGuid();
+        var course = new Course("Course", null, teacherId, 30, CourseStatus.Open, teacherId);
+        var quietRoom = ChatRoom.CreateDirectMessage(userId, Guid.NewGuid());
+        var activeRoom = ChatRoom.CreateDirectMessage(userId, Guid.NewGuid());
+        var fixture = CreateFixture(
+            userId,
+            Role.Teacher,
+            course,
+            quietRoom,
+            listedRooms: [quietRoom, activeRoom]);
+        var quietTime = DateTime.UtcNow.AddMinutes(-5);
+        var activeTime = DateTime.UtcNow;
+        fixture.Messages.Setup(repository => repository.ListLatestByRoomAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ChatRoomLatestMessage>
+            {
+                [quietRoom.Id] = new(quietRoom.Id, Guid.NewGuid(), Guid.NewGuid(), "Older message", quietTime, false),
+                [activeRoom.Id] = new(activeRoom.Id, Guid.NewGuid(), Guid.NewGuid(), "Latest message", activeTime, true)
+            });
+
+        var result = await fixture.Service.ListRoomsAsync(CancellationToken.None);
+
+        Assert.Equal(activeRoom.Id, result[0].Id);
+        Assert.Equal("Latest message", result[0].LatestMessage?.Content);
+        Assert.True(result[0].LatestMessage?.HasAttachments);
+        Assert.Equal(quietRoom.Id, result[1].Id);
     }
 
     [Fact]
@@ -339,6 +424,47 @@ public class ChatApplicationTests
     }
 
     [Fact]
+    public async Task CourseMessageListIncludesSenderIdentity()
+    {
+        var studentId = Guid.NewGuid();
+        var teacherId = Guid.NewGuid();
+        var course = new Course("Course", null, teacherId, 30, CourseStatus.Open, teacherId);
+        var room = ChatRoom.CreateForCourse(course.Id, teacherId);
+        room.AddCourseParticipant(studentId);
+        var enrollment = new Enrollment(studentId, course.Id);
+        enrollment.Accept();
+        var teacher = new User(
+            "teacher@example.com",
+            "Course teacher",
+            null,
+            "hash",
+            Role.Teacher,
+            AccountStatus.Active);
+        typeof(User).GetProperty(nameof(User.Id))!.SetValue(teacher, teacherId);
+        var message = ChatMessage.CreateText(room.Id, teacherId, "Welcome");
+        var fixture = CreateFixture(studentId, Role.Student, course, room, enrollment);
+        fixture.Messages.Setup(repository => repository.ListByRoomAsync(
+                room.Id,
+                0,
+                20,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([message]);
+        fixture.Users.Setup(repository => repository.ListByIdsAsync(
+                It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 1 && ids.Contains(teacherId)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([teacher]);
+
+        var result = await fixture.Service.ListMessagesAsync(
+            room.Id,
+            new ChatPageQuery(),
+            CancellationToken.None);
+
+        var returnedMessage = Assert.Single(result);
+        Assert.Equal("Course teacher", returnedMessage.SenderFullName);
+        Assert.Equal("Teacher", returnedMessage.SenderRole);
+    }
+
+    [Fact]
     public async Task AttachmentCleanupFailuresPreserveOriginalMessageSaveFailure()
     {
         var userId = Guid.NewGuid();
@@ -436,6 +562,56 @@ public class ChatApplicationTests
         Assert.Null(room.Participants.Single(participant => participant.UserId == userId).LastReadMessageId);
     }
 
+    [Fact]
+    public async Task GetOrCreateCourseRoomAddsBothCreatorAndTeacher()
+    {
+        var studentId = Guid.NewGuid();
+        var teacherId = Guid.NewGuid();
+        var course = new Course("Course", null, teacherId, 30, CourseStatus.Open, teacherId);
+        var enrollment = new Enrollment(studentId, course.Id);
+        enrollment.Accept();
+        var existingRoom = ChatRoom.CreateForCourse(course.Id, teacherId);
+        var fixture = CreateFixture(studentId, Role.Student, course, existingRoom, enrollment);
+        fixture.Rooms.Setup(r => r.GetByCourseIdAsync(course.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ChatRoom?)null);
+
+        var result = await fixture.Service.GetOrCreateCourseRoomAsync(course.Id, CancellationToken.None);
+
+        Assert.Equal(course.Id, result.CourseId);
+        Assert.Contains(studentId, result.ParticipantIds);
+        Assert.Contains(teacherId, result.ParticipantIds);
+        fixture.Rooms.Verify(r => r.Add(It.Is<ChatRoom>(room =>
+            room.Participants.Any(p => p.UserId == studentId) &&
+            room.Participants.Any(p => p.UserId == teacherId))), Times.Once);
+        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CourseParticipantIsAutomaticallyAddedWhenAccessingCourseRoom()
+    {
+        var creatorId = Guid.NewGuid();
+        var otherStudentId = Guid.NewGuid();
+        var teacherId = Guid.NewGuid();
+        var course = new Course("Course", null, teacherId, 30, CourseStatus.Open, teacherId);
+        var room = ChatRoom.CreateForCourse(course.Id, creatorId);
+        room.AddCourseParticipant(creatorId);
+
+        var enrollment = new Enrollment(otherStudentId, course.Id);
+        enrollment.Accept();
+        var fixture = CreateFixture(otherStudentId, Role.Student, course, room, enrollment);
+
+        Assert.DoesNotContain(room.Participants, p => p.UserId == otherStudentId);
+
+        var joined = await fixture.Service.JoinRoomAsync(room.Id, CancellationToken.None);
+
+        Assert.Contains(room.Participants, p => p.UserId == otherStudentId);
+        Assert.Contains(otherStudentId, joined.ParticipantIds);
+        fixture.Rooms.Verify(repository => repository.EnsureCourseParticipantAsync(
+            room.Id,
+            otherStudentId,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private static void SetCreatedAt(ChatMessage message, DateTime createdAt) =>
         typeof(ChatMessage).GetProperty(nameof(ChatMessage.CreatedAt))!.SetValue(message, createdAt);
 
@@ -457,6 +633,15 @@ public class ChatApplicationTests
             .ReturnsAsync(room);
         rooms.Setup(repository => repository.ListForUserAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(listedRooms ?? [room]);
+        rooms.Setup(repository => repository.EnsureCourseParticipantAsync(
+                room.Id,
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<Guid, Guid, CancellationToken>((_, participantId, _) =>
+            {
+                room.AddCourseParticipant(participantId);
+                return Task.FromResult<ChatRoom?>(room);
+            });
 
         var courses = new Mock<ICourseRepository>();
         courses.Setup(repository => repository.GetByIdAsync(course.Id, true, It.IsAny<CancellationToken>()))
@@ -482,29 +667,49 @@ public class ChatApplicationTests
             .ReturnsAsync(1);
 
         var messages = new Mock<IChatMessageRepository>();
+        messages.Setup(repository => repository.ListUnreadRoomIdsAsync(
+                userId,
+                It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<Guid>());
+        messages.Setup(repository => repository.ListLatestByRoomAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ChatRoomLatestMessage>());
 
         var fileStorage = new Mock<IFileStorage>();
         var fileCleanup = new Mock<IFileCleanupQueue>();
+        var tokens = new Mock<ITokenProvider>();
+        var users = new Mock<IUserRepository>();
+        users.Setup(repository => repository.ListByIdsAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
         var service = new ChatService(
             currentUser.Object,
             rooms.Object,
             messages.Object,
             courses.Object,
             enrollments.Object,
-            Mock.Of<IUserRepository>(),
+            users.Object,
             unitOfWork.Object,
             fileStorage.Object,
-            fileCleanup.Object);
+            tokens.Object,
+            fileCleanup.Object,
+            transactionManager: null);
 
-        return new Fixture(service, courses, enrollments, messages, unitOfWork, fileStorage, fileCleanup);
+        return new Fixture(service, rooms, courses, enrollments, users, messages, unitOfWork, fileStorage, fileCleanup, tokens);
     }
 
     private sealed record Fixture(
         ChatService Service,
+        Mock<IChatRoomRepository> Rooms,
         Mock<ICourseRepository> Courses,
         Mock<IEnrollmentRepository> Enrollments,
+        Mock<IUserRepository> Users,
         Mock<IChatMessageRepository> Messages,
         Mock<IUnitOfWork> UnitOfWork,
         Mock<IFileStorage> FileStorage,
-        Mock<IFileCleanupQueue> FileCleanup);
+        Mock<IFileCleanupQueue> FileCleanup,
+        Mock<ITokenProvider> Tokens);
 }
