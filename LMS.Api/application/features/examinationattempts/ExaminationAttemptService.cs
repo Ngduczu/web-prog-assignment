@@ -3,6 +3,8 @@ using System.Text;
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.abstractions.time;
+using LMS.Api.application.common;
+using LMS.Api.application.features.courses;
 using LMS.Api.domain.Entities.Examinations;
 using LMS.Api.domain.Enums.Courses;
 using LMS.Api.domain.Enums.Examinations;
@@ -105,6 +107,51 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
             cancellationToken) ?? throw new NotFoundException("Examination attempt was not found.");
 
         return Map(attempt, examination);
+    }
+
+    public async Task<PagedResult<ExaminationAttemptResultDto>> ListResultsAsync(
+        Guid examinationId,
+        ExaminationAttemptQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(examinationId, "Examination id");
+        if (query.Page <= 0 || query.PageSize is < 1 or > 100)
+            throw new BadRequestException("Invalid pagination.");
+
+        var examination = await GetExaminationAsync(examinationId, false, cancellationToken);
+        var course = await _courses.GetByIdAsync(examination.CourseId, false, cancellationToken)
+            ?? throw new NotFoundException("Course was not found.");
+        CourseAuthorization.EnsureCanManage(_currentUser, course);
+
+        var total = await _attempts.CountByExaminationAsync(examinationId, cancellationToken);
+        var attempts = await _attempts.ListByExaminationAsync(
+            examinationId,
+            (query.Page - 1) * query.PageSize,
+            query.PageSize,
+            cancellationToken);
+        var items = attempts.Select(item =>
+        {
+            var active = item.Attempt.Status is ExaminationAttemptStatus.InProgress or ExaminationAttemptStatus.Disconnected;
+            return new ExaminationAttemptResultDto(
+                item.Attempt.Id,
+                item.Attempt.ExaminationId,
+                item.Attempt.StudentId,
+                item.Student.FullName,
+                item.Student.Email,
+                item.Attempt.Status,
+                item.Attempt.SubmitReason,
+                item.Attempt.StartedAt,
+                item.Attempt.SubmittedAt,
+                item.Attempt.ViolationCount,
+                active ? null : item.Attempt.CorrectAnswers,
+                item.Attempt.TotalQuestions,
+                active ? null : item.Attempt.Score);
+        }).ToArray();
+        return new PagedResult<ExaminationAttemptResultDto>(
+            items,
+            query.Page,
+            query.PageSize,
+            total);
     }
 
     public async Task<IReadOnlyList<StudentExamQuestionDto>> GetQuestionsAsync(
