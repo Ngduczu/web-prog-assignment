@@ -17,6 +17,16 @@ public sealed class UserRepository : IUserManagementRepository
     public Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
         _dbContext.Users.SingleOrDefaultAsync(user => user.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyList<User>> ListByIdsAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken) =>
+        ids.Count == 0
+            ? []
+            : await _dbContext.Users
+                .AsNoTracking()
+                .Where(user => ids.Contains(user.Id))
+                .ToListAsync(cancellationToken);
+
     public Task<User?> GetByEmailAsync(string normalizedEmail, CancellationToken cancellationToken) =>
         _dbContext.Users.SingleOrDefaultAsync(user => user.Email == normalizedEmail, cancellationToken);
 
