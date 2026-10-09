@@ -12,9 +12,33 @@ public sealed class JwtTokenProvider : ITokenProvider
     private readonly JwtOptions _options;
     public JwtTokenProvider(IOptions<JwtOptions> options) => _options = options.Value;
     public AccessToken CreateAccessToken(Guid userId, string email, string role, long authVersion)
+        => CreateToken(userId, email, role, authVersion, DateTime.UtcNow.AddMinutes(_options.ExpirationMinutes));
+
+    public AccessToken CreateChatRealtimeToken(Guid userId, string email, string role, long authVersion)
+        => CreateToken(
+            userId,
+            email,
+            role,
+            authVersion,
+            DateTime.UtcNow.AddMinutes(2),
+            new Claim(AuthenticationTokenClaims.TokenUse, AuthenticationTokenClaims.ChatRealtime));
+
+    private AccessToken CreateToken(
+        Guid userId,
+        string email,
+        string role,
+        long authVersion,
+        DateTime expires,
+        params Claim[] additionalClaims)
     {
-        var expires = DateTime.UtcNow.AddMinutes(_options.ExpirationMinutes);
-        var claims = new[] { new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Email, email), new Claim(ClaimTypes.Role, role), new Claim("auth_version", authVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)), new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")) };
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+            new Claim(ClaimTypes.Email, email),
+            new Claim(ClaimTypes.Role, role),
+            new Claim("auth_version", authVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))
+        }.Concat(additionalClaims);
         var credentials = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.SigningKey)), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(_options.Issuer, _options.Audience, claims, expires: expires, signingCredentials: credentials);
         return new AccessToken(new JwtSecurityTokenHandler().WriteToken(token), expires);
