@@ -79,17 +79,20 @@ public sealed class AuthenticationApplicationTests
     }
 
     [Fact]
-    public async Task OAuthLoginDoesNotAutomaticallyLinkAnExistingLocalAccount()
+    public async Task OAuthLoginLinksAnExistingLocalAccountByEmail()
     {
         var user = CreateUser("user@example.com");
         var fixture = CreateOAuthFixture(
             user,
             new OAuthUserInfo("google-user", user.Email, "Google User", null, true));
 
-        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.LoginWithOAuthAsync(
-            new OAuthLoginRequest("Google", "code", "https://localhost/callback", "verifier")));
+        var result = await fixture.Service.LoginWithOAuthAsync(
+            new OAuthLoginRequest("Google", "code", "https://localhost/callback", "verifier"));
 
-        Assert.Empty(fixture.Users.ExternalUsers);
+        var externalLogin = Assert.Single(fixture.Users.ExternalUsers);
+        Assert.Equal(user.Id, externalLogin.UserId);
+        Assert.Single(fixture.Users.Users);
+        Assert.False(string.IsNullOrWhiteSpace(result.LoginCode));
     }
 
     [Fact]
