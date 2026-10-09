@@ -128,9 +128,17 @@ Xóa mềm (`deletedAt`). **Response `204 No Content`.** Chat room của course 
   "status": "Waiting",
   "student": null,
   "createdAt": "2026-09-04T10:00:00Z",
-  "modifiedAt": "2026-09-04T10:00:00Z"
+  "modifiedAt": "2026-09-04T10:00:00Z",
+  "course": {
+    "id": "00000000-0000-0000-0000-000000000003",
+    "name": "C# Basics",
+    "status": "Open"
+  }
 }
 ```
+
+- `course` là bản tóm tắt (`id`, `name`, `status`) để client hiển thị tên khóa học mà không phải gọi thêm API. Có trong response của `POST .../enrollments`, `GET /api/enrollments/mine`, `GET .../enrollments` (danh sách theo course), `accept`, `reject`, `revoke`. **Không có** (`null`) ở response của `cancel`.
+- `student` chỉ được điền ở danh sách theo course; các response khác là `null`.
 
 Máy trạng thái: `Waiting → Accepted | Rejected | Cancelled`; `Accepted → Cancelled` (student rời hoặc teacher revoke); `Rejected`/`Cancelled → Waiting` khi đăng ký lại (tái dùng record).
 
@@ -140,11 +148,11 @@ Máy trạng thái: `Waiting → Accepted | Rejected | Cancelled`; `Accepted →
 
 ## `GET /api/enrollments/mine`
 
-Trả mảng Enrollment object (mọi trạng thái) của student để khôi phục trạng thái sau reload.
+Trả mảng Enrollment object (mọi trạng thái, kèm `course` tóm tắt) của student để khôi phục trạng thái sau reload. Course đã xóa mềm không nằm trong kết quả (global query filter). Dữ liệu lấy bằng hai truy vấn: enrollments của student, rồi courses theo danh sách `courseId`.
 
 ## `GET /api/courses/{courseId}/enrollments?page=1&pageSize=20`
 
-**Response `200 OK`:** PagedResult, trường `student` được điền để teacher nhận diện người đăng ký:
+**Response `200 OK`:** PagedResult, trường `student` được điền để teacher nhận diện người đăng ký, `course` là tóm tắt của course đang xem:
 
 ```json
 {
@@ -160,7 +168,12 @@ Trả mảng Enrollment object (mọi trạng thái) của student để khôi p
         "email": "student@example.com"
       },
       "createdAt": "2026-09-04T10:00:00Z",
-      "modifiedAt": "2026-09-04T10:00:00Z"
+      "modifiedAt": "2026-09-04T10:00:00Z",
+      "course": {
+        "id": "00000000-0000-0000-0000-000000000003",
+        "name": "C# Basics",
+        "status": "Open"
+      }
     }
   ],
   "page": 1,
@@ -172,16 +185,16 @@ Trả mảng Enrollment object (mọi trạng thái) của student để khôi p
 
 ## `POST /api/enrollments/{enrollmentId}/accept`
 
-**Không có body.** Chỉ chấp nhận khi enrollment `Waiting`, course `Open` và chưa đủ `maxStudents`. **Response `200 OK`:** Enrollment `Accepted`.
+**Không có body.** Chỉ chấp nhận khi enrollment `Waiting`, course `Open` và chưa đủ `maxStudents`. **Response `200 OK`:** Enrollment `Accepted` (có `course`).
 
 ## `POST /api/enrollments/{enrollmentId}/reject`
 
-**Không có body.** **Response `200 OK`:** Enrollment `Rejected`.
+**Không có body.** **Response `200 OK`:** Enrollment `Rejected` (có `course`).
 
 ## `POST /api/enrollments/{enrollmentId}/cancel`
 
-**Không có body.** Student hủy khi `Waiting` hoặc rời khóa khi `Accepted`. **Response `200 OK`:** Enrollment `Cancelled`.
+**Không có body.** Student hủy khi `Waiting` hoặc rời khóa khi `Accepted`. **Response `200 OK`:** Enrollment `Cancelled`, `course: null`.
 
 ## `POST /api/enrollments/{enrollmentId}/revoke`
 
-**Không có body.** Chỉ cho enrollment `Accepted`. **Response `200 OK`:** Enrollment `Cancelled`. Student mất quyền đọc nội dung, chat khóa học và làm bài thi.
+**Không có body.** Chỉ cho enrollment `Accepted`. **Response `200 OK`:** Enrollment `Cancelled` (có `course`). Student mất quyền đọc nội dung, chat khóa học và làm bài thi.
