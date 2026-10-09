@@ -112,6 +112,14 @@ public static class DependencyInjection
                 },
                 OnTokenValidated = async context =>
                 {
+                    var tokenUse = context.Principal?.FindFirst(AuthenticationTokenClaims.TokenUse)?.Value;
+                    var isChatHub = context.HttpContext.Request.Path.StartsWithSegments("/hubs/chat");
+                    if (string.Equals(tokenUse, AuthenticationTokenClaims.ChatRealtime, StringComparison.Ordinal) && !isChatHub)
+                    {
+                        context.Fail("Chat realtime tokens are valid only for the chat hub.");
+                        return;
+                    }
+
                     var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
                     var role = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
                     var versionValue = context.Principal?.FindFirst("auth_version")?.Value;
