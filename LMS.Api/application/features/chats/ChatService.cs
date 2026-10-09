@@ -3,6 +3,7 @@ using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.abstractions.storage;
 using LMS.Api.domain.Entities.Chats;
 using LMS.Api.domain.Entities.Courses;
+using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Chats;
 using LMS.Api.domain.Enums.Courses;
 using LMS.Api.domain.Enums.Users;
@@ -24,6 +25,7 @@ public sealed class ChatService : IChatService
     private readonly IFileCleanupQueue? _fileCleanup;
     private readonly ITransactionManager? _transactionManager;
     private readonly ILogger<ChatService>? _logger;
+    private readonly ITokenProvider _tokenProvider;
 
     public ChatService(
         ICurrentUser currentUser,
@@ -34,6 +36,7 @@ public sealed class ChatService : IChatService
         IUserRepository users,
         IUnitOfWork unitOfWork,
         IFileStorage fileStorage,
+        ITokenProvider tokenProvider,
         IFileCleanupQueue? fileCleanup = null,
         ITransactionManager? transactionManager = null,
         ILogger<ChatService>? logger = null)
@@ -49,6 +52,26 @@ public sealed class ChatService : IChatService
         _fileCleanup = fileCleanup;
         _transactionManager = transactionManager;
         _logger = logger;
+        _tokenProvider = tokenProvider;
+    }
+
+    public async Task<ChatRealtimeTokenDto> CreateRealtimeTokenAsync(
+        CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        var user = await _users.GetByIdAsync(userId, cancellationToken)
+            ?? throw new UnauthorizeException("User authentication is no longer valid.");
+        if (user.Status != AccountStatus.Active)
+        {
+            throw new UnauthorizeException("Account is not active.");
+        }
+
+        var token = _tokenProvider.CreateChatRealtimeToken(
+            user.Id,
+            user.Email,
+            user.Role.ToString(),
+            user.AuthVersion);
+        return new ChatRealtimeTokenDto(token.Token, token.ExpiresAt);
     }
 
     public async Task<IReadOnlyList<ChatRoomDto>> ListRoomsAsync(CancellationToken cancellationToken)
@@ -78,6 +101,17 @@ public sealed class ChatService : IChatService
                 }
             }
         }
+
+        var directOtherUserIds = rooms
+            .Where(room => room.Type == ChatRoomType.DirectMessage)
+            .SelectMany(room => room.Participants)
+            .Where(participant => participant.UserId != userId)
+            .Select(participant => participant.UserId)
+            .Distinct()
+            .ToArray();
+
+        var directUsers = await _users.ListByIdsAsync(directOtherUserIds, cancellationToken);
+        var directUsersById = directUsers.ToDictionary(user => user.Id);
 
         var accessibleRooms = new List<ChatRoomDto>(rooms.Count);
         var courseLifecycleChanged = false;
@@ -111,9 +145,20 @@ public sealed class ChatService : IChatService
                 {
                     continue;
                 }
-            }
 
-            accessibleRooms.Add(MapRoom(room));
+                accessibleRooms.Add(MapRoom(room, course.Name));
+            }
+            else
+            {
+                var otherId = room.Participants.FirstOrDefault(p => p.UserId != userId)?.UserId;
+                User? directUser = null;
+                if (otherId.HasValue)
+                {
+                    directUsersById.TryGetValue(otherId.Value, out directUser);
+                }
+
+                accessibleRooms.Add(MapRoom(room, directUser?.FullName, directUser?.FullName, directUser?.Email));
+            }
         }
 
         if (courseLifecycleChanged)
@@ -121,7 +166,24 @@ public sealed class ChatService : IChatService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
-        return accessibleRooms;
+        var unreadRoomIds = await _messages.ListUnreadRoomIdsAsync(
+            userId,
+            accessibleRooms.Select(room => room.Id).ToArray(),
+            cancellationToken);
+        var latestMessages = await _messages.ListLatestByRoomAsync(
+            accessibleRooms.Select(room => room.Id).ToArray(),
+            cancellationToken);
+        return accessibleRooms
+            .Select(room => room with
+            {
+                HasUnread = unreadRoomIds.Contains(room.Id),
+                LatestMessage = latestMessages.TryGetValue(room.Id, out var latest)
+                    ? new ChatRoomLatestMessageDto(latest.Id, latest.SenderId, latest.Content, latest.CreatedAt, latest.HasAttachments)
+                    : null
+            })
+            .OrderByDescending(room => room.LatestMessage?.CreatedAt ?? room.CreatedAt)
+            .ThenByDescending(room => room.CreatedAt)
+            .ToArray();
     }
 
     public async Task<ChatRoomDto> GetOrCreateCourseRoomAsync(Guid courseId, CancellationToken cancellationToken)
@@ -133,6 +195,10 @@ public sealed class ChatService : IChatService
         {
             room = ChatRoom.CreateForCourse(courseId, userId);
             room.AddCourseParticipant(userId);
+            if (course.TeacherId != userId)
+            {
+                room.AddCourseParticipant(course.TeacherId);
+            }
             room.SynchronizeWithCourse(course);
             _rooms.Add(room);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -140,20 +206,21 @@ public sealed class ChatService : IChatService
         else
         {
             var lifecycleChanged = room.SynchronizeWithCourse(course);
-            var participantAdded = false;
-            if (!room.IsArchived && room.Participants.All(participant => participant.UserId != userId))
-            {
-                room.AddCourseParticipant(userId);
-                participantAdded = true;
-            }
-
-            if (lifecycleChanged || participantAdded)
+            if (lifecycleChanged)
             {
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
+
+            if (!room.IsArchived)
+            {
+                room = await _rooms.EnsureCourseParticipantAsync(room.Id, userId, cancellationToken)
+                    ?? throw new NotFoundException("The chat room was not found.");
+                room = await _rooms.EnsureCourseParticipantAsync(room.Id, course.TeacherId, cancellationToken)
+                    ?? throw new NotFoundException("The chat room was not found.");
+            }
         }
 
-        return MapRoom(room);
+        return MapRoom(room, course.Name);
     }
 
     public async Task<ChatRoomDto> GetOrCreateDirectRoomAsync(Guid otherUserId, CancellationToken cancellationToken)
@@ -180,7 +247,7 @@ public sealed class ChatService : IChatService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
-        return MapRoom(room);
+        return MapRoom(room, otherUser.FullName, otherUser.FullName, otherUser.Email);
     }
 
     public async Task<IReadOnlyList<ChatMessageDto>> ListMessagesAsync(Guid roomId, ChatPageQuery query, CancellationToken cancellationToken)
@@ -189,9 +256,14 @@ public sealed class ChatService : IChatService
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var messages = await _messages.ListByRoomAsync(roomId, (page - 1) * pageSize, pageSize, cancellationToken);
-        return messages
-            .Where(message => !message.IsDeleted)
-            .Select(MapMessage)
+        var visibleMessages = messages.Where(message => !message.IsDeleted).ToArray();
+        var senderIds = visibleMessages.Select(message => message.SenderId).Distinct().ToArray();
+        var senders = await _users.ListByIdsAsync(senderIds, cancellationToken);
+        var sendersById = senders.ToDictionary(user => user.Id);
+        return visibleMessages
+            .Select(message => MapMessage(
+                message,
+                sendersById.GetValueOrDefault(message.SenderId)))
             .ToList();
     }
 
@@ -207,6 +279,23 @@ public sealed class ChatService : IChatService
         {
             throw new ConflictException("Archived chat rooms cannot be joined.");
         }
+    }
+
+    public async Task<ChatRoomDto> JoinRoomAsync(Guid roomId, CancellationToken cancellationToken)
+    {
+        var room = await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
+        if (room.IsArchived)
+        {
+            throw new ConflictException("Archived chat rooms cannot be joined.");
+        }
+
+        if (room.Type == ChatRoomType.Course && room.CourseId.HasValue)
+        {
+            var course = await _courses.GetByIdAsync(room.CourseId.Value, true, cancellationToken);
+            return MapRoom(room, course?.Name);
+        }
+
+        return MapRoom(room);
     }
 
     public async Task<ChatMessageDto> SendMessageAsync(Guid roomId, SendChatMessageRequest request, CancellationToken cancellationToken)
@@ -239,7 +328,8 @@ public sealed class ChatService : IChatService
 
         _messages.Add(message);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return MapMessage(message);
+        var sender = await _users.GetByIdAsync(userId, cancellationToken);
+        return MapMessage(message, sender);
     }
 
     public async Task<ChatMessageDto> SendMessageWithAttachmentAsync(Guid roomId, string? content, Guid? replyToMessageId, string fileName, string contentType, long length, Stream stream, CancellationToken cancellationToken)
@@ -262,7 +352,8 @@ public sealed class ChatService : IChatService
             var message = ChatMessage.CreateWithAttachment(roomId, userId, content, storedFile.FileName, storedFile.ObjectKey, storedFile.ContentType, storedFile.FileSize, replyToMessageId);
             _messages.Add(message);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-            return MapMessage(message);
+            var sender = await _users.GetByIdAsync(userId, cancellationToken);
+            return MapMessage(message, sender);
         }
         catch
         {
@@ -346,10 +437,11 @@ public sealed class ChatService : IChatService
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return MapMessage(message);
+        var sender = await _users.GetByIdAsync(userId, cancellationToken);
+        return MapMessage(message, sender);
     }
 
-    public async Task DeleteMessageAsync(Guid messageId, CancellationToken cancellationToken)
+    public async Task<Guid> DeleteMessageAsync(Guid messageId, CancellationToken cancellationToken)
     {
         var userId = _currentUser.GetRequiredUserId();
         var message = await _messages.GetByIdAsync(messageId, cancellationToken)
@@ -367,6 +459,7 @@ public sealed class ChatService : IChatService
             participant.ClearReadReceipt();
         }
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return message.ChatRoomId;
     }
 
     private static void ValidateMessageContent(string? content)
@@ -441,6 +534,11 @@ public sealed class ChatService : IChatService
         if (room.Type == ChatRoomType.Course)
         {
             await EnsureCurrentCourseAccessAsync(room, cancellationToken);
+            if (!room.IsArchived && room.Participants.All(participant => participant.UserId != userId))
+            {
+                room = await _rooms.EnsureCourseParticipantAsync(room.Id, userId, cancellationToken)
+                    ?? throw new NotFoundException("The chat room was not found.");
+            }
         }
         else if (!room.Participants.Any(participant => participant.UserId == userId))
         {
@@ -497,6 +595,39 @@ public sealed class ChatService : IChatService
     }
 
     private static bool CanModerate(ChatRoom room, Role role) => role == Role.Admin || room.Type == ChatRoomType.Course && role == Role.Teacher;
-    private static ChatRoomDto MapRoom(ChatRoom room) => new(room.Id, room.Type.ToString(), room.CourseId, room.Participants.Select(participant => participant.UserId).ToArray(), room.CreatedAt, room.ArchivedAt);
-    private static ChatMessageDto MapMessage(ChatMessage message) => new(message.Id, message.ChatRoomId, message.SenderId, message.IsDeleted ? null : message.Content, message.ReplyToMessageId, message.CreatedAt, message.EditedAt, message.DeletedAt, message.IsDeleted ? [] : message.Attachments.Select(attachment => new ChatAttachmentDto(attachment.Id, attachment.FileName, attachment.ContentType, attachment.FileSize)).ToArray());
+    private static ChatRoomDto MapRoom(
+        ChatRoom room,
+        string? title = null,
+        string? directParticipantName = null,
+        string? directParticipantEmail = null) =>
+        new(
+            room.Id,
+            room.Type.ToString(),
+            room.CourseId,
+            room.Participants.Select(participant => participant.UserId).ToArray(),
+            room.CreatedAt,
+            room.ArchivedAt,
+            title,
+            directParticipantName,
+            directParticipantEmail);
+    private static ChatMessageDto MapMessage(ChatMessage message, User? sender) => new(
+        message.Id,
+        message.ChatRoomId,
+        message.SenderId,
+        sender?.FullName,
+        sender?.Role.ToString(),
+        message.IsDeleted ? null : message.Content,
+        message.ReplyToMessageId,
+        message.CreatedAt,
+        message.EditedAt,
+        message.DeletedAt,
+        message.IsDeleted
+            ? []
+            : message.Attachments
+                .Select(attachment => new ChatAttachmentDto(
+                    attachment.Id,
+                    attachment.FileName,
+                    attachment.ContentType,
+                    attachment.FileSize))
+                .ToArray());
 }
