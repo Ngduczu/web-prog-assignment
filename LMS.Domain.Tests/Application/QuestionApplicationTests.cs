@@ -133,6 +133,86 @@ public class QuestionApplicationTests
     }
 
     [Fact]
+    public async Task UpdateMultipleChoiceReplacesOptionsAndCorrectOption()
+    {
+        var fixture = CreateFixture();
+        var created = await fixture.Service.CreateMultipleChoiceAsync(
+            fixture.QuestionBank.Id,
+            new CreateMultipleChoiceQuestionRequest(
+                "Question",
+                QuestionDifficulty.Easy,
+                true,
+                [new MultipleChoiceOptionInput("A", true), new MultipleChoiceOptionInput("B", false)]));
+
+        var result = await fixture.Service.UpdateQuestionAsync(
+            created.Id,
+            new UpdateQuestionRequest(
+                "Question",
+                QuestionDifficulty.Easy,
+                false,
+                [
+                    new MultipleChoiceOptionInput("A", false),
+                    new MultipleChoiceOptionInput("B", false),
+                    new MultipleChoiceOptionInput("C", false),
+                    new MultipleChoiceOptionInput("D", false),
+                    new MultipleChoiceOptionInput("E", true)
+                ]));
+
+        Assert.Equal(5, result.Options.Count);
+        Assert.False(result.ShuffleOptions);
+        Assert.Equal("E", result.Options.Single(option => option.IsCorrect).Content);
+    }
+
+    [Fact]
+    public async Task UpdateMultipleChoiceRejectsInvalidCorrectOptionCount()
+    {
+        var fixture = CreateFixture();
+        var created = await fixture.Service.CreateMultipleChoiceAsync(
+            fixture.QuestionBank.Id,
+            new CreateMultipleChoiceQuestionRequest(
+                "Question",
+                QuestionDifficulty.Easy,
+                true,
+                [new MultipleChoiceOptionInput("A", true), new MultipleChoiceOptionInput("B", false)]));
+
+        await Assert.ThrowsAsync<BadRequestException>(() => fixture.Service.UpdateQuestionAsync(
+            created.Id,
+            new UpdateQuestionRequest(
+                "Question",
+                QuestionDifficulty.Easy,
+                null,
+                [new MultipleChoiceOptionInput("A", false), new MultipleChoiceOptionInput("B", false)])));
+    }
+
+    [Fact]
+    public async Task UpdateFillInBlankReplacesAnswersAndRejectsOptions()
+    {
+        var fixture = CreateFixture();
+        var created = await fixture.Service.CreateFillInBlankAsync(
+            fixture.QuestionBank.Id,
+            new CreateFillInBlankQuestionRequest(
+                "Capital of ___",
+                QuestionDifficulty.Easy,
+                [new FillInBlankAnswerInput(1, "Hanoi")]));
+
+        var result = await fixture.Service.UpdateQuestionAsync(
+            created.Id,
+            new UpdateQuestionRequest(
+                "Capital of ___",
+                QuestionDifficulty.Easy,
+                Answers: [new FillInBlankAnswerInput(1, "Ha Noi"), new FillInBlankAnswerInput(1, "Hanoi")]));
+
+        Assert.Equal(2, result.Answers.Count);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => fixture.Service.UpdateQuestionAsync(
+            created.Id,
+            new UpdateQuestionRequest(
+                "Capital of ___",
+                QuestionDifficulty.Easy,
+                Options: [new MultipleChoiceOptionInput("A", true), new MultipleChoiceOptionInput("B", false)])));
+    }
+
+    [Fact]
     public async Task DeleteQuestionRemovesSourceQuestion()
     {
         var fixture = CreateFixture();
@@ -335,6 +415,12 @@ public class QuestionApplicationTests
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<Question>>(
                 Items.Where(question => questionBankIds.Contains(question.QuestionBankId)).ToArray());
+
+        public Task<IReadOnlyList<Question>> ListByIdsAsync(
+            IReadOnlyCollection<Guid> questionIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Question>>(
+                Items.Where(question => questionIds.Contains(question.Id)).ToArray());
 
         public void Add(Question question)
         {
