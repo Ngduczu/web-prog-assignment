@@ -35,6 +35,7 @@ public class GlobalExceptionHandler: IExceptionHandler
         if (statusCode >= StatusCodes.Status500InternalServerError)
         {
             _logger.LogError(
+                exception,
                 "Unhandled request failure of type {ExceptionType}.",
                 exception.GetType().Name);
         }
