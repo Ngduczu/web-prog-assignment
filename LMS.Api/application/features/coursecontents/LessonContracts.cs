@@ -15,6 +15,9 @@ public sealed record UpdateLessonRequest(
     int Order,
     LessonStatus Status);
 
+public sealed record ReorderLessonsRequest(
+    IReadOnlyList<Guid> LessonIds);
+
 public sealed record LessonDto(
     Guid Id,
     Guid CourseId,
@@ -40,6 +43,7 @@ public interface ILessonService
     Task<LessonDto> CreateAsync(Guid courseId, CreateLessonRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<LessonDto>> ListAsync(Guid courseId, CancellationToken cancellationToken = default);
     Task<LessonDto> GetAsync(Guid lessonId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<LessonDto>> ReorderAsync(Guid courseId, ReorderLessonsRequest request, CancellationToken cancellationToken = default);
     Task<FileContent> GetMaterialContentAsync(Guid materialId, CancellationToken cancellationToken = default);
     Task<LessonDto> UpdateAsync(Guid lessonId, UpdateLessonRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<MaterialDto>> ListMaterialsAsync(Guid lessonId, CancellationToken cancellationToken = default);
