@@ -53,6 +53,7 @@ public sealed class SubmissionRepository : ISubmissionRepository
         await _dbContext.Submissions
             .AsNoTracking()
             .Include(submission => submission.Attachment)
+            .Include(submission => submission.Student)
             .Where(submission =>
                 submission.ExerciseId == exerciseId &&
                 submission.Status != SubmissionStatus.Draft)
