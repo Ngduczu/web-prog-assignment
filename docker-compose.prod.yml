@@ -91,8 +91,8 @@ services:
     networks:
       - internal
 
-  caddy:
-    image: caddy:2-alpine
+  nginx:
+    image: nginx:1.27-alpine
     restart: unless-stopped
     environment:
       FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:?Set FRONTEND_DOMAIN in .env}
@@ -100,24 +100,26 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./letsencrypt:/etc/letsencrypt:ro
+      - ./certbot-www:/var/www/certbot:ro
     depends_on:
       - frontend
       - api
     networks:
       - internal
+      - tino
 
 networks:
   internal:
     driver: bridge
+  # Existing TiNo network, so nginx can reach tino-web-prod without changing TiNo's network config.
+  tino:
+    external: true
+    name: tino_tino-network
 
 volumes:
   postgres_data:
   redis_data:
   uploads:
-  caddy_data:
-  caddy_config:

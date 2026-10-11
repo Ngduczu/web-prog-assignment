@@ -117,7 +117,7 @@ jobs:
           install -d -m 700 "$1"
           REMOTE
           scp -i "$HOME/.ssh/lms_deploy" -P "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            docker-compose.prod.yml Caddyfile deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+            docker-compose.prod.yml nginx.conf.template deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
           ssh -i "$HOME/.ssh/lms_deploy" -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$DEPLOY_PATH" api "$GITHUB_SHA" <<'REMOTE'
           set -eu

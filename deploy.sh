@@ -22,7 +22,7 @@ esac
 cd "$(dirname "$0")"
 [ -f .env ] || { echo "Missing $PWD/.env; create it before deployment." >&2; exit 1; }
 [ -f docker-compose.prod.yml ] || { echo "Missing docker-compose.prod.yml." >&2; exit 1; }
-[ -f Caddyfile ] || { echo "Missing Caddyfile." >&2; exit 1; }
+[ -f nginx.conf.template ] || { echo "Missing nginx.conf.template." >&2; exit 1; }
 
 # Serialize deploys triggered by the independent frontend/backend repositories.
 exec 9>"$PWD/.deploy.lock"
@@ -46,7 +46,7 @@ docker compose --env-file .env -f docker-compose.prod.yml pull "$service"
 if [ "$component" = api ]; then
   docker compose --env-file .env -f docker-compose.prod.yml up -d api
 else
-  docker compose --env-file .env -f docker-compose.prod.yml up -d frontend caddy
+  docker compose --env-file .env -f docker-compose.prod.yml up -d frontend nginx
 fi
 
 docker compose --env-file .env -f docker-compose.prod.yml ps

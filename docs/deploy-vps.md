@@ -6,9 +6,9 @@ This repository and `frontend/` are separate GitHub repositories. Each has its o
 
 - GitHub Actions runs checks on pull requests and pushes to `main`.
 - A successful push to `main` builds an immutable image tagged with its commit SHA and pushes it to GHCR.
-- The backend workflow uploads `docker-compose.prod.yml`, `Caddyfile`, and `deploy.sh` to the VPS, then deploys the API.
+- The backend workflow uploads `docker-compose.prod.yml`, `nginx.conf.template`, and `deploy.sh` to the VPS, then deploys the API.
 - The frontend workflow deploys the frontend image. Deployments from both repositories are serialized on the VPS.
-- Caddy obtains/renews HTTPS certificates and routes `FRONTEND_DOMAIN` to Next.js and `API_DOMAIN` to ASP.NET Core.
+- nginx (certbot-issued certificates) routes `FRONTEND_DOMAIN` to Next.js and `API_DOMAIN` to ASP.NET Core.
 - PostgreSQL, Redis, and uploaded files use Docker volumes and are not published to the public network.
 
 > Publish the backend once before the frontend the first time. Confirm the domain, secrets, GHCR pull login, and `/opt/lms/.env` are ready first.
@@ -32,7 +32,7 @@ Create DNS `A` records pointing to the VPS IP for both names, for example:
 - Frontend: `sfit-study.ducvu.site`
 - Backend/SignalR: `study.ducvu.site`
 
-If using IPv6, only add `AAAA` records when the VPS IPv6 route and firewall are working. Caddy needs public DNS resolution and inbound HTTP/HTTPS reachability to obtain certificates. Do not put a raw VPS IP in OAuth callback URLs; use these HTTPS domain names.
+If using IPv6, only add `AAAA` records when the VPS IPv6 route and firewall are working. Certbot needs public DNS resolution and inbound HTTP/HTTPS reachability to obtain certificates. Do not put a raw VPS IP in OAuth callback URLs; use these HTTPS domain names.
 
 ## 3. Prepare an SSH deployment key
 
@@ -122,7 +122,7 @@ Add the same repository Actions secrets in **both** GitHub repositories:
 - `DEPLOY_KNOWN_HOSTS`: verified SSH host-key line(s) for the host/port.
 - `DEPLOY_PATH`: `/opt/lms` (use a path without spaces).
 
-The backend workflow also deploys the Compose/Caddy files. The frontend deployment expects the backend workflow to have installed `/opt/lms/deploy.sh` first.
+The backend workflow also deploys the Compose/nginx files. The frontend deployment expects the backend workflow to have installed `/opt/lms/deploy.sh` first.
 
 Protect `main` with pull requests and required checks. Restrict who can modify workflows and who can approve production deployments. Never expose deployment secrets to fork pull requests; the supplied workflows do not publish or deploy on pull requests.
 
@@ -132,7 +132,7 @@ Protect `main` with pull requests and required checks. Restrict who can modify w
 2. In the backend repository, review and merge the deployment files to `main`. The backend workflow runs restore, Release build, and the test suite; only after success does it publish and deploy the API.
 3. Check the backend Actions run. On the VPS, inspect `docker compose --env-file /opt/lms/.env -f /opt/lms/docker-compose.prod.yml ps` and logs for API/database/Redis startup or migration errors.
 4. In the frontend repository, review and merge its Dockerfile/workflow to `main`. Its workflow runs `npm ci`, lint, TypeScript, and production build before image publication/deployment.
-5. Confirm Caddy has started and obtained certificates. Visit the frontend over HTTPS and exercise sign-in, API requests, uploads, and SignalR.
+5. Confirm nginx has started with valid certificates. Visit the frontend over HTTPS and exercise sign-in, API requests, uploads, and SignalR.
 
 Subsequent pushes to either repository's `main` run that repository's checks and deploy only its image. A failed check prevents publishing/deployment. Each image also keeps the short-lived/current `main` tag and an immutable full commit-SHA tag.
 
@@ -153,10 +153,10 @@ Do not enable OAuth until the domain, TLS, Google client credentials, and both c
 - Verify HTTPS redirects/certificates and the SignalR WebSocket connection from a real browser.
 - Set up off-VPS encrypted PostgreSQL backups and test restoring one. Docker volumes are persistence, not backups. Back up uploads too, or move them to S3/object storage before depending on them.
 - Monitor disk space, container restarts/logs, backup success, certificate renewal, and application errors.
-- The API's existing rate limiter uses the direct peer IP, while this setup places Caddy in front of it. Before production traffic, configure ASP.NET Core to trust forwarded headers only from the Caddy proxy/network and ensure limits use the actual client IP. The repository approval policy requires explicit approval before changing this backend behavior.
-- For a rollback, update only the relevant `*_IMAGE_TAG` in `/opt/lms/.env` to a previously published 40-character commit SHA, then run `docker compose --env-file /opt/lms/.env -f /opt/lms/docker-compose.prod.yml pull api` (or `frontend`) followed by `docker compose --env-file /opt/lms/.env -f /opt/lms/docker-compose.prod.yml up -d api` (or `frontend caddy`). Be aware an older API image may not be compatible with a newer database schema; restore/rollback planning must account for migrations.
+- The API's existing rate limiter uses the direct peer IP, while this setup places nginx in front of it. Before production traffic, configure ASP.NET Core to trust forwarded headers only from the nginx proxy/network and ensure limits use the actual client IP. The repository approval policy requires explicit approval before changing this backend behavior.
+- For a rollback, update only the relevant `*_IMAGE_TAG` in `/opt/lms/.env` to a previously published 40-character commit SHA, then run `docker compose --env-file /opt/lms/.env -f /opt/lms/docker-compose.prod.yml pull api` (or `frontend`) followed by `docker compose --env-file /opt/lms/.env -f /opt/lms/docker-compose.prod.yml up -d api` (or `frontend nginx`). Be aware an older API image may not be compatible with a newer database schema; restore/rollback planning must account for migrations.
 
 ## Files introduced for deployment
 
-- Backend: `Dockerfile`, `.dockerignore`, `docker-compose.prod.yml`, `Caddyfile`, `deploy.sh`, `.github/workflows/ci-deploy.yml`.
+- Backend: `Dockerfile`, `.dockerignore`, `docker-compose.prod.yml`, `nginx.conf.template`, `deploy.sh`, `.github/workflows/ci-deploy.yml`.
 - Frontend: `Dockerfile`, `.dockerignore`, `.github/workflows/ci-deploy.yml`.
