@@ -81,7 +81,7 @@ SYSTEMACCOUNT_PASSWORD=
 # Optional Google OAuth. Register the exact backend callback as an authorized URI.
 OAUTH_GOOGLE_CLIENT_ID=
 OAUTH_GOOGLE_CLIENT_SECRET=
-OAUTH_GOOGLE_REDIRECT_URI=https://study.ducvu.site/api/auth/oauth/Google/callback
+OAUTH_GOOGLE_REDIRECT_URI=https://sfit-study.ducvu.site/api/backend/auth/oauth/Google/callback
 OAUTH_GOOGLE_CLIENT_CALLBACK_URI=https://sfit-study.ducvu.site/oauth/callback
 
 # Leave disabled for local volume storage. Configure S3 values before enabling it.
@@ -138,12 +138,12 @@ Subsequent pushes to either repository's `main` run that repository's checks and
 
 ## 8. OAuth and public-service settings
 
-With the example domains above, set these environment values on the VPS:
+With the example domains above, set these environment values on the VPS. The Google callback must go through the frontend proxy so the browser returns the host-only OAuth binding cookie to the same hostname that issued it:
 
-- `OAUTH_GOOGLE_REDIRECT_URI=https://study.ducvu.site/api/auth/oauth/Google/callback`
+- `OAUTH_GOOGLE_REDIRECT_URI=https://sfit-study.ducvu.site/api/backend/auth/oauth/Google/callback`
 - `OAUTH_GOOGLE_CLIENT_CALLBACK_URI=https://sfit-study.ducvu.site/oauth/callback`
 
-Register the first URL exactly in Google Cloud Console under **Authorized redirect URIs**. `CORS__AllowedOrigins` is configured by Compose as `https://sfit-study.ducvu.site`. The browser SignalR URL is `https://study.ducvu.site/hubs/chat`; the Next.js server calls the API internally at `http://api:8080/api`.
+Register the `OAUTH_GOOGLE_REDIRECT_URI` value exactly in Google Cloud Console under **Authorized redirect URIs**. Recreate the API container after changing its environment. `CORS__AllowedOrigins` is configured by Compose as `https://sfit-study.ducvu.site`. The browser SignalR URL is `https://study.ducvu.site/hubs/chat`; the Next.js server calls the API internally at `http://api:8080/api`.
 
 Do not enable OAuth until the domain, TLS, Google client credentials, and both callback URLs have been verified.
 
