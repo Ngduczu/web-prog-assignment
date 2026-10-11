@@ -1,0 +1,128 @@
+name: Backend CI and deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: backend-production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore LMS.sln
+
+      - name: Build
+        run: dotnet build LMS.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test LMS.sln --configuration Release --no-build --logger "trx;LogFileName=backend-tests.trx"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Verify production image builds
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish-and-deploy:
+    name: Publish image and deploy to VPS
+    needs: test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Sign in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image tags
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/ngduczu/web-prog-assignment
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=raw,value=main
+
+      - name: Build and publish API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Upload VPS deployment files
+        env:
+          SSH_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          set -eu
+          : "${DEPLOY_HOST:?Set DEPLOY_HOST in repository Actions secrets}"
+          : "${DEPLOY_USER:?Set DEPLOY_USER in repository Actions secrets}"
+          : "${DEPLOY_SSH_KEY:?Set DEPLOY_SSH_KEY in repository Actions secrets}"
+          : "${DEPLOY_KNOWN_HOSTS:?Set DEPLOY_KNOWN_HOSTS in repository Actions secrets}"
+          : "${DEPLOY_PATH:?Set DEPLOY_PATH in repository Actions secrets}"
+          SSH_PORT="${SSH_PORT:-22}"
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/lms_deploy"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/lms_deploy" "$HOME/.ssh/known_hosts"
+          ssh -i "$HOME/.ssh/lms_deploy" -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$DEPLOY_PATH" <<'REMOTE'
+          set -eu
+          install -d -m 700 "$1"
+          REMOTE
+          scp -i "$HOME/.ssh/lms_deploy" -P "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            docker-compose.prod.yml Caddyfile deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+          ssh -i "$HOME/.ssh/lms_deploy" -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$DEPLOY_PATH" api "$GITHUB_SHA" <<'REMOTE'
+          set -eu
+          cd "$1"
+          chmod 700 deploy.sh
+          ./deploy.sh "$2" "$3"
+          REMOTE
+          rm -f "$HOME/.ssh/lms_deploy"

@@ -9,4 +9,3 @@
 **/.env
 **/.env.*
 LMS.Api/storage
-**/storage

@@ -14,11 +14,13 @@ RUN dotnet publish LMS.Api/LMS.Api.csproj \
 # Run with the smaller ASP.NET Core runtime image.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
+ARG APP_UID=1654
 ENV ASPNETCORE_HTTP_PORTS=8080 \
     ASPNETCORE_ENVIRONMENT=Production
 EXPOSE 8080
 
-COPY --from=build /app/publish .
-RUN mkdir -p /app/storage
+COPY --from=build --chown=${APP_UID}:${APP_UID} /app/publish .
+RUN mkdir -p /app/storage && chown -R ${APP_UID}:${APP_UID} /app/storage
+USER ${APP_UID}
 
 ENTRYPOINT ["dotnet", "LMS.Api.dll"]

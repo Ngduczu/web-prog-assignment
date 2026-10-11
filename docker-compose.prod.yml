@@ -1,0 +1,123 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE in .env}:${BACKEND_IMAGE_TAG:-main}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD},abortConnect=false"
+      Jwt__Issuer: ${JWT_ISSUER:-LMS.Api}
+      Jwt__Audience: ${JWT_AUDIENCE:-LMS.Client}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env}
+      Jwt__ExpirationMinutes: ${JWT_EXPIRATION_MINUTES:-60}
+      Cors__AllowedOrigins__0: "https://${FRONTEND_DOMAIN:?Set FRONTEND_DOMAIN in .env}"
+      FileStorage__RootPath: /app/storage
+      Mail__Host: ${MAIL_HOST:-smtp.gmail.com}
+      Mail__Port: ${MAIL_PORT:-587}
+      Mail__EnableSsl: ${MAIL_ENABLE_SSL:-true}
+      Mail__Username: ${MAIL_USERNAME:-}
+      Mail__Password: ${MAIL_PASSWORD:-}
+      Mail__FromEmail: ${MAIL_FROM_EMAIL:-}
+      Mail__FromName: ${MAIL_FROM_NAME:-LMS}
+      SystemAccount__Email: ${SYSTEMACCOUNT_EMAIL:-}
+      SystemAccount__Password: ${SYSTEMACCOUNT_PASSWORD:-}
+      OAuth__Google__ClientId: ${OAUTH_GOOGLE_CLIENT_ID:-}
+      OAuth__Google__ClientSecret: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
+      OAuth__Google__RedirectUri: ${OAUTH_GOOGLE_REDIRECT_URI:-}
+      OAuth__Google__ClientCallbackUri: ${OAUTH_GOOGLE_CLIENT_CALLBACK_URI:-}
+      S3Storage__Enabled: ${S3_STORAGE_ENABLED:-false}
+      S3Storage__BucketName: ${S3_STORAGE_BUCKET_NAME:-}
+      S3Storage__Region: ${S3_STORAGE_REGION:-us-east-1}
+      S3Storage__ServiceUrl: ${S3_STORAGE_SERVICE_URL:-}
+      S3Storage__AccessKey: ${S3_STORAGE_ACCESS_KEY:-}
+      S3Storage__SecretKey: ${S3_STORAGE_SECRET_KEY:-}
+      S3Storage__ForcePathStyle: ${S3_STORAGE_FORCE_PATH_STYLE:-false}
+    volumes:
+      - uploads:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?Set FRONTEND_IMAGE in .env}:${FRONTEND_IMAGE_TAG:-main}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      BACKEND_API_URL: http://api:8080/api
+      BACKEND_HUB_URL: "https://${API_DOMAIN:?Set API_DOMAIN in .env}/hubs/chat"
+      NEXT_TELEMETRY_DISABLED: "1"
+    depends_on:
+      - api
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:?Set FRONTEND_DOMAIN in .env}
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - api
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads:
+  caddy_data:
+  caddy_config:
