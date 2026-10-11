@@ -56,10 +56,12 @@ public sealed class GmailService : IMailSender
             email,
             recipientName,
             "A question bank was shared with you",
-            $"""
-            <p>Hello {WebUtility.HtmlEncode(recipientName)},</p>
-            <p>{WebUtility.HtmlEncode(senderName)} shared the question bank <strong>{WebUtility.HtmlEncode(questionBankName)}</strong> with you. A copy is now available in your question banks.</p>
-            """,
+            BuildBrandedEmailHtml(
+                recipientName,
+                $"""
+                <h1 style="margin:0 0 12px;font-size:25px;line-height:1.25;color:#245b3d;">A question bank was shared with you</h1>
+                <p style="margin:0;font-size:15px;line-height:1.7;color:#53665a;">{WebUtility.HtmlEncode(senderName)} shared <strong style="color:#245b3d;">{WebUtility.HtmlEncode(questionBankName)}</strong> with you. A copy is now available in your question banks.</p>
+                """),
             cancellationToken);
 
     private async Task SendAsync(string email, string recipientName, string subject, string htmlBody, CancellationToken cancellationToken)
@@ -78,36 +80,51 @@ public sealed class GmailService : IMailSender
         await smtpClient.SendMailAsync(message, cancellationToken);
     }
 
-        private static string BuildCodeEmailHtml(string recipientName, string heading, string description, string code)
-        {
-                var safeName = WebUtility.HtmlEncode(recipientName);
-                var safeHeading = WebUtility.HtmlEncode(heading);
-                var safeDescription = WebUtility.HtmlEncode(description);
-                var safeCode = WebUtility.HtmlEncode(code);
+    private static string BuildCodeEmailHtml(string recipientName, string heading, string description, string code)
+    {
+        var safeHeading = WebUtility.HtmlEncode(heading);
+        var safeDescription = WebUtility.HtmlEncode(description);
+        var safeCode = WebUtility.HtmlEncode(code);
 
-                return $"""
-                        <!doctype html>
-                        <html lang="en">
-                            <body style="margin:0;background:#f4f7fb;color:#172033;font-family:Arial,Helvetica,sans-serif;">
-                                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:32px 12px;background:#f4f7fb;">
-                                    <tr><td align="center">
-                                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #e4e9f2;border-radius:16px;overflow:hidden;">
-                                            <tr><td style="padding:24px 32px;background:#173b67;color:#ffffff;font-size:22px;font-weight:700;">LMS</td></tr>
-                                            <tr><td style="padding:32px;">
-                                                <p style="margin:0 0 16px;font-size:16px;">Hello {safeName},</p>
-                                                <h1 style="margin:0 0 12px;font-size:25px;line-height:1.25;color:#173b67;">{safeHeading}</h1>
-                                                <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#536174;">{safeDescription}</p>
-                                                <div style="padding:18px;text-align:center;background:#edf4fb;border:1px dashed #5c8fbd;border-radius:10px;">
-                                                    <span style="font-size:32px;letter-spacing:6px;font-weight:700;color:#173b67;">{safeCode}</span>
-                                                </div>
-                                                <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#718096;">This code expires in 15 minutes. If you did not request this email, you can safely ignore it.</p>
-                                            </td></tr>
-                                            <tr><td style="padding:18px 32px;background:#f8fafc;color:#8a96a8;font-size:12px;">This is an automated message from LMS. Please do not reply.</td></tr>
-                                        </table>
-                                    </td></tr>
-                                </table>
-                            </body>
-                        </html>
-                        """;
-        }
+        return BuildBrandedEmailHtml(
+            recipientName,
+            $"""
+            <h1 style="margin:0 0 12px;font-size:25px;line-height:1.25;color:#245b3d;">{safeHeading}</h1>
+            <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#53665a;">{safeDescription}</p>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#edf5ee;border:1px dashed #78a887;border-radius:10px;">
+                <tr><td align="center" style="padding:18px 12px;font-size:32px;letter-spacing:6px;font-weight:700;color:#245b3d;">{safeCode}</td></tr>
+            </table>
+            <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#718078;">This code expires in 15 minutes. If you did not request this email, you can safely ignore it.</p>
+            """);
+    }
+
+    private static string BuildBrandedEmailHtml(string recipientName, string contentHtml)
+    {
+        var safeName = WebUtility.HtmlEncode(recipientName);
+
+        return $"""
+            <!doctype html>
+            <html lang="en">
+                <body style="margin:0;background:#f2f6f2;color:#203128;font-family:Arial,Helvetica,sans-serif;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:32px 12px;background:#f2f6f2;">
+                        <tr><td align="center">
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #dfe9e0;border-radius:16px;overflow:hidden;">
+                                <tr><td style="padding:20px 28px;background:#245b3d;color:#ffffff;">
+                                    <table role="presentation" cellspacing="0" cellpadding="0"><tr>
+                                        <td style="padding-right:12px;font-size:30px;line-height:1;">&#129417;</td>
+                                        <td style="font-size:20px;font-weight:700;letter-spacing:.3px;">SFIT LMS</td>
+                                    </tr></table>
+                                </td></tr>
+                                <tr><td style="padding:32px 28px;">
+                                    <p style="margin:0 0 20px;font-size:16px;color:#35483b;">Hello {safeName},</p>
+                                    {contentHtml}
+                                </td></tr>
+                                <tr><td style="padding:16px 28px;background:#f6f9f6;border-top:1px solid #e7eee7;color:#718078;font-size:12px;line-height:1.6;">This is an automated message from SFIT LMS. Please do not reply.</td></tr>
+                            </table>
+                        </td></tr>
+                    </table>
+                </body>
+            </html>
+            """;
+    }
 }
