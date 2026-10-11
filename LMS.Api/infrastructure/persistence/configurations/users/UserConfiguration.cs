@@ -28,6 +28,11 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasIndex(x => x.Email)
             .IsUnique();
 
+        builder.HasIndex(x => x.Role)
+            .HasDatabaseName("IX_users_single_system_role")
+            .IsUnique()
+            .HasFilter("\"role\" = 'System'");
+
         builder.Property(x => x.Phone)
             .HasColumnName("phone")
             .IsRequired(false)

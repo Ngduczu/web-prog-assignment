@@ -628,6 +628,16 @@ public class CourseContentApplicationTests
                     ? 1
                     : 0);
 
+        public Task<IReadOnlyDictionary<Guid, int>> CountAcceptedByCoursesAsync(
+            IReadOnlyCollection<Guid> courseIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, int>>(
+                _enrollment is not null &&
+                courseIds.Contains(_enrollment.CourseId) &&
+                _enrollment.Status == EnrollmentStatus.Accepted
+                    ? new Dictionary<Guid, int> { [_enrollment.CourseId] = 1 }
+                    : new Dictionary<Guid, int>());
+
         public void Add(Enrollment enrollment)
         {
         }

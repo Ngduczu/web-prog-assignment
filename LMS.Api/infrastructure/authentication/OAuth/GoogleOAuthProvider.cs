@@ -1,4 +1,5 @@
 using LMS.Api.application.abstractions.auth;
+using LMS.Api.domain.exceptions;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 using System.Net.Http.Json;
@@ -60,9 +61,8 @@ public sealed class GoogleOAuthProvider : IOAuthProvider
             ["grant_type"] = "authorization_code",
             ["code_verifier"] = codeVerifier
         });
-        using var response = await _httpClient.PostAsync(
-            "https://oauth2.googleapis.com/token",
-            content,
+        using var response = await SendAsync(
+            () => _httpClient.PostAsync("https://oauth2.googleapis.com/token", content, cancellationToken),
             cancellationToken);
         response.EnsureSuccessStatusCode();
 
@@ -86,7 +86,9 @@ public sealed class GoogleOAuthProvider : IOAuthProvider
             token.TokenType,
             token.AccessToken);
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        using var response = await SendAsync(
+            () => _httpClient.SendAsync(request, cancellationToken),
+            cancellationToken);
         response.EnsureSuccessStatusCode();
         var user = await response.Content.ReadFromJsonAsync<GoogleUserInfoResponse>(cancellationToken)
             ?? throw new InvalidOperationException("Google returned an empty user response.");
@@ -97,6 +99,24 @@ public sealed class GoogleOAuthProvider : IOAuthProvider
         }
 
         return new OAuthUserInfo(user.Subject, user.Email, user.Name, user.Picture, user.EmailVerified);
+    }
+
+    private static async Task<HttpResponseMessage> SendAsync(
+        Func<Task<HttpResponseMessage>> send,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await send();
+        }
+        catch (HttpRequestException exception) when (exception.StatusCode is null)
+        {
+            throw new ExternalServiceUnavailableException("Unable to reach Google. Please try again later.", exception);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ExternalServiceUnavailableException("Google did not respond in time. Please try again later.", exception);
+        }
     }
 
     private void EnsureConfigured()

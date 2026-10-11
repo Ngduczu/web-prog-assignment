@@ -11,7 +11,7 @@ Nghiệp vụ ném exception tùy chỉnh (thư mục `domain/exceptions`); `Glo
 | `ForbiddenException` | 403 | `Forbidden` | message |
 | `NotFoundException` | 404 | `Not found` | message |
 | `ConflictException` | 409 | `Conflict` | message |
-| `DbUpdateException` vi phạm unique nghiệp vụ | 409 | `Conflict` | `The requested change conflicts with existing data.` |
+| `ExternalServiceUnavailableException` | 503 | `Service Unavailable` | message (`Unable to reach Google...` / `Google did not respond in time...`) || `DbUpdateException` vi phạm unique nghiệp vụ | 409 | `Conflict` | `The requested change conflicts with existing data.` |
 | Mọi exception khác | 500 | `Internal Server Error` | `An unexpected error occurred.` (không lộ chi tiết) |
 
 Ghi log: status `>= 500` → `LogError` kèm exception; còn lại `LogWarning` chỉ gồm status và tên kiểu exception (không ghi message để tránh lộ dữ liệu).
@@ -87,7 +87,8 @@ Các unique index **không** nằm trong danh sách (ví dụ `(examination_id, 
 | DB lỗi sau khi đã upload file | Lỗi DB/xung đột | File mới được đưa vào cleanup queue ngay (`EnqueueImmediately`); nếu queue lỗi → xóa trực tiếp; nếu vẫn lỗi → chỉ log, **lỗi gốc luôn được ném lại** |
 | Worker | Lỗi trong vòng lặp | Log lỗi, vòng sau chạy lại; không làm sập host |
 | SignalR broadcast | Lỗi gửi | Dữ liệu đã lưu; client đồng bộ lại bằng REST |
-| Google OAuth | Đổi code lỗi / userinfo lỗi | Lỗi lan ra → `500` (hoặc `401` nếu Google trả dữ liệu không hợp lệ như email chưa verify); state được phục hồi 1 phút để thử callback lại |
+| Google OAuth | Không kết nối được / quá 10 giây (`HttpClient.Timeout`) | `GoogleOAuthProvider` ném `ExternalServiceUnavailableException` → `503`, log `Warning`; state được phục hồi để thử callback lại |
+| Google OAuth | Đổi code lỗi / userinfo trả HTTP lỗi | Lỗi lan ra → `500` (hoặc `401` nếu Google trả dữ liệu không hợp lệ như email chưa verify); state được phục hồi 1 phút để thử callback lại |
 
 ## 5. Mẫu "consume rồi phục hồi" cho mã dùng một lần
 

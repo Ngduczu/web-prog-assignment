@@ -27,6 +27,6 @@ public sealed class ExaminationAttemptsController : ControllerBase
     [HttpPost("{attemptId:guid}/submit")]
     public async Task<ActionResult<ExaminationAttemptDto>> Submit(Guid attemptId, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.SubmitAsync(attemptId, ct));
     [HttpPost("{attemptId:guid}/auto-submit")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,System")]
     public async Task<ActionResult<ExaminationAttemptDto>> AutoSubmit(Guid attemptId, ExaminationSubmitReason reason, IExaminationAttemptService service, CancellationToken ct) => Ok(await service.AutoSubmitAsync(attemptId, reason, ct));
 }

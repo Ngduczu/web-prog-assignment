@@ -30,6 +30,7 @@ Cần JWT. Dữ liệu chỉ qua PostgreSQL (`courses`, `enrollments`, `users`);
   "description": "Introduction",
   "teacherId": "00000000-0000-0000-0000-000000000002",
   "maxStudents": 30,
+  "acceptedStudentCount": 0,
   "status": "Open",
   "createdAt": "2026-09-04T10:00:00Z",
   "modifiedAt": "2026-09-04T10:00:00Z",
@@ -72,6 +73,7 @@ Teacher tự tạo; Admin tạo cho một teacher đang `Active`.
       "description": "Introduction",
       "teacherId": "00000000-0000-0000-0000-000000000002",
       "maxStudents": 30,
+      "acceptedStudentCount": 12,
       "status": "Open",
       "createdAt": "2026-09-04T10:00:00Z",
       "modifiedAt": "2026-09-04T10:00:00Z",
@@ -84,6 +86,8 @@ Teacher tự tạo; Admin tạo cho một teacher đang `Active`.
   "totalPages": 1
 }
 ```
+
+`acceptedStudentCount` là số enrollment đang ở trạng thái `Accepted`; các enrollment `Waiting`, `Rejected` hoặc `Cancelled` không được tính.
 
 ## `GET /api/courses/mine`
 

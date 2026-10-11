@@ -27,12 +27,13 @@ public class GlobalExceptionHandler: IExceptionHandler
             ForbiddenException => StatusCodes.Status403Forbidden,
             NotFoundException => StatusCodes.Status404NotFound,
             ConflictException => StatusCodes.Status409Conflict,
+            ExternalServiceUnavailableException => StatusCodes.Status503ServiceUnavailable,
             DbUpdateException dbUpdateException when DatabaseConstraintPolicy.IsBusinessUniqueViolation(dbUpdateException) => StatusCodes.Status409Conflict,
             
             _ => StatusCodes.Status500InternalServerError
         };
 
-        if (statusCode >= StatusCodes.Status500InternalServerError)
+        if (statusCode >= StatusCodes.Status500InternalServerError && exception is not ExternalServiceUnavailableException)
         {
             _logger.LogError(
                 exception,
@@ -57,6 +58,7 @@ public class GlobalExceptionHandler: IExceptionHandler
                 ForbiddenException =>  "Forbidden",
                 NotFoundException =>  "Not found",
                 ConflictException => "Conflict",
+                ExternalServiceUnavailableException => "Service Unavailable",
                 DbUpdateException dbUpdateException when DatabaseConstraintPolicy.IsBusinessUniqueViolation(dbUpdateException) => "Conflict",
                 _ => "Internal Server Error"
             },

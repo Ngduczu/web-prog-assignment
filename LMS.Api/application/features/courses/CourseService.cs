@@ -76,7 +76,7 @@ public sealed class CourseService : ICourseService
     {
         ValidateId(courseId, "Course id");
 
-        if (includeDeleted && _currentUser.GetRequiredRole() != Role.Admin)
+        if (includeDeleted && !_currentUser.GetRequiredRole().IsAdminOrSystem())
         {
             throw new ForbiddenException("Only administrators can view deleted courses.");
         }
@@ -90,7 +90,8 @@ public sealed class CourseService : ICourseService
             throw new NotFoundException("Course was not found.");
         }
 
-        return Map(course);
+        var acceptedCount = await _enrollments.CountAcceptedByCourseAsync(course.Id, cancellationToken);
+        return Map(course, acceptedCount);
     }
 
     private async Task<bool> CanStudentViewAsync(Course course, CancellationToken cancellationToken)
@@ -118,7 +119,7 @@ public sealed class CourseService : ICourseService
             throw new BadRequestException("Course status is invalid.");
         }
 
-        if (query.IncludeDeleted && _currentUser.GetRequiredRole() != Role.Admin)
+        if (query.IncludeDeleted && !_currentUser.GetRequiredRole().IsAdminOrSystem())
         {
             throw new ForbiddenException("Only administrators can view deleted courses.");
         }
@@ -142,9 +143,10 @@ public sealed class CourseService : ICourseService
             query.TeacherId,
             query.IncludeDeleted,
             cancellationToken);
+        var items = await MapManyAsync(courses, cancellationToken);
 
         return new PagedResult<CourseDto>(
-            courses.Select(Map).ToArray(),
+            items,
             query.Page,
             query.PageSize,
             totalCount);
@@ -171,12 +173,12 @@ public sealed class CourseService : ICourseService
         }
 
         var courses = await _courses.ListByIdsAsync(courseIds, cancellationToken);
-        return courses
+        var visibleCourses = courses
             .Where(course => !course.IsDeleted)
             .OrderBy(course => course.Name)
             .ThenBy(course => course.Id)
-            .Select(Map)
             .ToArray();
+        return await MapManyAsync(visibleCourses, cancellationToken);
     }
 
     public async Task<CourseDto> UpdateAsync(
@@ -208,7 +210,7 @@ public sealed class CourseService : ICourseService
             course.SetModifiedBy(actorId);
             await SynchronizeChatRoomAsync(course, transactionCancellationToken);
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
-            result = Map(course);
+            result = Map(course, acceptedCount);
         }
 
         if (_transactionManager is null)
@@ -243,7 +245,8 @@ public sealed class CourseService : ICourseService
         course.SetModifiedBy(_currentUser.GetRequiredUserId());
         await SynchronizeChatRoomAsync(course, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(course);
+        var acceptedCount = await _enrollments.CountAcceptedByCourseAsync(course.Id, cancellationToken);
+        return Map(course, acceptedCount);
     }
 
     private async Task<Course> GetManagedCourseAsync(Guid courseId, CancellationToken cancellationToken)
@@ -267,7 +270,7 @@ public sealed class CourseService : ICourseService
 
     private static void EnsureCanCreate(Guid actorId, Role actorRole, Guid teacherId)
     {
-        if (actorRole == Role.Admin)
+        if (actorRole.IsAdminOrSystem())
         {
             return;
         }
@@ -324,12 +327,30 @@ public sealed class CourseService : ICourseService
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static CourseDto Map(Course course) => new(
+    private async Task<CourseDto[]> MapManyAsync(
+        IReadOnlyCollection<Course> courses,
+        CancellationToken cancellationToken)
+    {
+        if (courses.Count == 0)
+        {
+            return [];
+        }
+
+        var acceptedCounts = await _enrollments.CountAcceptedByCoursesAsync(
+            courses.Select(course => course.Id).ToArray(),
+            cancellationToken);
+        return courses
+            .Select(course => Map(course, acceptedCounts.GetValueOrDefault(course.Id)))
+            .ToArray();
+    }
+
+    private static CourseDto Map(Course course, int acceptedStudentCount = 0) => new(
         course.Id,
         course.Name,
         course.Description,
         course.TeacherId,
         course.MaxStudents,
+        acceptedStudentCount,
         course.Status,
         course.CreatedAt,
         course.ModifiedAt,

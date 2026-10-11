@@ -536,6 +536,11 @@ public class ExaminationAuthoringTests
         public Task<int> CountAcceptedByCourseAsync(Guid courseId, CancellationToken cancellationToken) =>
             Task.FromResult(0);
 
+        public Task<IReadOnlyDictionary<Guid, int>> CountAcceptedByCoursesAsync(
+            IReadOnlyCollection<Guid> courseIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, int>>(new Dictionary<Guid, int>());
+
         public void Add(Enrollment enrollment)
         {
         }

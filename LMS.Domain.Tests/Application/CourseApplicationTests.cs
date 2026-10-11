@@ -158,6 +158,25 @@ public class CourseApplicationTests
     }
 
     [Fact]
+    public async Task CourseListsIncludeAcceptedEnrollmentCountOnly()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var course = CreateCourse(teacher);
+        var accepted = new Enrollment(student.Id, course.Id, EnrollmentStatus.Accepted);
+        var waiting = new Enrollment(CreateUser(Role.Student).Id, course.Id);
+        var service = CreateCourseService(
+            teacher,
+            new FakeCourseRepository(course),
+            new FakeUnitOfWork(),
+            new FakeEnrollmentRepository(accepted, waiting));
+
+        var result = await service.ListAsync(new CourseQuery());
+
+        Assert.Equal(1, Assert.Single(result.Items).AcceptedStudentCount);
+    }
+
+    [Fact]
     public async Task StudentMyCoursesExcludesSoftDeletedCourse()
     {
         var teacher = CreateUser(Role.Teacher);
@@ -416,11 +435,12 @@ public class CourseApplicationTests
     private static CourseService CreateCourseService(
         User actor,
         FakeCourseRepository courses,
-        FakeUnitOfWork unitOfWork) =>
+        FakeUnitOfWork unitOfWork,
+        FakeEnrollmentRepository? enrollments = null) =>
         new(
             courses,
             new FakeUserRepository(actor),
-            new FakeEnrollmentRepository(),
+            enrollments ?? new FakeEnrollmentRepository(),
             unitOfWork,
             new FakeCurrentUser(actor),
             new FakeChatRoomRepository());
@@ -607,6 +627,15 @@ public class CourseApplicationTests
         public Task<int> CountAcceptedByCourseAsync(Guid courseId, CancellationToken cancellationToken) =>
             Task.FromResult(Items.Count(enrollment =>
                 enrollment.CourseId == courseId && enrollment.Status == EnrollmentStatus.Accepted));
+
+        public Task<IReadOnlyDictionary<Guid, int>> CountAcceptedByCoursesAsync(
+            IReadOnlyCollection<Guid> courseIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, int>>(Items
+                .Where(enrollment => courseIds.Contains(enrollment.CourseId) &&
+                    enrollment.Status == EnrollmentStatus.Accepted)
+                .GroupBy(enrollment => enrollment.CourseId)
+                .ToDictionary(group => group.Key, group => group.Count()));
 
         public void Add(Enrollment enrollment)
         {

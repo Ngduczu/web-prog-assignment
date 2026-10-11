@@ -30,6 +30,7 @@ public sealed record CourseDto(
     string? Description,
     Guid TeacherId,
     int MaxStudents,
+    int AcceptedStudentCount,
     CourseStatus Status,
     DateTime CreatedAt,
     DateTime ModifiedAt,

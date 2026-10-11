@@ -156,6 +156,7 @@ public sealed class PasswordResetApplicationTests
 
     private sealed class FakeMailSender : IMailSender
     {
+        public Task SendQuestionBankSharedAsync(string email, string recipientName, string senderName, string questionBankName, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public bool FailNext { get; set; }
         public int PasswordResetMessagesSent { get; private set; }
         public string LastCode { get; private set; } = string.Empty;

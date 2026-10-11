@@ -4,6 +4,7 @@ namespace LMS.Api.application.features.questions;
 
 public sealed record CreateQuestionBankRequest(Guid TeacherId, string Name, string? Description);
 public sealed record UpdateQuestionBankRequest(string Name, string? Description);
+public sealed record ShareQuestionBankRequest(string RecipientEmail);
 
 public sealed record QuestionBankDto(
     Guid Id,
@@ -58,6 +59,10 @@ public interface IQuestionService
         UpdateQuestionBankRequest request,
         CancellationToken cancellationToken = default);
     Task DeleteQuestionBankAsync(Guid questionBankId, CancellationToken cancellationToken = default);
+    Task<QuestionBankDto> ShareQuestionBankAsync(
+        Guid questionBankId,
+        ShareQuestionBankRequest request,
+        CancellationToken cancellationToken = default);
     Task<IReadOnlyList<QuestionBankDto>> ListQuestionBanksAsync(
         Guid? teacherId = null,
         CancellationToken cancellationToken = default);

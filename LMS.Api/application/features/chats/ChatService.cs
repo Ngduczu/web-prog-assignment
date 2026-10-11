@@ -92,7 +92,7 @@ public sealed class ChatService : IChatService
             var courses = await _courses.ListByIdsAsync(courseRoomIds, cancellationToken);
             coursesById = courses.ToDictionary(course => course.Id);
             var role = _currentUser.GetRequiredRole();
-            if (role != Role.Admin)
+            if (!role.IsAdminOrSystem())
             {
                 var enrollments = await _enrollments.ListByStudentAsync(userId, cancellationToken);
                 foreach (var enrollment in enrollments.Where(enrollment => enrollment.Status == EnrollmentStatus.Accepted))
@@ -135,7 +135,7 @@ public sealed class ChatService : IChatService
                 }
 
                 var role = _currentUser.GetRequiredRole();
-                var canManageCourse = role == Role.Admin || role == Role.Teacher && course.TeacherId == userId;
+                var canManageCourse = role.IsAdminOrSystem() || role == Role.Teacher && course.TeacherId == userId;
                 var hasAcceptedEnrollment = role == Role.Student &&
                     enrollmentsByCourseId.TryGetValue(course.Id, out var enrollment) &&
                     enrollment.StudentId == userId &&
@@ -579,7 +579,7 @@ public sealed class ChatService : IChatService
     {
         var userId = _currentUser.GetRequiredUserId();
         var role = _currentUser.GetRequiredRole();
-        if (role == Role.Admin || course.TeacherId == userId)
+        if (role.IsAdminOrSystem() || course.TeacherId == userId)
         {
             return;
         }
@@ -594,7 +594,7 @@ public sealed class ChatService : IChatService
         }
     }
 
-    private static bool CanModerate(ChatRoom room, Role role) => role == Role.Admin || room.Type == ChatRoomType.Course && role == Role.Teacher;
+    private static bool CanModerate(ChatRoom room, Role role) => role.IsAdminOrSystem() || room.Type == ChatRoomType.Course && role == Role.Teacher;
     private static ChatRoomDto MapRoom(
         ChatRoom room,
         string? title = null,

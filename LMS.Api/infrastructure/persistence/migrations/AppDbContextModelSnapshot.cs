@@ -1484,6 +1484,11 @@ namespace LMS.Api.infrastructure.persistence.migrations
 
                     b.HasIndex("ModifiedById");
 
+                    b.HasIndex("Role")
+                        .IsUnique()
+                        .HasDatabaseName("IX_users_single_system_role")
+                        .HasFilter("\"role\" = 'System'");
+
                     b.ToTable("users", (string)null);
                 });
 

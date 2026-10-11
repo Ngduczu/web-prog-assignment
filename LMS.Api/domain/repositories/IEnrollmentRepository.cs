@@ -19,5 +19,8 @@ public interface IEnrollmentRepository
         CancellationToken cancellationToken);
     Task<int> CountByCourseAsync(Guid courseId, CancellationToken cancellationToken);
     Task<int> CountAcceptedByCourseAsync(Guid courseId, CancellationToken cancellationToken);
+    Task<IReadOnlyDictionary<Guid, int>> CountAcceptedByCoursesAsync(
+        IReadOnlyCollection<Guid> courseIds,
+        CancellationToken cancellationToken);
     void Add(Enrollment enrollment);
 }

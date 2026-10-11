@@ -51,6 +51,17 @@ public sealed class GmailService : IMailSender
                 resetCode),
             cancellationToken);
 
+    public Task SendQuestionBankSharedAsync(string email, string recipientName, string senderName, string questionBankName, CancellationToken cancellationToken = default) =>
+        SendAsync(
+            email,
+            recipientName,
+            "A question bank was shared with you",
+            $"""
+            <p>Hello {WebUtility.HtmlEncode(recipientName)},</p>
+            <p>{WebUtility.HtmlEncode(senderName)} shared the question bank <strong>{WebUtility.HtmlEncode(questionBankName)}</strong> with you. A copy is now available in your question banks.</p>
+            """,
+            cancellationToken);
+
     private async Task SendAsync(string email, string recipientName, string subject, string htmlBody, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(_options.Username) || string.IsNullOrWhiteSpace(_options.Password) || string.IsNullOrWhiteSpace(_options.FromEmail))

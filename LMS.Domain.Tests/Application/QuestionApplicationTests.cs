@@ -1,4 +1,5 @@
 using LMS.Api.application.abstractions.auth;
+using LMS.Api.application.abstractions.mail;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.features.questions;
 using LMS.Api.domain.Entities.Questions;
@@ -262,7 +263,8 @@ public class QuestionApplicationTests
             new FakeUserRepository(teacher),
             unitOfWork,
             transactionManager,
-            new FakeCurrentUser(teacher));
+            new FakeCurrentUser(teacher),
+            new FakeMailSender());
         return new Fixture(service, questionBank, questionBanks, questions, unitOfWork, transactionManager);
     }
 
@@ -273,6 +275,13 @@ public class QuestionApplicationTests
         FakeQuestionRepository Questions,
         FakeUnitOfWork UnitOfWork,
         FakeTransactionManager TransactionManager);
+
+    private sealed class FakeMailSender : IMailSender
+    {
+        public Task SendEmailVerificationAsync(string email, string recipientName, string verificationCode, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SendPasswordResetCodeAsync(string email, string recipientName, string resetCode, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SendQuestionBankSharedAsync(string email, string recipientName, string senderName, string questionBankName, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
 
     private sealed class FakeCurrentUser : ICurrentUser
     {

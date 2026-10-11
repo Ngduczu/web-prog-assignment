@@ -12,6 +12,49 @@ namespace LMS.Domain.Tests.Application;
 public class UserApplicationTests
 {
     [Fact]
+    public async Task ListUsersAppliesRoleAndStatusFiltersToPageAndCount()
+    {
+        var actor = CreateAdmin();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+        fixture.Users.Setup(repository => repository.ListAsync(
+                "query",
+                Role.Teacher,
+                AccountStatus.Disabled,
+                20,
+                10,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<User>());
+        fixture.Users.Setup(repository => repository.CountAsync(
+                "query",
+                Role.Teacher,
+                AccountStatus.Disabled,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
+
+        var result = await fixture.Service.ListAsync(new UserQuery(
+            "query",
+            Role.Teacher,
+            AccountStatus.Disabled,
+            Page: 3,
+            PageSize: 10));
+
+        Assert.Empty(result.Items);
+        Assert.Equal(0, result.TotalCount);
+        fixture.Users.Verify(repository => repository.ListAsync(
+            "query",
+            Role.Teacher,
+            AccountStatus.Disabled,
+            20,
+            10,
+            It.IsAny<CancellationToken>()), Times.Once);
+        fixture.Users.Verify(repository => repository.CountAsync(
+            "query",
+            Role.Teacher,
+            AccountStatus.Disabled,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task AdminCannotDemoteAnotherAdministrator()
     {
         var actor = CreateAdmin();
@@ -31,12 +74,12 @@ public class UserApplicationTests
     }
 
     [Fact]
-    public async Task LastAdministratorCannotDemoteSelf()
+    public async Task AdminCannotEditOwnAdministratorAccount()
     {
         var actor = CreateAdmin();
         var fixture = CreateFixture(actor, actor, adminCount: 1);
 
-        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.UpdateByAdminAsync(
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.UpdateByAdminAsync(
             actor.Id,
             new AdminUpdateUserRequest(actor.FullName, actor.Phone, Role.Student)));
 
@@ -46,32 +89,140 @@ public class UserApplicationTests
     }
 
     [Fact]
-    public async Task AdministratorCanDemoteSelfWhenAnotherAdministratorRemains()
+    public async Task AdminCannotChangeAnotherAdministratorStatus()
     {
         var actor = CreateAdmin();
-        var fixture = CreateFixture(actor, actor, adminCount: 2);
+        var target = CreateAdmin();
+        var fixture = CreateFixture(actor, target, adminCount: 2);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.UpdateStatusAsync(
+            target.Id,
+            new UpdateUserStatusRequest(AccountStatus.Disabled)));
+
+        Assert.Equal(AccountStatus.Active, target.Status);
+        fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SystemCanDemoteAdministratorWhenAnotherAdministratorRemains()
+    {
+        var actor = CreateSystem();
+        var target = CreateAdmin();
+        var fixture = CreateFixture(actor, target, adminCount: 2);
 
         var result = await fixture.Service.UpdateByAdminAsync(
-            actor.Id,
-            new AdminUpdateUserRequest(actor.FullName, actor.Phone, Role.Student));
+            target.Id,
+            new AdminUpdateUserRequest(target.FullName, target.Phone, Role.Student));
 
         Assert.Equal(Role.Student, result.Role);
         fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
             It.IsAny<CancellationToken>()), Times.Once);
-        Assert.Equal(2, actor.AuthVersion);
+        Assert.Equal(2, target.AuthVersion);
     }
 
     [Fact]
-    public async Task LastActiveAdministratorCannotDisableSelf()
+    public async Task SystemCannotDisableLastActiveAdministrator()
+    {
+        var actor = CreateSystem();
+        var target = CreateAdmin();
+        var fixture = CreateFixture(actor, target, adminCount: 1);
+
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.UpdateStatusAsync(
+            target.Id,
+            new UpdateUserStatusRequest(AccountStatus.Disabled)));
+
+        Assert.Equal(AccountStatus.Active, target.Status);
+        fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AdminCannotCreateAnotherAdministrator()
     {
         var actor = CreateAdmin();
         var fixture = CreateFixture(actor, actor, adminCount: 1);
 
-        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.UpdateStatusAsync(
-            actor.Id,
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.CreateByAdminAsync(
+            new AdminCreateUserRequest(
+                "new-admin@example.com",
+                "New administrator",
+                null,
+                "password123",
+                Role.Admin)));
+
+        fixture.Users.Verify(repository => repository.Add(It.IsAny<User>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SystemCanCreateAnAdministrator()
+    {
+        var actor = CreateSystem();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+
+        var result = await fixture.Service.CreateByAdminAsync(new AdminCreateUserRequest(
+            "new-admin@example.com",
+            "New administrator",
+            null,
+            "password123",
+            Role.Admin));
+
+        Assert.Equal(Role.Admin, result.Role);
+        fixture.Users.Verify(repository => repository.Add(It.Is<User>(user => user.Role == Role.Admin)), Times.Once);
+        fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SystemRoleCannotBeAssignedThroughUserCreation()
+    {
+        var actor = CreateSystem();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.CreateByAdminAsync(
+            new AdminCreateUserRequest(
+                "new-system@example.com",
+                "New system account",
+                null,
+                "password123",
+                Role.System)));
+
+        fixture.Users.Verify(repository => repository.Add(It.IsAny<User>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SystemCannotModifySystemAccount()
+    {
+        var system = CreateSystem();
+        var fixture = CreateFixture(system, system, adminCount: 1);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.UpdateStatusAsync(
+            system.Id,
             new UpdateUserStatusRequest(AccountStatus.Disabled)));
 
-        Assert.Equal(AccountStatus.Active, actor.Status);
+        Assert.Equal(AccountStatus.Active, system.Status);
+        fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AdminCannotChangeTeacherIntoAdministrator()
+    {
+        var actor = CreateAdmin();
+        var teacher = new User(
+            $"{Guid.NewGuid():N}@example.com",
+            "Teacher",
+            null,
+            "hash",
+            Role.Teacher,
+            AccountStatus.Active);
+        var fixture = CreateFixture(actor, teacher, adminCount: 1);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.UpdateByAdminAsync(
+            teacher.Id,
+            new AdminUpdateUserRequest(teacher.FullName, teacher.Phone, Role.Admin)));
+
+        Assert.Equal(Role.Teacher, teacher.Role);
         fixture.UnitOfWork.Verify(unitOfWork => unitOfWork.SaveChangesAsync(
             It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -341,6 +492,14 @@ public class UserApplicationTests
         null,
         "hash",
         Role.Admin,
+        AccountStatus.Active);
+
+    private static User CreateSystem() => new(
+        $"{Guid.NewGuid():N}@example.com",
+        "System",
+        null,
+        "hash",
+        Role.System,
         AccountStatus.Active);
 
     private sealed record Fixture(

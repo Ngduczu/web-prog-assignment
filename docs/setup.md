@@ -31,6 +31,10 @@ dotnet run --project LMS.Api --launch-profile http
 
 `Program.cs` nạp `.env` bằng `DotNetEnv` (tìm ngược các thư mục cha, không ghi đè biến đã có trong môi trường). Cấu hình đọc theo thứ tự: `appsettings.json` → `appsettings.{Environment}.json` → `.env`/biến môi trường. Quy ước biến môi trường: `Section__Key` (ví dụ `JWT__SIGNINGKEY`).
 
+### Log EF Core
+
+Log câu lệnh SQL do EF Core sinh ra (`Microsoft.EntityFrameworkCore.Database.Command`) được đặt mức `Warning` trong `appsettings.json` và `appsettings.Development.json`, nên các câu SQL ở mức `Information` không hiển thị trong cửa sổ log. Cảnh báo và lỗi của EF Core vẫn được ghi lại. Nếu cần bật lại log SQL để debug, đặt mức category này thành `Information` qua cấu hình logging hoặc biến môi trường `Logging__LogLevel__Microsoft.EntityFrameworkCore.Database__Command=Information`.
+
 > Cổng PostgreSQL trong `ConnectionStrings:DefaultConnection` phải trùng `POSTGRES_PORT` (mẫu dùng `5433`).
 
 ## 3. Biến môi trường
@@ -45,6 +49,7 @@ dotnet run --project LMS.Api --launch-profile http
 | `JWT__SIGNINGKEY` | Khóa ký, **tối thiểu 32 byte**, thiếu/ngắn thì API không khởi động | Có |
 | `JWT__EXPIRATIONMINUTES` | Thời sống access token (phút), mặc định 60 | Không |
 | `MAIL__HOST`, `MAIL__PORT`, `MAIL__ENABLESSL`, `MAIL__USERNAME`, `MAIL__PASSWORD`, `MAIL__FROMEMAIL`, `MAIL__FROMNAME` | SMTP gửi mail (Gmail: `smtp.gmail.com`, 587, SSL, App Password) | Có nếu dùng đăng ký/quên mật khẩu |
+| `SYSTEMACCOUNT__EMAIL`, `SYSTEMACCOUNT__PASSWORD` | Email/mật khẩu (8–128 ký tự) của tài khoản System được seed khi khởi động. Chưa có thì tạo mới (`Active`); đã có thì nâng role lên `System` và thu hồi phiên (mật khẩu cũ giữ nguyên). Thiếu một trong hai thì bỏ qua | Không |
 | `CORS__ALLOWEDORIGINS__0` (`__1`, …) | Origin frontend được phép gọi trực tiếp (cần cho SignalR trực tiếp). Không dùng wildcard | Không |
 | `FILESTORAGE__ROOTPATH` | Thư mục lưu file local, mặc định `storage` | Không |
 | `S3STORAGE__ENABLED` | `true` để chuyển sang S3 | Không |

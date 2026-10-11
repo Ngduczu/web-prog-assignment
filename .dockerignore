@@ -1,0 +1,12 @@
+.git
+.idea
+.vscode
+**/bin
+**/obj
+**/TestResults
+.env
+.env.*
+**/.env
+**/.env.*
+LMS.Api/storage
+**/storage

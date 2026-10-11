@@ -5,8 +5,18 @@ namespace LMS.Api.domain.repositories;
 
 public interface IUserManagementRepository : IUserRepository
 {
-    Task<IReadOnlyList<User>> ListAsync(string? search, int skip, int take, CancellationToken cancellationToken);
-    Task<int> CountAsync(string? search, CancellationToken cancellationToken);
+    Task<IReadOnlyList<User>> ListAsync(
+        string? search,
+        Role? role,
+        AccountStatus? status,
+        int skip,
+        int take,
+        CancellationToken cancellationToken);
+    Task<int> CountAsync(
+        string? search,
+        Role? role,
+        AccountStatus? status,
+        CancellationToken cancellationToken);
     Task<int> CountByRoleAsync(Role role, CancellationToken cancellationToken);
     Task<int> CountActiveByRoleAsync(Role role, CancellationToken cancellationToken);
 }

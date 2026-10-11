@@ -1,4 +1,6 @@
+using System.Net.Mail;
 using LMS.Api.application.abstractions.auth;
+using LMS.Api.application.abstractions.mail;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.domain.Entities.Questions;
 using LMS.Api.domain.Enums.Questions;
@@ -16,6 +18,7 @@ public sealed class QuestionService : IQuestionService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITransactionManager _transactionManager;
     private readonly ICurrentUser _currentUser;
+    private readonly IMailSender _mailSender;
 
     public QuestionService(
         IQuestionBankRepository questionBanks,
@@ -23,8 +26,10 @@ public sealed class QuestionService : IQuestionService
         IUserRepository users,
         IUnitOfWork unitOfWork,
         ITransactionManager transactionManager,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        IMailSender mailSender)
     {
+        _mailSender = mailSender;
         _questionBanks = questionBanks;
         _questions = questions;
         _users = users;
@@ -42,7 +47,7 @@ public sealed class QuestionService : IQuestionService
         var actorId = _currentUser.GetRequiredUserId();
         var actorRole = _currentUser.GetRequiredRole();
 
-        if (actorRole != Role.Admin && (actorRole != Role.Teacher || actorId != request.TeacherId))
+        if (!actorRole.IsAdminOrSystem() && (actorRole != Role.Teacher || actorId != request.TeacherId))
         {
             throw new ForbiddenException("Teachers can only create question banks assigned to themselves.");
         }
@@ -87,7 +92,7 @@ public sealed class QuestionService : IQuestionService
         var actorRole = _currentUser.GetRequiredRole();
         var ownerId = teacherId ?? actorId;
 
-        if (actorRole != Role.Admin && (actorRole != Role.Teacher || ownerId != actorId))
+        if (!actorRole.IsAdminOrSystem() && (actorRole != Role.Teacher || ownerId != actorId))
         {
             throw new ForbiddenException("Teachers can only view their own question banks.");
         }
@@ -109,6 +114,110 @@ public sealed class QuestionService : IQuestionService
 
         _questionBanks.Remove(questionBank);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<QuestionBankDto> ShareQuestionBankAsync(
+        Guid questionBankId,
+        ShareQuestionBankRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(questionBankId, "Question bank id");
+        var email = request.RecipientEmail?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(email) || email.Length > 255 ||
+            !MailAddress.TryCreate(email, out var address) || address.Address != email)
+        {
+            throw new BadRequestException("Recipient email address is invalid.");
+        }
+
+        var actorId = _currentUser.GetRequiredUserId();
+        var source = await _questionBanks.GetByIdAsync(questionBankId, cancellationToken)
+            ?? throw new NotFoundException("Question bank was not found.");
+        if (_currentUser.GetRequiredRole() != Role.Teacher || source.TeacherId != actorId)
+        {
+            throw new ForbiddenException("Only the question bank owner can share it.");
+        }
+
+        var recipient = await _users.GetByEmailAsync(email, cancellationToken);
+        if (recipient is null || recipient.Role != Role.Teacher || recipient.Status != AccountStatus.Active)
+        {
+            throw new NotFoundException("An active teacher with this email was not found.");
+        }
+
+        if (recipient.Id == actorId)
+        {
+            throw new BadRequestException("You cannot share a question bank with yourself.");
+        }
+
+        var sender = await _users.GetByIdAsync(actorId, cancellationToken)
+            ?? throw new NotFoundException("User was not found.");
+        var sourceQuestions = await _questions.ListByQuestionBankAsync(questionBankId, cancellationToken);
+
+        var note = $"Shared by {sender.FullName} ({sender.Email}).";
+        var description = string.IsNullOrWhiteSpace(source.Description) ? note : $"{note}\n{source.Description}";
+        var copy = new QuestionBank(
+            recipient.Id,
+            source.Name,
+            description.Length > 2000 ? description[..2000] : description,
+            actorId);
+
+        await _transactionManager.ExecuteAsync(async transactionCancellationToken =>
+        {
+            _questionBanks.Add(copy);
+            var correctOptions = new List<(Question Question, MultipleChoiceOption Option)>();
+            foreach (var original in sourceQuestions)
+            {
+                var question = new Question(
+                    copy.Id,
+                    original.Content,
+                    original.Type,
+                    original.Difficulty,
+                    original.ShuffleOptions,
+                    actorId);
+                foreach (var option in original.MultipleChoiceOptions)
+                {
+                    var optionCopy = new MultipleChoiceOption(question.Id, option.Content, option.Order);
+                    question.MultipleChoiceOptions.Add(optionCopy);
+                    if (option.Id == original.CorrectOptionId)
+                    {
+                        correctOptions.Add((question, optionCopy));
+                    }
+                }
+
+                foreach (var answer in original.FillInBlankAnswerKeys)
+                {
+                    question.FillInBlankAnswerKeys.Add(new FillInBlankAnswerKey(
+                        question.Id,
+                        answer.BlankOrder,
+                        answer.ExpectedAnswer));
+                }
+
+                _questions.Add(question);
+            }
+
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            foreach (var (question, option) in correctOptions)
+            {
+                question.SetCorrectOption(option.Id);
+            }
+
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
+
+        try
+        {
+            await _mailSender.SendQuestionBankSharedAsync(
+                recipient.Email,
+                recipient.FullName,
+                sender.FullName,
+                source.Name,
+                cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The copy is already committed; a notification failure must not fail the share.
+        }
+
+        return Map(copy);
     }
 
     public async Task<QuestionDto> CreateMultipleChoiceAsync(
@@ -299,7 +408,7 @@ public sealed class QuestionService : IQuestionService
         var actorId = _currentUser.GetRequiredUserId();
         var actorRole = _currentUser.GetRequiredRole();
 
-        if (actorRole != Role.Admin && (actorRole != Role.Teacher || questionBank.TeacherId != actorId))
+        if (!actorRole.IsAdminOrSystem() && (actorRole != Role.Teacher || questionBank.TeacherId != actorId))
         {
             throw new ForbiddenException("Only the question bank owner or an administrator can manage it.");
         }

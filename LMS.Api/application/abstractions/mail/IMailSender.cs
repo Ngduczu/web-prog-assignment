@@ -12,4 +12,10 @@ public interface IMailSender
         string recipientName,
         string resetCode,
         CancellationToken cancellationToken = default);
+    Task SendQuestionBankSharedAsync(
+        string email,
+        string recipientName,
+        string senderName,
+        string questionBankName,
+        CancellationToken cancellationToken = default);
 }

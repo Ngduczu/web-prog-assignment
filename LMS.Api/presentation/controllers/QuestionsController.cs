@@ -14,6 +14,8 @@ public sealed class QuestionsController : ControllerBase
     public async Task<ActionResult<QuestionBankDto>> UpdateBank(Guid id, UpdateQuestionBankRequest request, IQuestionService service, CancellationToken ct) => Ok(await service.UpdateQuestionBankAsync(id, request, ct));
     [HttpDelete("question-banks/{id:guid}")]
     public async Task<IActionResult> DeleteBank(Guid id, IQuestionService service, CancellationToken ct) { await service.DeleteQuestionBankAsync(id, ct); return NoContent(); }
+    [HttpPost("question-banks/{id:guid}/share")]
+    public async Task<ActionResult<QuestionBankDto>> ShareBank(Guid id, ShareQuestionBankRequest request, IQuestionService service, CancellationToken ct) => Ok(await service.ShareQuestionBankAsync(id, request, ct));
     [HttpGet("question-banks")]
     public async Task<ActionResult<IReadOnlyList<QuestionBankDto>>> ListBanks(Guid? teacherId, IQuestionService service, CancellationToken ct) => Ok(await service.ListQuestionBanksAsync(teacherId, ct));
     [HttpPost("question-banks/{id:guid}/multiple-choice")]

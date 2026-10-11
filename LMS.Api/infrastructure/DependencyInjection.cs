@@ -78,7 +78,7 @@ public static class DependencyInjection
         services.Configure<MailOptions>(configuration.GetSection(MailOptions.SectionName));
         services.AddSingleton<IMailSender, GmailService>();
         services.Configure<GoogleOAuthOptions>(configuration.GetSection(GoogleOAuthOptions.SectionName));
-        services.AddHttpClient<GoogleOAuthProvider>();
+        services.AddHttpClient<GoogleOAuthProvider>(client => client.Timeout = TimeSpan.FromSeconds(10));
         services.AddScoped<IOAuthProvider, GoogleOAuthProvider>();
         services.AddScoped<OAuthResolver>();
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));

@@ -45,6 +45,7 @@ if (!app.Environment.IsEnvironment("Testing"))
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
     db.Database.Migrate();
+    SystemAccountSeeder.SeedAsync(scope.ServiceProvider).GetAwaiter().GetResult();
 }
 
 if (app.Environment.IsDevelopment())

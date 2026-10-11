@@ -30,7 +30,7 @@ public sealed class ChatRoomRepository : IChatRoomRepository
 
         Guid[] accessibleCourseIds = role switch
         {
-            Role.Admin => await _dbContext.Courses
+            Role.Admin or Role.System => await _dbContext.Courses
                 .Select(course => course.Id)
                 .ToArrayAsync(cancellationToken),
             Role.Teacher => await _dbContext.Courses

@@ -14,7 +14,7 @@ public static class CourseAuthorization
         var actorId = currentUser.GetRequiredUserId();
         var actorRole = currentUser.GetRequiredRole();
 
-        if (actorRole != Role.Admin && (actorRole != Role.Teacher || course.TeacherId != actorId))
+        if (!actorRole.IsAdminOrSystem() && (actorRole != Role.Teacher || course.TeacherId != actorId))
         {
             throw new ForbiddenException("Only the course teacher or an administrator can manage this course.");
         }
@@ -31,7 +31,7 @@ public static class CourseAuthorization
         var actorId = currentUser.GetRequiredUserId();
         var actorRole = currentUser.GetRequiredRole();
 
-        if (actorRole == Role.Admin || (actorRole == Role.Teacher && course.TeacherId == actorId))
+        if (actorRole.IsAdminOrSystem() || (actorRole == Role.Teacher && course.TeacherId == actorId))
         {
             return;
         }
@@ -56,6 +56,6 @@ public static class CourseAuthorization
     {
         var actorId = currentUser.GetRequiredUserId();
         var actorRole = currentUser.GetRequiredRole();
-        return actorRole == Role.Admin || (actorRole == Role.Teacher && course.TeacherId == actorId);
+        return actorRole.IsAdminOrSystem() || (actorRole == Role.Teacher && course.TeacherId == actorId);
     }
 }

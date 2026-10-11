@@ -57,14 +57,24 @@ public sealed class UserRepository : IUserManagementRepository
         _dbContext.ExternalUsers.Add(externalUser);
     }
 
-    public async Task<IReadOnlyList<User>> ListAsync(string? search, int skip, int take, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<User>> ListAsync(
+        string? search,
+        Role? role,
+        AccountStatus? status,
+        int skip,
+        int take,
+        CancellationToken cancellationToken)
     {
-        var query = Filter(search).OrderBy(user => user.CreatedAt);
+        var query = Filter(search, role, status).OrderBy(user => user.CreatedAt);
         return await query.Skip(skip).Take(take).ToListAsync(cancellationToken);
     }
 
-    public Task<int> CountAsync(string? search, CancellationToken cancellationToken) =>
-        Filter(search).CountAsync(cancellationToken);
+    public Task<int> CountAsync(
+        string? search,
+        Role? role,
+        AccountStatus? status,
+        CancellationToken cancellationToken) =>
+        Filter(search, role, status).CountAsync(cancellationToken);
 
     public Task<int> CountByRoleAsync(Role role, CancellationToken cancellationToken) =>
         _dbContext.Users.CountAsync(user => user.Role == role, cancellationToken);
@@ -74,9 +84,19 @@ public sealed class UserRepository : IUserManagementRepository
             user => user.Role == role && user.Status == AccountStatus.Active,
             cancellationToken);
 
-    private IQueryable<User> Filter(string? search)
+    private IQueryable<User> Filter(string? search, Role? role, AccountStatus? status)
     {
         var query = _dbContext.Users.AsQueryable();
+        if (role.HasValue)
+        {
+            query = query.Where(user => user.Role == role.Value);
+        }
+
+        if (status.HasValue)
+        {
+            query = query.Where(user => user.Status == status.Value);
+        }
+
         if (!string.IsNullOrWhiteSpace(search))
         {
             var value = search.Trim().ToLower();

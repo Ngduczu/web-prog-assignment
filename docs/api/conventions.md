@@ -56,12 +56,13 @@ Lỗi trả `application/problem+json`:
 | `409` | Xung đột trạng thái/dữ liệu (trùng, concurrency, sai trạng thái) |
 | `429` | Vượt rate limit: `/api/auth/*` 10 request/phút, còn lại 240 request/phút mỗi IP |
 | `500` | Lỗi không mong đợi, `detail` luôn là `"An unexpected error occurred."` |
+| `503` | Không kết nối được dịch vụ bên ngoài (hiện chỉ Google OAuth: mất kết nối hoặc quá 10 giây), `detail` là message; có thể thử lại |
 
 ## Enum
 
 | Enum | Giá trị |
 | --- | --- |
-| `Role` | `Student`, `Teacher`, `Admin` |
+| `Role` | `Student`, `Teacher`, `Admin`, `System` |
 | `AccountStatus` | `Active`, `Inactive`, `Disabled`, `Banned` |
 | `CourseStatus` | `Open`, `Closed` |
 | `EnrollmentStatus` | `Waiting`, `Accepted`, `Rejected`, `Cancelled` |

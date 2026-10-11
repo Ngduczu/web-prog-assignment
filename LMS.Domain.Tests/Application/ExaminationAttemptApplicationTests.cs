@@ -632,6 +632,13 @@ public class ExaminationAttemptApplicationTests
 
         public Task<int> CountByCourseAsync(Guid courseId, CancellationToken cancellationToken) => Task.FromResult(1);
         public Task<int> CountAcceptedByCourseAsync(Guid courseId, CancellationToken cancellationToken) => Task.FromResult(1);
+        public Task<IReadOnlyDictionary<Guid, int>> CountAcceptedByCoursesAsync(
+            IReadOnlyCollection<Guid> courseIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<Guid, int>>(
+                courseIds.Contains(_enrollment.CourseId) && _enrollment.Status == EnrollmentStatus.Accepted
+                    ? new Dictionary<Guid, int> { [_enrollment.CourseId] = 1 }
+                    : new Dictionary<Guid, int>());
 
         public void Add(Enrollment enrollment)
         {

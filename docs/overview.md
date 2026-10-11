@@ -73,6 +73,7 @@ HTTP
 | `ForbiddenException` | 403 |
 | `NotFoundException` | 404 |
 | `ConflictException`, `DbUpdateException` vi phạm unique nghiệp vụ | 409 |
+| `ExternalServiceUnavailableException` (Google không kết nối được/timeout) | 503 |
 | Còn lại | 500 (`"An unexpected error occurred."`, chi tiết chỉ ghi log) |
 
 Rate limit vượt ngưỡng trả `429`.
@@ -101,7 +102,7 @@ Rate limit vượt ngưỡng trả `429`.
 | Chat | `ChatRoom`, `ChatParticipant`, `ChatMessage`, `ChatAttachment` | Room loại `Course` hoặc `Direct`; có `ArchivedAt` |
 | Hệ thống | `FileCleanupTask` | Hàng đợi xóa file bền vững |
 
-Migration nằm ở `infrastructure/persistence/migrations`, tự động chạy (`db.Database.Migrate()`) khi API khởi động, trừ môi trường `Testing`.
+Migration nằm ở `infrastructure/persistence/migrations`, tự động chạy (`db.Database.Migrate()`) khi API khởi động, trừ môi trường `Testing`. Sau migrate, `SystemAccountSeeder` seed/nâng cấp tài khoản System từ `SYSTEMACCOUNT__EMAIL`/`SYSTEMACCOUNT__PASSWORD`.
 
 ## 6. Redis
 

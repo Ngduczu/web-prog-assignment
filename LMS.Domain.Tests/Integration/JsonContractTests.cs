@@ -21,5 +21,6 @@ public sealed class JsonContractTests : IClassFixture<ApiWebApplicationFactory>
     {
         Assert.Equal("\"Student\"", JsonSerializer.Serialize(Role.Student, _jsonOptions));
         Assert.Equal(Role.Teacher, JsonSerializer.Deserialize<Role>("\"Teacher\"", _jsonOptions));
+        Assert.Equal("\"System\"", JsonSerializer.Serialize(Role.System, _jsonOptions));
     }
 }

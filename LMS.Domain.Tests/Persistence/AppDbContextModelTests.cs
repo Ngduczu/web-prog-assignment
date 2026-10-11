@@ -71,6 +71,12 @@ public class AppDbContextModelTests
         AssertUniqueIndex<ChatRoom>(context, nameof(ChatRoom.DirectMessageKey));
         AssertUniqueIndex<ChatParticipant>(context, nameof(ChatParticipant.ChatRoomId), nameof(ChatParticipant.UserId));
         AssertUniqueIndex<StudentAnswer>(context, nameof(StudentAnswer.ExaminationAttemptId), nameof(StudentAnswer.ExaminationQuestionId));
+
+        var systemRoleIndex = context.Model.FindEntityType(typeof(User))?.GetIndexes().SingleOrDefault(index =>
+            index.Properties.Select(property => property.Name).SequenceEqual([nameof(User.Role)]));
+        Assert.NotNull(systemRoleIndex);
+        Assert.True(systemRoleIndex.IsUnique);
+        Assert.Equal("\"role\" = 'System'", systemRoleIndex.GetFilter());
     }
 
     [Fact]
@@ -141,6 +147,7 @@ public class AppDbContextModelTests
 
     [Theory]
     [InlineData("IX_users_email", true)]
+    [InlineData("IX_users_single_system_role", true)]
     [InlineData("IX_enrollments_student_id_course_id", true)]
     [InlineData("IX_unexpected_internal_index", false)]
     public void OnlyAllowlistedUniqueConstraintsAreBusinessConflicts(

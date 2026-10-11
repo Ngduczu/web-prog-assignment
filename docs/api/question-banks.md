@@ -8,6 +8,7 @@ Cần JWT. Dữ liệu chỉ qua PostgreSQL (`question_banks`, `questions`, `mul
 | GET | `/api/question-banks?teacherId=` | Teacher, Admin | Danh sách ngân hàng |
 | PUT | `/api/question-banks/{questionBankId}` | Chủ bank, Admin | Sửa tên/mô tả |
 | DELETE | `/api/question-banks/{questionBankId}` | Chủ bank, Admin | Xóa bank và câu hỏi |
+| POST | `/api/question-banks/{questionBankId}/share` | Chủ bank (Teacher) | Sao chép bank cho teacher khác theo email |
 | POST | `/api/question-banks/{questionBankId}/multiple-choice` | Chủ bank, Admin | Thêm câu trắc nghiệm |
 | POST | `/api/question-banks/{questionBankId}/fill-in-blank` | Chủ bank, Admin | Thêm câu điền khuyết |
 | GET | `/api/question-banks/{questionBankId}/questions` | Chủ bank, Admin | Danh sách câu hỏi |
@@ -61,6 +62,14 @@ Teacher bỏ `teacherId` để lấy bank của mình, không xem được của
   }
 ]
 ```
+
+## `POST /api/question-banks/{questionBankId}/share`
+
+**Request:** `{ "recipientEmail": "teacher2@example.com" }`
+
+Tạo bản sao bank (kèm toàn bộ câu hỏi, đáp án) vào tài khoản Teacher đang Active có email tương ứng, rồi gửi email thông báo (lỗi gửi mail không làm hỏng việc chia sẻ). Tên giữ nguyên, mô tả ghi nguồn. Lỗi: `400` email sai/tự chia sẻ, `403` không phải chủ bank, `404` bank hoặc người nhận không tồn tại.
+
+**Response `200 OK`:** Question bank object của bản sao (`teacherId` = người nhận).
 
 ## `PUT /api/question-banks/{questionBankId}`
 

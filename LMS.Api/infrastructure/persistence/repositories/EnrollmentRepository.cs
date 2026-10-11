@@ -58,6 +58,16 @@ public sealed class EnrollmentRepository : IEnrollmentRepository
             enrollment => enrollment.CourseId == courseId && enrollment.Status == EnrollmentStatus.Accepted,
             cancellationToken);
 
+    public async Task<IReadOnlyDictionary<Guid, int>> CountAcceptedByCoursesAsync(
+        IReadOnlyCollection<Guid> courseIds,
+        CancellationToken cancellationToken) =>
+        await _dbContext.Enrollments
+            .Where(enrollment => courseIds.Contains(enrollment.CourseId) &&
+                enrollment.Status == EnrollmentStatus.Accepted)
+            .GroupBy(enrollment => enrollment.CourseId)
+            .Select(group => new { CourseId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(group => group.CourseId, group => group.Count, cancellationToken);
+
     public void Add(Enrollment enrollment)
     {
         _dbContext.Enrollments.Add(enrollment);

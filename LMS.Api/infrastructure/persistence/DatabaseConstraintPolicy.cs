@@ -8,6 +8,7 @@ internal static class DatabaseConstraintPolicy
     private static readonly HashSet<string> BusinessUniqueConstraints =
     [
         "IX_users_email",
+        "IX_users_single_system_role",
         "IX_enrollments_student_id_course_id",
         "IX_lessons_course_id_lesson_order",
         "IX_submissions_exercise_id_student_id",

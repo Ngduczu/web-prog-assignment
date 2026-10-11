@@ -273,6 +273,7 @@ public class RegistrationApplicationTests
 
     private sealed class FakeMailSender : IMailSender
     {
+        public Task SendQuestionBankSharedAsync(string email, string recipientName, string senderName, string questionBankName, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public bool FailNext { get; set; }
         public int VerificationMessagesSent { get; private set; }
         public string LastEmail { get; private set; } = string.Empty;

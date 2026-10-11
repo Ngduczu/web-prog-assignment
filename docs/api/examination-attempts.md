@@ -137,6 +137,8 @@ Thứ tự shuffle ổn định theo `attemptId` (gọi lại vẫn cùng thứ 
 
 **Không có body.** Attempt phải active. Đã hết giờ → `submitReason=DurationExpired`, ngược lại `StudentSubmitted`. Server chấm điểm. **Response `200 OK`:** Attempt object; nếu `showScoreImmediately=false` thì `correctAnswers`, `totalQuestions`, `score` là `null`.
 
+> Lưu ý giao diện: với kỳ thi có `requireFullscreen=true`, `window.confirm()`/native confirmation thường bị chặn trong chế độ toàn màn hình và không phù hợp cho luồng nộp bài. Frontend nên dùng modal tùy chỉnh trong app trước khi gọi API submit. Sau khi nhận `200 OK`, frontend nên quay về màn hình chi tiết kỳ thi và refetch dữ liệu mới nhất để hiển thị kết quả ngay mà không cần F5/manual reload.
+
 ## `POST /api/examination-attempts/{attemptId}/auto-submit?reason=DurationExpired`
 
 **Quyền:** Admin (`[Authorize(Roles = "Admin")]`); frontend student không gọi. **Không có body.** `reason` không được là `StudentSubmitted`; backend kiểm tra điều kiện thực tế (deadline, disconnect timeout, ngưỡng vi phạm, kỳ thi đã đóng), không đúng điều kiện trả `409`. **Response `200 OK`:** Attempt object.

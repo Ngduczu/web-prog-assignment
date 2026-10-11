@@ -450,7 +450,7 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
             throw new BadRequestException("Auto-submit reason is invalid.");
         }
 
-        if (_currentUser.GetRequiredRole() != Role.Admin)
+        if (!_currentUser.GetRequiredRole().IsAdminOrSystem())
         {
             throw new ForbiddenException("Only administrators can trigger auto-submit.");
         }
