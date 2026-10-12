@@ -13,19 +13,23 @@ namespace LMS.Api.application.features.enrollments;
 public sealed class EnrollmentService : IEnrollmentService
 {
     private const int MaximumPageSize = 100;
+    private const int MaximumBulkEmails = 100;
     private readonly IEnrollmentRepository _enrollments;
     private readonly ICourseRepository _courses;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITransactionManager? _transactionManager;
     private readonly ICurrentUser _currentUser;
+    private readonly IUserRepository? _users;
 
     public EnrollmentService(
         IEnrollmentRepository enrollments,
         ICourseRepository courses,
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
-        ITransactionManager? transactionManager = null)
+        ITransactionManager? transactionManager = null,
+        IUserRepository? users = null)
     {
+        _users = users;
         _enrollments = enrollments;
         _courses = courses;
         _unitOfWork = unitOfWork;
@@ -71,6 +75,121 @@ public sealed class EnrollmentService : IEnrollmentService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Map(enrollment, course);
     }
+
+    public async Task<IReadOnlyList<AddStudentResultDto>> AddStudentsByEmailAsync(
+        Guid courseId,
+        AddStudentsByEmailRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(courseId, "Course id");
+        if (request.Emails is null || request.Emails.Count == 0 || request.Emails.Count > MaximumBulkEmails)
+        {
+            throw new BadRequestException($"Provide between 1 and {MaximumBulkEmails} email addresses.");
+        }
+
+        if (_transactionManager is null)
+        {
+            return await AddStudentsByEmailCoreAsync(courseId, request.Emails, cancellationToken);
+        }
+
+        IReadOnlyList<AddStudentResultDto> results = [];
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
+        {
+            results = await AddStudentsByEmailCoreAsync(courseId, request.Emails, transactionCancellationToken);
+        }, cancellationToken);
+        return results;
+    }
+
+    private async Task<IReadOnlyList<AddStudentResultDto>> AddStudentsByEmailCoreAsync(
+        Guid courseId,
+        IReadOnlyList<string> emails,
+        CancellationToken cancellationToken)
+    {
+        var users = _users ?? throw new InvalidOperationException("User repository is not available.");
+        var course = await GetManagedCourseAsync(courseId, cancellationToken);
+        if (course.Status != CourseStatus.Open)
+        {
+            throw new ConflictException("Students can only be added to open courses.");
+        }
+
+        var acceptedCount = await _enrollments.CountAcceptedByCourseAsync(course.Id, cancellationToken);
+        var results = new List<AddStudentResultDto>(emails.Count);
+        var processed = new HashSet<string>();
+        foreach (var raw in emails)
+        {
+            var email = raw?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (!IsValidEmail(email))
+            {
+                results.Add(new AddStudentResultDto(raw?.Trim() ?? string.Empty, AddStudentResultStatus.InvalidEmail, null));
+                continue;
+            }
+
+            if (!processed.Add(email))
+            {
+                continue;
+            }
+
+            var user = await users.GetByEmailAsync(email, cancellationToken);
+            if (user is null)
+            {
+                results.Add(new AddStudentResultDto(email, AddStudentResultStatus.NotFound, null));
+                continue;
+            }
+
+            if (user.Role != Role.Student)
+            {
+                results.Add(new AddStudentResultDto(email, AddStudentResultStatus.NotStudent, null));
+                continue;
+            }
+
+            if (user.Status != AccountStatus.Active)
+            {
+                results.Add(new AddStudentResultDto(email, AddStudentResultStatus.Inactive, null));
+                continue;
+            }
+
+            var existing = await _enrollments.GetByStudentAndCourseAsync(user.Id, course.Id, cancellationToken);
+            if (existing?.Status == EnrollmentStatus.Accepted)
+            {
+                results.Add(new AddStudentResultDto(email, AddStudentResultStatus.AlreadyAccepted, Map(existing, course)));
+                continue;
+            }
+
+            if (acceptedCount >= course.MaxStudents)
+            {
+                results.Add(new AddStudentResultDto(email, AddStudentResultStatus.CourseFull, null));
+                continue;
+            }
+
+            Enrollment enrollment;
+            if (existing is null)
+            {
+                enrollment = new Enrollment(user.Id, course.Id, EnrollmentStatus.Accepted);
+                _enrollments.Add(enrollment);
+            }
+            else
+            {
+                enrollment = existing;
+                if (enrollment.Status != EnrollmentStatus.Waiting)
+                {
+                    enrollment.RequestAgain();
+                }
+
+                enrollment.Accept();
+            }
+
+            acceptedCount++;
+            results.Add(new AddStudentResultDto(email, AddStudentResultStatus.Added, Map(enrollment, course)));
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return results;
+    }
+
+    private static bool IsValidEmail(string email) =>
+        email.Length is > 0 and <= 255 &&
+        System.Net.Mail.MailAddress.TryCreate(email, out var address) &&
+        address.Address == email;
 
     public async Task<PagedResult<EnrollmentDto>> ListByCourseAsync(
         Guid courseId,

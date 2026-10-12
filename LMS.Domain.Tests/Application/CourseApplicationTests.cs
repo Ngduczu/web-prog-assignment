@@ -253,6 +253,53 @@ public class CourseApplicationTests
     }
 
     [Fact]
+    public async Task TeacherCanAddStudentsByEmailAndReportPerEmailResults()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var other = CreateUser(Role.Teacher);
+        var course = CreateCourse(teacher);
+        var enrollments = new FakeEnrollmentRepository();
+        var service = new EnrollmentService(
+            enrollments,
+            new FakeCourseRepository(course),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(teacher),
+            null,
+            new FakeUserRepository(student, other));
+
+        var results = await service.AddStudentsByEmailAsync(
+            course.Id,
+            new AddStudentsByEmailRequest([student.Email.ToUpperInvariant(), other.Email, "missing@example.com", "bad"]));
+
+        Assert.Equal(
+            [AddStudentResultStatus.Added, AddStudentResultStatus.NotStudent, AddStudentResultStatus.NotFound, AddStudentResultStatus.InvalidEmail],
+            results.Select(result => result.Status));
+        Assert.Equal(EnrollmentStatus.Accepted, Assert.Single(enrollments.Items).Status);
+
+        var again = await service.AddStudentsByEmailAsync(course.Id, new AddStudentsByEmailRequest([student.Email]));
+        Assert.Equal(AddStudentResultStatus.AlreadyAccepted, Assert.Single(again).Status);
+    }
+
+    [Fact]
+    public async Task StudentCannotAddStudentsByEmail()
+    {
+        var teacher = CreateUser(Role.Teacher);
+        var student = CreateUser(Role.Student);
+        var course = CreateCourse(teacher);
+        var service = new EnrollmentService(
+            new FakeEnrollmentRepository(),
+            new FakeCourseRepository(course),
+            new FakeUnitOfWork(),
+            new FakeCurrentUser(student),
+            null,
+            new FakeUserRepository(student));
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            service.AddStudentsByEmailAsync(course.Id, new AddStudentsByEmailRequest([student.Email])));
+    }
+
+    [Fact]
     public async Task StudentEnrollmentListIncludesCourseSummary()
     {
         var teacher = CreateUser(Role.Teacher);

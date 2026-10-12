@@ -17,8 +17,27 @@ public sealed record EnrollmentDto(
     DateTime ModifiedAt,
     EnrollmentCourseDto? Course = null);
 
+public sealed record AddStudentsByEmailRequest(IReadOnlyList<string>? Emails);
+
+public enum AddStudentResultStatus
+{
+    Added,
+    AlreadyAccepted,
+    InvalidEmail,
+    NotFound,
+    NotStudent,
+    Inactive,
+    CourseFull,
+}
+
+public sealed record AddStudentResultDto(string Email, AddStudentResultStatus Status, EnrollmentDto? Enrollment);
+
 public interface IEnrollmentService
 {
+    Task<IReadOnlyList<AddStudentResultDto>> AddStudentsByEmailAsync(
+        Guid courseId,
+        AddStudentsByEmailRequest request,
+        CancellationToken cancellationToken = default);
     Task<EnrollmentDto> RequestAsync(Guid courseId, CancellationToken cancellationToken = default);
     Task<PagedResult<EnrollmentDto>> ListByCourseAsync(
         Guid courseId,

@@ -53,7 +53,7 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 - `maxStudents` không được thấp hơn số `Accepted` hiện tại.
 - `Closed` = ngừng tuyển; student đã `Accepted` vẫn xem nội dung (`/courses/mine`, `/enrollments/mine`).
 - Student chỉ đăng ký course `Open`; accept chỉ khi course `Open` và chưa đủ sĩ số.
-- Enrollment: `Waiting → Accepted | Rejected | Cancelled`; `Accepted → Cancelled` (rời/revoke); `Rejected | Cancelled → Waiting` (đăng ký lại, cùng record).
+- Enrollment: `Waiting → Accepted | Rejected | Cancelled`; `Accepted → Cancelled` (rời/revoke); `Rejected | Cancelled → Waiting` (đăng ký lại, cùng record). Teacher sở hữu/Admin có thể thêm student `Active` bằng email, vào thẳng `Accepted` (vẫn tuân thủ `maxStudents`).
 - Xóa course là xóa mềm; chat room bị archive. Khôi phục: archive được gỡ nếu course quay lại `Open`.
 
 ## 4. Nội dung học

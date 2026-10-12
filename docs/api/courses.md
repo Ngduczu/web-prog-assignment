@@ -12,6 +12,7 @@ Cần JWT. Dữ liệu chỉ qua PostgreSQL (`courses`, `enrollments`, `users`);
 | DELETE | `/api/courses/{courseId}` | Teacher sở hữu, Admin | Xóa mềm |
 | POST | `/api/courses/{courseId}/restore` | Teacher sở hữu, Admin | Khôi phục |
 | POST | `/api/courses/{courseId}/enrollments` | Student `Active` | Đăng ký học |
+| POST | `/api/courses/{courseId}/enrollments/by-email` | Teacher sở hữu, Admin | Thêm học viên bằng email (vào thẳng `Accepted`) |
 | GET | `/api/courses/{courseId}/enrollments` | Teacher sở hữu, Admin | Danh sách đăng ký |
 | GET | `/api/enrollments/mine` | Student | Đăng ký của tôi |
 | POST | `/api/enrollments/{enrollmentId}/accept` | Teacher sở hữu, Admin | Duyệt |
@@ -202,3 +203,19 @@ Trả mảng Enrollment object (mọi trạng thái, kèm `course` tóm tắt) c
 ## `POST /api/enrollments/{enrollmentId}/revoke`
 
 **Không có body.** Chỉ cho enrollment `Accepted`. **Response `200 OK`:** Enrollment `Cancelled` (có `course`). Student mất quyền đọc nội dung, chat khóa học và làm bài thi.
+
+## `POST /api/courses/{courseId}/enrollments/by-email`
+
+Teacher sở hữu hoặc Admin thêm trực tiếp học viên vào khóa học. Chỉ dùng cho course `Open`, chưa xóa mềm (nếu không: `409`).
+
+**Request:** `{ "emails": ["a@example.com", "b@example.com"] }` – 1 đến 100 email (ngoài khoảng này: `400`). Email được trim, chuyển chữ thường, bỏ trùng.
+
+**Response `200 OK`:** mảng kết quả theo từng email (lỗi từng email không làm hỏng cả request; các email hợp lệ vẫn được lưu):
+
+```json
+[{ "email": "a@example.com", "status": "Added", "enrollment": { "status": "Accepted" } }]
+```
+
+`status`: `Added`, `AlreadyAccepted`, `InvalidEmail`, `NotFound`, `NotStudent`, `Inactive` (user không `Active`), `CourseFull` (đạt `maxStudents`). `enrollment` chỉ có với `Added`/`AlreadyAccepted`.
+
+Quy tắc: chưa có enrollment thì tạo mới `Accepted`; `Waiting` thì chuyển `Accepted`; `Rejected`/`Cancelled` thì tái dùng record rồi `Accepted`. Chạy trong transaction serializable cùng cách đếm `maxStudents` với `accept`.

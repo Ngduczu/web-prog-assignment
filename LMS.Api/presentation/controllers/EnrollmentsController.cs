@@ -17,6 +17,14 @@ public sealed class EnrollmentsController : ControllerBase
         CancellationToken cancellationToken)
         => StatusCode(StatusCodes.Status201Created, await service.RequestAsync(courseId, cancellationToken));
 
+    [HttpPost("courses/{courseId:guid}/enrollments/by-email")]
+    public async Task<ActionResult<IReadOnlyList<AddStudentResultDto>>> AddByEmail(
+        Guid courseId,
+        [FromBody] AddStudentsByEmailRequest request,
+        [FromServices] IEnrollmentService service,
+        CancellationToken cancellationToken)
+        => Ok(await service.AddStudentsByEmailAsync(courseId, request, cancellationToken));
+
     [HttpGet("courses/{courseId:guid}/enrollments")]
     public async Task<ActionResult<PagedResult<EnrollmentDto>>> ListByCourse(
         Guid courseId,
