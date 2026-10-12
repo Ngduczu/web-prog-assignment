@@ -25,6 +25,13 @@ public sealed class UsersController : ControllerBase
         CancellationToken cancellationToken) =>
         Ok(await service.FindForChatByEmailAsync(email, cancellationToken));
 
+    [HttpGet("search-for-chat/by-name")]
+    public async Task<ActionResult<IReadOnlyList<ChatUserSearchDto>>> SearchForChatByName(
+        [FromQuery] string name,
+        [FromServices] IUserService service,
+        CancellationToken cancellationToken) =>
+        Ok(await service.SearchForChatByNameAsync(name, cancellationToken));
+
     [HttpPut("me")]
     public async Task<ActionResult<UserProfileDto>> UpdateMe(
         [FromBody] UpdateMyProfileRequest request,

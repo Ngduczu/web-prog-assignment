@@ -84,6 +84,26 @@ public sealed class UserRepository : IUserManagementRepository
             user => user.Role == role && user.Status == AccountStatus.Active,
             cancellationToken);
 
+    public async Task<IReadOnlyList<User>> SearchActiveForChatByNameAsync(
+        string normalizedName,
+        Guid excludedUserId,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        var value = normalizedName.ToLower();
+        return await _dbContext.Users
+            .AsNoTracking()
+            .Where(user =>
+                user.Id != excludedUserId &&
+                user.Status == AccountStatus.Active &&
+                user.FullName.ToLower().Contains(value))
+            .OrderByDescending(user => user.FullName.ToLower().StartsWith(value))
+            .ThenBy(user => user.FullName)
+            .ThenBy(user => user.Email)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
     private IQueryable<User> Filter(string? search, Role? role, AccountStatus? status)
     {
         var query = _dbContext.Users.AsQueryable();

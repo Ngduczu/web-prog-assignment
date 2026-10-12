@@ -26,4 +26,5 @@ public interface IUserService
     Task<UserProfileDto> UpdateMyProfileAsync(UpdateMyProfileRequest request, CancellationToken cancellationToken = default);
     Task ChangeMyPasswordAsync(ChangeMyPasswordRequest request, CancellationToken cancellationToken = default);
     Task<ChatUserSearchDto> FindForChatByEmailAsync(string email, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ChatUserSearchDto>> SearchForChatByNameAsync(string name, CancellationToken cancellationToken = default);
 }

@@ -6,6 +6,7 @@ Base path: `/api/users`. Cần JWT.
 | --- | --- | --- | --- |
 | GET | `/api/users/{userId}/profile` | Chính chủ, Admin hoặc System | Xem hồ sơ |
 | GET | `/api/users/search-for-chat?email=` | Đã đăng nhập | Tìm user theo email để tạo chat trực tiếp |
+| GET | `/api/users/search-for-chat/by-name?name=` | Đã đăng nhập | Tìm tối đa 10 user theo tên để tạo chat trực tiếp |
 | PUT | `/api/users/me` | Đã đăng nhập | Sửa họ tên, số điện thoại |
 | PUT | `/api/users/me/password` | Đã đăng nhập | Đổi/tạo mật khẩu |
 | GET | `/api/users` | Admin hoặc System | Danh sách, tìm kiếm, lọc theo role/status, phân trang |
@@ -53,6 +54,24 @@ Tìm **chính xác** theo email chuẩn hóa, chỉ trả tài khoản `Active`,
   "fullName": "Student",
   "avatarUrl": null
 }
+```
+
+## `GET /api/users/search-for-chat/by-name?name=nguyen`
+
+Tìm không phân biệt hoa thường theo một phần họ tên. Từ khóa phải có 2–100 ký tự. Chỉ trả tối đa 10 tài khoản `Active`, ưu tiên tên bắt đầu bằng từ khóa và không trả chính người đang tìm.
+
+**Response `200 OK`:** Mảng dữ liệu user tối thiểu; có thể rỗng.
+
+```json
+[
+  {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "email": "student@example.com",
+    "fullName": "Nguyen Van A",
+    "avatarUrl": null,
+    "role": "Student"
+  }
+]
 ```
 
 ## `PUT /api/users/me`

@@ -455,6 +455,58 @@ public class UserApplicationTests
             fixture.Service.FindForChatByEmailAsync(actor.Email));
     }
 
+    [Fact]
+    public async Task ChatNameSearchReturnsLimitedMinimalProfiles()
+    {
+        var actor = CreateAdmin();
+        var first = new User(
+            "first@example.com",
+            "Nguyen An",
+            null,
+            "hash",
+            Role.Student,
+            AccountStatus.Active);
+        var second = new User(
+            "second@example.com",
+            "Nguyen Binh",
+            null,
+            "hash",
+            Role.Teacher,
+            AccountStatus.Active);
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+        fixture.Users.Setup(repository => repository.SearchActiveForChatByNameAsync(
+                "Nguyen",
+                actor.Id,
+                10,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([first, second]);
+
+        var result = await fixture.Service.SearchForChatByNameAsync("  Nguyen  ");
+
+        Assert.Collection(
+            result,
+            item => Assert.Equal(first.Email, item.Email),
+            item => Assert.Equal(second.Email, item.Email));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("a")]
+    public async Task ChatNameSearchRejectsShortQueries(string name)
+    {
+        var actor = CreateAdmin();
+        var fixture = CreateFixture(actor, actor, adminCount: 1);
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            fixture.Service.SearchForChatByNameAsync(name));
+
+        fixture.Users.Verify(repository => repository.SearchActiveForChatByNameAsync(
+            It.IsAny<string>(),
+            It.IsAny<Guid>(),
+            It.IsAny<int>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private static Fixture CreateFixture(
         User actor,
         User target,

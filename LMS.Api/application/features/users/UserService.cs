@@ -12,6 +12,7 @@ namespace LMS.Api.application.features.users;
 
 public sealed class UserService : IUserService
 {
+    private const int ChatNameSearchLimit = 10;
     private readonly IUserManagementRepository _users;
     private readonly IPasswordHasher _hasher;
     private readonly IUnitOfWork _unitOfWork;
@@ -53,6 +54,29 @@ public sealed class UserService : IUserService
         if (user.Id == actorId)
             throw new BadRequestException("You cannot start a direct conversation with yourself.");
         return new ChatUserSearchDto(user.Id, user.Email, user.FullName, user.AvatarUrl, user.Role);
+    }
+
+    public async Task<IReadOnlyList<ChatUserSearchDto>> SearchForChatByNameAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedName = name?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedName) || normalizedName.Length is < 2 or > 100)
+        {
+            throw new BadRequestException("Name search must contain between 2 and 100 characters.");
+        }
+
+        var users = await _users.SearchActiveForChatByNameAsync(
+            normalizedName,
+            _currentUser.GetRequiredUserId(),
+            ChatNameSearchLimit,
+            cancellationToken);
+        return users.Select(user => new ChatUserSearchDto(
+            user.Id,
+            user.Email,
+            user.FullName,
+            user.AvatarUrl,
+            user.Role)).ToArray();
     }
 
     public async Task<UserProfileDto> UpdateMyProfileAsync(

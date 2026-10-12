@@ -19,4 +19,9 @@ public interface IUserManagementRepository : IUserRepository
         CancellationToken cancellationToken);
     Task<int> CountByRoleAsync(Role role, CancellationToken cancellationToken);
     Task<int> CountActiveByRoleAsync(Role role, CancellationToken cancellationToken);
+    Task<IReadOnlyList<User>> SearchActiveForChatByNameAsync(
+        string normalizedName,
+        Guid excludedUserId,
+        int take,
+        CancellationToken cancellationToken);
 }
