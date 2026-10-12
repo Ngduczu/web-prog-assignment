@@ -37,7 +37,7 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 | --- | --- |
 | Email | Chuẩn hóa chữ thường, ≤ 255 ký tự, hợp lệ theo `MailAddress` |
 | Mật khẩu | 8–128 ký tự |
-| Họ tên mặc định khi đăng ký | Phần trước `@` của email (cắt 100 ký tự) |
+| Hồ sơ khi đăng ký | Họ tên bắt buộc (tối đa 100 ký tự); số điện thoại tùy chọn (tối đa 20 ký tự) |
 | Đăng ký tự do | Luôn `Student`, `Inactive`; kích hoạt bằng mã email |
 | Tạo bởi Admin | Mọi role, `Active` |
 | Đăng nhập | Chỉ `Active` |

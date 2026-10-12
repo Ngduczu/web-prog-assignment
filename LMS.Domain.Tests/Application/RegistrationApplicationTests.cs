@@ -21,11 +21,15 @@ public class RegistrationApplicationTests
         var result = await fixture.Service.RegisterAsync(new RegisterAccountRequest(
             " User@Example.com ",
             "password123",
-            "password123"));
+            "password123",
+            "  Nguyen Van An  ",
+            " 0901234567 "));
 
         var user = Assert.Single(fixture.Users.Items);
         Assert.Equal(user.Id, result.UserId);
         Assert.Equal("user@example.com", user.Email);
+        Assert.Equal("Nguyen Van An", user.FullName);
+        Assert.Equal("0901234567", user.Phone);
         Assert.Equal(AccountStatus.Inactive, user.Status);
         Assert.Equal("user@example.com", fixture.Mail.LastEmail);
         Assert.Equal(6, fixture.Mail.LastCode.Length);
@@ -33,19 +37,54 @@ public class RegistrationApplicationTests
     }
 
     [Fact]
-    public async Task RegisterBoundsGeneratedFullNameForLongEmailLocalPart()
+    public async Task RegisterRejectsFullNameLongerThanDatabaseColumn()
     {
         var fixture = CreateFixture();
-        var localPart = new string('a', 101);
+        var longFullName = new string('a', 101);
 
-        await fixture.Service.RegisterAsync(new RegisterAccountRequest(
-            $"{localPart}@example.com",
-            "password123",
-            "password123"));
+        await Assert.ThrowsAsync<BadRequestException>(() => fixture.Service.RegisterAsync(
+            new RegisterAccountRequest(
+                "user@example.com",
+                "password123",
+                "password123",
+                longFullName,
+                null)));
 
-        var user = Assert.Single(fixture.Users.Items);
-        Assert.Equal(100, user.FullName.Length);
-        Assert.Equal(localPart[..100], user.FullName);
+        Assert.Empty(fixture.Users.Items);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RegisterRejectsBlankFullName(string fullName)
+    {
+        var fixture = CreateFixture();
+
+        await Assert.ThrowsAsync<BadRequestException>(() => fixture.Service.RegisterAsync(
+            new RegisterAccountRequest(
+                "user@example.com",
+                "password123",
+                "password123",
+                fullName,
+                null)));
+
+        Assert.Empty(fixture.Users.Items);
+    }
+
+    [Fact]
+    public async Task RegisterRejectsPhoneLongerThanDatabaseColumn()
+    {
+        var fixture = CreateFixture();
+
+        await Assert.ThrowsAsync<BadRequestException>(() => fixture.Service.RegisterAsync(
+            new RegisterAccountRequest(
+                "user@example.com",
+                "password123",
+                "password123",
+                "Test User",
+                new string('1', 21))));
+
+        Assert.Empty(fixture.Users.Items);
     }
 
     [Fact]
@@ -56,13 +95,22 @@ public class RegistrationApplicationTests
         var request = new RegisterAccountRequest(
             "user@example.com",
             "password123",
-            "password123");
+            "password123",
+            "Test User",
+            null);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fixture.Service.RegisterAsync(request));
 
-        var result = await fixture.Service.RegisterAsync(request);
-        Assert.Equal(Assert.Single(fixture.Users.Items).Id, result.UserId);
+        var result = await fixture.Service.RegisterAsync(request with
+        {
+            FullName = "Changed Name",
+            Phone = "0909999999"
+        });
+        var user = Assert.Single(fixture.Users.Items);
+        Assert.Equal(user.Id, result.UserId);
+        Assert.Equal("Test User", user.FullName);
+        Assert.Null(user.Phone);
         Assert.False(string.IsNullOrWhiteSpace(fixture.Mail.LastCode));
     }
 
@@ -73,7 +121,9 @@ public class RegistrationApplicationTests
         var request = new RegisterAccountRequest(
             "user@example.com",
             "password123",
-            "password123");
+            "password123",
+            "Test User",
+            null);
         await fixture.Service.RegisterAsync(request);
         var firstCode = fixture.Mail.LastCode;
 
@@ -91,14 +141,18 @@ public class RegistrationApplicationTests
         await fixture.Service.RegisterAsync(new RegisterAccountRequest(
             "user@example.com",
             "password123",
-            "password123"));
+            "password123",
+            "Test User",
+            null));
         var firstCode = fixture.Mail.LastCode;
 
         await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.RegisterAsync(
             new RegisterAccountRequest(
                 "user@example.com",
                 "different-password",
-                "different-password")));
+                "different-password",
+                "Test User",
+                null)));
 
         Assert.Equal(1, fixture.Mail.VerificationMessagesSent);
         Assert.Equal(firstCode, fixture.Mail.LastCode);
@@ -109,7 +163,7 @@ public class RegistrationApplicationTests
     {
         var fixture = CreateFixture();
         await fixture.Service.RegisterAsync(new RegisterAccountRequest(
-            "user@example.com", "password123", "password123"));
+            "user@example.com", "password123", "password123", "Test User", null));
 
         await fixture.Service.VerifyEmailAsync(new VerifyEmailRequest(
             "USER@example.com", fixture.Mail.LastCode));
@@ -123,7 +177,7 @@ public class RegistrationApplicationTests
     {
         var fixture = CreateFixture();
         await fixture.Service.RegisterAsync(new RegisterAccountRequest(
-            "user@example.com", "password123", "password123"));
+            "user@example.com", "password123", "password123", "Test User", null));
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             fixture.Service.ResendVerificationAsync(new ResendVerificationRequest("user@example.com")));
@@ -147,7 +201,7 @@ public class RegistrationApplicationTests
     {
         var fixture = CreateFixture();
         await fixture.Service.RegisterAsync(new RegisterAccountRequest(
-            "user@example.com", "password123", "password123"));
+            "user@example.com", "password123", "password123", "Test User", null));
         var user = Assert.Single(fixture.Users.Items);
         user.SetStatus(invalidStatus);
 
@@ -168,7 +222,7 @@ public class RegistrationApplicationTests
     {
         var fixture = CreateFixture();
         await fixture.Service.RegisterAsync(new RegisterAccountRequest(
-            "user@example.com", "password123", "password123"));
+            "user@example.com", "password123", "password123", "Test User", null));
         var user = Assert.Single(fixture.Users.Items);
         await fixture.Cache.RemoveAsync(fixture.Cache.LastVerificationKey);
 
@@ -183,7 +237,7 @@ public class RegistrationApplicationTests
     {
         var fixture = CreateFixture();
         await fixture.Service.RegisterAsync(new RegisterAccountRequest(
-            "user@example.com", "password123", "password123"));
+            "user@example.com", "password123", "password123", "Test User", null));
         var user = Assert.Single(fixture.Users.Items);
         var code = fixture.Mail.LastCode;
         await fixture.Service.VerifyEmailAsync(new VerifyEmailRequest(user.Email, code));
@@ -198,7 +252,7 @@ public class RegistrationApplicationTests
     {
         var fixture = CreateFixture();
         await fixture.Service.RegisterAsync(new RegisterAccountRequest(
-            "user@example.com", "password123", "password123"));
+            "user@example.com", "password123", "password123", "Test User", null));
         var user = Assert.Single(fixture.Users.Items);
         fixture.UnitOfWork.FailNext = true;
 
@@ -214,7 +268,7 @@ public class RegistrationApplicationTests
     {
         var fixture = CreateFixture();
         await fixture.Service.RegisterAsync(new RegisterAccountRequest(
-            "user@example.com", "password123", "password123"));
+            "user@example.com", "password123", "password123", "Test User", null));
 
         async Task<bool> TryVerifyAsync()
         {

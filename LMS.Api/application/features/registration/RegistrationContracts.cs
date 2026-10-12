@@ -5,7 +5,9 @@ namespace LMS.Api.application.features.registration;
 public sealed record RegisterAccountRequest(
     string Email,
     string Password,
-    string PasswordConfirm);
+    string PasswordConfirm,
+    string FullName,
+    string? Phone);
 
 public sealed record VerifyEmailRequest(string Email, string VerificationCode);
 public sealed record ResendVerificationRequest(string Email);

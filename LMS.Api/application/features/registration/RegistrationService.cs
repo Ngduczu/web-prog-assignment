@@ -44,6 +44,20 @@ public sealed class RegistrationService : IRegistrationService
         CancellationToken cancellationToken = default)
     {
         var normalizedEmail = AuthValidation.NormalizeEmail(request.Email);
+        var normalizedFullName = request.FullName?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedFullName) || normalizedFullName.Length > 100)
+        {
+            throw new BadRequestException("Full name must contain between 1 and 100 characters.");
+        }
+
+        var normalizedPhone = string.IsNullOrWhiteSpace(request.Phone)
+            ? null
+            : request.Phone.Trim();
+        if (normalizedPhone?.Length > 20)
+        {
+            throw new BadRequestException("Phone cannot exceed 20 characters.");
+        }
+
         if (!AuthValidation.IsPasswordValid(request.Password))
         {
             throw new BadRequestException("Password must contain between 8 and 128 characters.");
@@ -78,8 +92,8 @@ public sealed class RegistrationService : IRegistrationService
 
         var user = new User(
             normalizedEmail,
-            AuthValidation.Truncate(normalizedEmail[..normalizedEmail.IndexOf('@')], 100),
-            null,
+            normalizedFullName,
+            normalizedPhone,
             _passwordHasher.Hash(request.Password),
             Role.Student,
             AccountStatus.Inactive);

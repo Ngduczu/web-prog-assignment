@@ -38,6 +38,8 @@ Token pair dùng chung (response của `login`, `refresh`, `login-code`):
 ```json
 {
   "email": "student@example.com",
+  "fullName": "Nguyen Van An",
+  "phone": "0901234567",
   "password": "password123",
   "passwordConfirm": "password123"
 }
@@ -56,7 +58,7 @@ Token pair dùng chung (response của `login`, `refresh`, `login-code`):
 
 **Hành vi:**
 
-1. Validate dữ liệu, chuẩn hóa email, hash mật khẩu.
+1. Validate dữ liệu; chuẩn hóa email, họ tên và số điện thoại; hash mật khẩu. `fullName` là bắt buộc (tối đa 100 ký tự), `phone` là tùy chọn (tối đa 20 ký tự).
 2. Ghi user vào PostgreSQL.
 3. Chiếm cooldown (`SetIfNotExists`, 1 phút), sinh mã, lưu Redis TTL 15 phút.
 4. Gửi mã qua SMTP.
