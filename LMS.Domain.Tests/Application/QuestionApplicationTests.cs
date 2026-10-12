@@ -243,7 +243,95 @@ public class QuestionApplicationTests
         Assert.False(fixture.QuestionBanks.WasRemoved);
     }
 
-    private static Fixture CreateFixture()
+    [Theory]
+    [InlineData(Role.Admin)]
+    [InlineData(Role.System)]
+    public async Task AdministratorsCanListAllQuestionBanksAndFilterByOwner(Role role)
+    {
+        var fixture = CreateFixture(role);
+
+        var all = await fixture.Service.ListQuestionBanksAsync();
+        var byName = await fixture.Service.ListQuestionBanksAsync(ownerSearch: "teacher");
+        var byEmail = await fixture.Service.ListQuestionBanksAsync(ownerSearch: all[0].OwnerEmail.ToUpperInvariant());
+        var noMatch = await fixture.Service.ListQuestionBanksAsync(ownerSearch: "missing-owner");
+
+        var bank = Assert.Single(all);
+        Assert.Equal("Teacher", bank.OwnerFullName);
+        Assert.Equal(fixture.QuestionBank.TeacherId, bank.TeacherId);
+        Assert.Single(byName);
+        Assert.Single(byEmail);
+        Assert.Empty(noMatch);
+        Assert.True(fixture.QuestionBanks.ListAllWasCalled);
+    }
+
+    [Theory]
+    [InlineData(Role.Admin)]
+    [InlineData(Role.System)]
+    public async Task AdministratorsCanReadQuestionsOwnedByAnotherUser(Role role)
+    {
+        var fixture = CreateFixture(role);
+        var question = new Question(
+            fixture.QuestionBank.Id,
+            "Question",
+            QuestionType.FillInBlank,
+            QuestionDifficulty.Easy,
+            false,
+            fixture.QuestionBank.TeacherId);
+        fixture.Questions.Items.Add(question);
+
+        var result = await fixture.Service.ListQuestionsAsync(fixture.QuestionBank.Id);
+
+        Assert.Single(result);
+    }
+
+    [Theory]
+    [InlineData(Role.Admin)]
+    [InlineData(Role.System)]
+    public async Task AdministratorsCannotMutateQuestionBanksOrQuestions(Role role)
+    {
+        var fixture = CreateFixture(role);
+        var question = new Question(
+            fixture.QuestionBank.Id,
+            "Question",
+            QuestionType.FillInBlank,
+            QuestionDifficulty.Easy,
+            false,
+            fixture.QuestionBank.TeacherId);
+        fixture.Questions.Items.Add(question);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.CreateQuestionBankAsync(
+            new CreateQuestionBankRequest(fixture.QuestionBank.TeacherId, "New bank", null)));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.UpdateQuestionBankAsync(
+            fixture.QuestionBank.Id,
+            new UpdateQuestionBankRequest("Updated bank", null)));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.DeleteQuestionBankAsync(fixture.QuestionBank.Id));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.ShareQuestionBankAsync(
+            fixture.QuestionBank.Id,
+            new ShareQuestionBankRequest("recipient@example.com")));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.CreateMultipleChoiceAsync(
+            fixture.QuestionBank.Id,
+            new CreateMultipleChoiceQuestionRequest(
+                "Question",
+                QuestionDifficulty.Easy,
+                false,
+                [new MultipleChoiceOptionInput("A", true), new MultipleChoiceOptionInput("B", false)])));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.CreateFillInBlankAsync(
+            fixture.QuestionBank.Id,
+            new CreateFillInBlankQuestionRequest(
+                "Question ___",
+                QuestionDifficulty.Easy,
+                [new FillInBlankAnswerInput(1, "Answer")])));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.UpdateQuestionAsync(
+            question.Id,
+            new UpdateQuestionRequest("Updated question", QuestionDifficulty.Medium)));
+        await Assert.ThrowsAsync<ForbiddenException>(() => fixture.Service.DeleteQuestionAsync(question.Id));
+
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+        Assert.False(fixture.QuestionBanks.WasRemoved);
+        Assert.Single(fixture.Questions.Items);
+    }
+
+    private static Fixture CreateFixture(Role actorRole = Role.Teacher)
     {
         var teacher = new User(
             $"{Guid.NewGuid():N}@example.com",
@@ -252,6 +340,15 @@ public class QuestionApplicationTests
             null,
             Role.Teacher,
             AccountStatus.Active);
+        var actor = actorRole == Role.Teacher
+            ? teacher
+            : new User(
+                $"{Guid.NewGuid():N}@example.com",
+                actorRole.ToString(),
+                null,
+                null,
+                actorRole,
+                AccountStatus.Active);
         var questionBank = new QuestionBank(teacher.Id, "Bank", null, teacher.Id);
         var questions = new FakeQuestionRepository();
         var unitOfWork = new FakeUnitOfWork();
@@ -260,10 +357,10 @@ public class QuestionApplicationTests
         var service = new QuestionService(
             questionBanks,
             questions,
-            new FakeUserRepository(teacher),
+            new FakeUserRepository(teacher, actor),
             unitOfWork,
             transactionManager,
-            new FakeCurrentUser(teacher),
+            new FakeCurrentUser(actor),
             new FakeMailSender());
         return new Fixture(service, questionBank, questionBanks, questions, unitOfWork, transactionManager);
     }
@@ -338,18 +435,23 @@ public class QuestionApplicationTests
 
     private sealed class FakeUserRepository : IUserRepository
     {
-        private readonly User _user;
+        private readonly IReadOnlyList<User> _users;
 
-        public FakeUserRepository(User user)
+        public FakeUserRepository(params User[] users)
         {
-            _user = user;
+            _users = users.DistinctBy(user => user.Id).ToArray();
         }
 
         public Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
-            Task.FromResult<User?>(_user.Id == id ? _user : null);
+            Task.FromResult(_users.SingleOrDefault(user => user.Id == id));
+
+        public Task<IReadOnlyList<User>> ListByIdsAsync(
+            IReadOnlyCollection<Guid> ids,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<User>>(_users.Where(user => ids.Contains(user.Id)).ToArray());
 
         public Task<User?> GetByEmailAsync(string normalizedEmail, CancellationToken cancellationToken) =>
-            Task.FromResult<User?>(_user.Email == normalizedEmail ? _user : null);
+            Task.FromResult(_users.SingleOrDefault(user => user.Email == normalizedEmail));
 
         public Task<User?> GetByExternalLoginAsync(ExternalProvider provider, string externalUserId, CancellationToken cancellationToken) =>
             Task.FromResult<User?>(null);
@@ -370,6 +472,7 @@ public class QuestionApplicationTests
         private readonly QuestionBank _questionBank;
         public bool IsReferenced { get; set; }
         public bool WasRemoved { get; private set; }
+        public bool ListAllWasCalled { get; private set; }
 
         public FakeQuestionBankRepository(QuestionBank questionBank)
         {
@@ -384,6 +487,12 @@ public class QuestionApplicationTests
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<QuestionBank>>(
                 questionBankIds.Contains(_questionBank.Id) ? [_questionBank] : []);
+
+        public Task<IReadOnlyList<QuestionBank>> ListAllAsync(CancellationToken cancellationToken)
+        {
+            ListAllWasCalled = true;
+            return Task.FromResult<IReadOnlyList<QuestionBank>>([_questionBank]);
+        }
 
         public Task<IReadOnlyList<QuestionBank>> ListByTeacherAsync(
             Guid teacherId,

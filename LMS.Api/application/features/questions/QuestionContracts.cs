@@ -12,7 +12,9 @@ public sealed record QuestionBankDto(
     string Name,
     string? Description,
     DateTime CreatedAt,
-    DateTime ModifiedAt);
+    DateTime ModifiedAt,
+    string OwnerFullName,
+    string OwnerEmail);
 
 public sealed record MultipleChoiceOptionInput(string Content, bool IsCorrect);
 public sealed record FillInBlankAnswerInput(int BlankOrder, string ExpectedAnswer);
@@ -65,6 +67,7 @@ public interface IQuestionService
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<QuestionBankDto>> ListQuestionBanksAsync(
         Guid? teacherId = null,
+        string? ownerSearch = null,
         CancellationToken cancellationToken = default);
     Task<QuestionDto> CreateMultipleChoiceAsync(
         Guid questionBankId,

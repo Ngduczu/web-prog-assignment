@@ -17,7 +17,7 @@ public sealed class QuestionsController : ControllerBase
     [HttpPost("question-banks/{id:guid}/share")]
     public async Task<ActionResult<QuestionBankDto>> ShareBank(Guid id, ShareQuestionBankRequest request, IQuestionService service, CancellationToken ct) => Ok(await service.ShareQuestionBankAsync(id, request, ct));
     [HttpGet("question-banks")]
-    public async Task<ActionResult<IReadOnlyList<QuestionBankDto>>> ListBanks(Guid? teacherId, IQuestionService service, CancellationToken ct) => Ok(await service.ListQuestionBanksAsync(teacherId, ct));
+    public async Task<ActionResult<IReadOnlyList<QuestionBankDto>>> ListBanks(Guid? teacherId, string? ownerSearch, IQuestionService service, CancellationToken ct) => Ok(await service.ListQuestionBanksAsync(teacherId, ownerSearch, ct));
     [HttpPost("question-banks/{id:guid}/multiple-choice")]
     public async Task<ActionResult<QuestionDto>> CreateMultipleChoice(Guid id, CreateMultipleChoiceQuestionRequest request, IQuestionService service, CancellationToken ct) => Ok(await service.CreateMultipleChoiceAsync(id, request, ct));
     [HttpPost("question-banks/{id:guid}/fill-in-blank")]

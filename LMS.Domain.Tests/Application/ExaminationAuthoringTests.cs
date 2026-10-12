@@ -460,6 +460,9 @@ public class ExaminationAuthoringTests
             Task.FromResult<IReadOnlyList<QuestionBank>>(
                 questionBankIds.Contains(_questionBank.Id) ? [_questionBank] : []);
 
+        public Task<IReadOnlyList<QuestionBank>> ListAllAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<QuestionBank>>([_questionBank]);
+
         public Task<IReadOnlyList<QuestionBank>> ListByTeacherAsync(
             Guid teacherId,
             CancellationToken cancellationToken) =>

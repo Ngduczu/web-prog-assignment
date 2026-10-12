@@ -3,6 +3,7 @@ using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.mail;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.domain.Entities.Questions;
+using LMS.Api.domain.Entities.Users;
 using LMS.Api.domain.Enums.Questions;
 using LMS.Api.domain.Enums.Users;
 using LMS.Api.domain.exceptions;
@@ -47,7 +48,12 @@ public sealed class QuestionService : IQuestionService
         var actorId = _currentUser.GetRequiredUserId();
         var actorRole = _currentUser.GetRequiredRole();
 
-        if (!actorRole.IsAdminOrSystem() && (actorRole != Role.Teacher || actorId != request.TeacherId))
+        if (actorRole.IsAdminOrSystem())
+        {
+            throw new ForbiddenException("Administrator accounts can only view question banks.");
+        }
+
+        if (actorRole != Role.Teacher || actorId != request.TeacherId)
         {
             throw new ForbiddenException("Teachers can only create question banks assigned to themselves.");
         }
@@ -66,7 +72,7 @@ public sealed class QuestionService : IQuestionService
             actorId);
         _questionBanks.Add(questionBank);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(questionBank);
+        return Map(questionBank, teacher);
     }
 
     public async Task<QuestionBankDto> UpdateQuestionBankAsync(
@@ -81,24 +87,45 @@ public sealed class QuestionService : IQuestionService
         questionBank.SetDescription(NormalizeOptional(request.Description));
         questionBank.SetModifiedBy(_currentUser.GetRequiredUserId());
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(questionBank);
+        return await MapWithOwnerAsync(questionBank, cancellationToken);
     }
 
     public async Task<IReadOnlyList<QuestionBankDto>> ListQuestionBanksAsync(
         Guid? teacherId = null,
+        string? ownerSearch = null,
         CancellationToken cancellationToken = default)
     {
         var actorId = _currentUser.GetRequiredUserId();
         var actorRole = _currentUser.GetRequiredRole();
-        var ownerId = teacherId ?? actorId;
+        IReadOnlyList<QuestionBank> questionBanks;
 
-        if (!actorRole.IsAdminOrSystem() && (actorRole != Role.Teacher || ownerId != actorId))
+        if (actorRole.IsAdminOrSystem() && teacherId is null)
         {
-            throw new ForbiddenException("Teachers can only view their own question banks.");
+            questionBanks = await _questionBanks.ListAllAsync(cancellationToken);
+        }
+        else
+        {
+            var ownerId = teacherId ?? actorId;
+            if (actorRole != Role.Admin && actorRole != Role.System &&
+                (actorRole != Role.Teacher || ownerId != actorId))
+            {
+                throw new ForbiddenException("Teachers can only view their own question banks.");
+            }
+
+            questionBanks = await _questionBanks.ListByTeacherAsync(ownerId, cancellationToken);
         }
 
-        var questionBanks = await _questionBanks.ListByTeacherAsync(ownerId, cancellationToken);
-        return questionBanks.Select(Map).ToArray();
+        var result = await MapWithOwnersAsync(questionBanks, cancellationToken);
+        if (string.IsNullOrWhiteSpace(ownerSearch))
+        {
+            return result;
+        }
+
+        var search = ownerSearch.Trim();
+        return result
+            .Where(bank => bank.OwnerFullName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                           bank.OwnerEmail.Contains(search, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
     }
 
     public async Task DeleteQuestionBankAsync(
@@ -217,7 +244,7 @@ public sealed class QuestionService : IQuestionService
             // The copy is already committed; a notification failure must not fail the share.
         }
 
-        return Map(copy);
+        return Map(copy, recipient);
     }
 
     public async Task<QuestionDto> CreateMultipleChoiceAsync(
@@ -299,7 +326,7 @@ public sealed class QuestionService : IQuestionService
         CancellationToken cancellationToken = default)
     {
         ValidateId(questionBankId, "Question bank id");
-        _ = await GetManagedQuestionBankAsync(questionBankId, cancellationToken);
+        _ = await GetReadableQuestionBankAsync(questionBankId, cancellationToken);
         var questions = await _questions.ListByQuestionBankAsync(questionBankId, cancellationToken);
         return questions.Select(Map).ToArray();
     }
@@ -408,9 +435,32 @@ public sealed class QuestionService : IQuestionService
         var actorId = _currentUser.GetRequiredUserId();
         var actorRole = _currentUser.GetRequiredRole();
 
-        if (!actorRole.IsAdminOrSystem() && (actorRole != Role.Teacher || questionBank.TeacherId != actorId))
+        if (actorRole.IsAdminOrSystem())
+        {
+            throw new ForbiddenException("Administrator accounts can only view question banks.");
+        }
+
+        if (actorRole != Role.Teacher || questionBank.TeacherId != actorId)
         {
             throw new ForbiddenException("Only the question bank owner or an administrator can manage it.");
+        }
+
+        return questionBank;
+    }
+
+    private async Task<QuestionBank> GetReadableQuestionBankAsync(
+        Guid questionBankId,
+        CancellationToken cancellationToken)
+    {
+        var questionBank = await _questionBanks.GetByIdAsync(questionBankId, cancellationToken)
+            ?? throw new NotFoundException("Question bank was not found.");
+        var actorId = _currentUser.GetRequiredUserId();
+        var actorRole = _currentUser.GetRequiredRole();
+
+        if (actorRole != Role.Admin && actorRole != Role.System &&
+            (actorRole != Role.Teacher || questionBank.TeacherId != actorId))
+        {
+            throw new ForbiddenException("Teachers can only view their own question banks.");
         }
 
         return questionBank;
@@ -492,13 +542,44 @@ public sealed class QuestionService : IQuestionService
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static QuestionBankDto Map(QuestionBank questionBank) => new(
+    private async Task<QuestionBankDto> MapWithOwnerAsync(
+        QuestionBank questionBank,
+        CancellationToken cancellationToken)
+    {
+        var owner = await _users.GetByIdAsync(questionBank.TeacherId, cancellationToken)
+            ?? throw new NotFoundException("Question bank owner was not found.");
+        return Map(questionBank, owner);
+    }
+
+    private async Task<IReadOnlyList<QuestionBankDto>> MapWithOwnersAsync(
+        IReadOnlyList<QuestionBank> questionBanks,
+        CancellationToken cancellationToken)
+    {
+        var owners = await _users.ListByIdsAsync(
+            questionBanks.Select(questionBank => questionBank.TeacherId).Distinct().ToArray(),
+            cancellationToken);
+        var ownersById = owners.ToDictionary(owner => owner.Id);
+
+        return questionBanks.Select(questionBank =>
+        {
+            if (!ownersById.TryGetValue(questionBank.TeacherId, out var owner))
+            {
+                throw new NotFoundException("Question bank owner was not found.");
+            }
+
+            return Map(questionBank, owner);
+        }).ToArray();
+    }
+
+    private static QuestionBankDto Map(QuestionBank questionBank, User owner) => new(
         questionBank.Id,
         questionBank.TeacherId,
         questionBank.Name,
         questionBank.Description,
         questionBank.CreatedAt,
-        questionBank.ModifiedAt);
+        questionBank.ModifiedAt,
+        owner.FullName,
+        owner.Email);
 
     private static QuestionDto Map(Question question) => new(
         question.Id,

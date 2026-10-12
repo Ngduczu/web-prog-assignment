@@ -32,6 +32,14 @@ public sealed class QuestionBankRepository : IQuestionBankRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<QuestionBank>> ListAllAsync(
+        CancellationToken cancellationToken) =>
+        await _dbContext.QuestionBanks
+            .AsNoTracking()
+            .OrderBy(questionBank => questionBank.Name)
+            .ThenBy(questionBank => questionBank.Id)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<QuestionBank>> ListByTeacherAsync(
         Guid teacherId,
         CancellationToken cancellationToken) =>

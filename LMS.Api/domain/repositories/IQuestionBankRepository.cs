@@ -8,6 +8,7 @@ public interface IQuestionBankRepository
     Task<IReadOnlyList<QuestionBank>> ListByIdsAsync(
         IReadOnlyCollection<Guid> questionBankIds,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<QuestionBank>> ListAllAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<QuestionBank>> ListByTeacherAsync(Guid teacherId, CancellationToken cancellationToken);
     Task<bool> IsReferencedByExaminationAsync(Guid questionBankId, CancellationToken cancellationToken) =>
         Task.FromResult(false);
