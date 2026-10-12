@@ -88,6 +88,10 @@ public interface IExaminationAttemptService
         Guid attemptId,
         ExaminationSubmitReason reason,
         CancellationToken cancellationToken = default);
+    Task ResetAsync(
+        Guid examinationId,
+        Guid attemptId,
+        CancellationToken cancellationToken = default);
     Task<PagedResult<ExaminationAttemptResultDto>> ListResultsAsync(
         Guid examinationId,
         ExaminationAttemptQuery query,

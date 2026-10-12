@@ -13,6 +13,9 @@ Base path: `/api/examination-attempts`. Cần JWT, student phải có enrollment
 | POST | `/api/examination-attempts/{attemptId}/violations` | Student chủ attempt | Ghi nhận vi phạm |
 | POST | `/api/examination-attempts/{attemptId}/submit` | Student chủ attempt | Nộp bài |
 | POST | `/api/examination-attempts/{attemptId}/auto-submit` | Admin | Ép nộp theo lý do |
+| DELETE | `/api/examinations/{examinationId}/attempts/{attemptId}` | Giảng viên của khóa học, Admin/System | Xóa lượt thi để học viên có thể bắt đầu lại |
+
+`DELETE` chỉ xóa lượt thi thuộc đúng kỳ thi trong đường dẫn. Dữ liệu đáp án và vi phạm liên quan được xóa theo quan hệ cascade. Lượt thi mới vẫn tuân thủ điều kiện bắt đầu hiện hành (kỳ thi Published, đang trong khoảng thời gian cho phép, học viên còn enrollment Accepted); thao tác reset không gia hạn kỳ thi hoặc thời lượng.
 
 Máy trạng thái:
 

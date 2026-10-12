@@ -160,6 +160,11 @@ public sealed class ExaminationAttemptRepository : IExaminationAttemptRepository
         _dbContext.ExaminationAttempts.Add(attempt);
     }
 
+    public void Remove(ExaminationAttempt attempt)
+    {
+        _dbContext.ExaminationAttempts.Remove(attempt);
+    }
+
     public void AddAnswer(StudentAnswer answer)
     {
         _dbContext.StudentAnswers.Add(answer);

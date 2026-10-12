@@ -34,6 +34,13 @@ public sealed class ExaminationsController : ControllerBase
         IExaminationAttemptService service,
         CancellationToken ct) => Ok(await service.ListResultsAsync(id, query, ct));
 
+    [HttpDelete("examinations/{id:guid}/attempts/{attemptId:guid}")]
+    public async Task<IActionResult> ResetAttempt(Guid id, Guid attemptId, IExaminationAttemptService service, CancellationToken ct)
+    {
+        await service.ResetAsync(id, attemptId, ct);
+        return NoContent();
+    }
+
     [HttpPut("examinations/{id:guid}")]
     public async Task<ActionResult<ExaminationDto>> Update(Guid id, UpdateExaminationRequest request, IExaminationService service, CancellationToken ct) => Ok(await service.UpdateAsync(id, request, ct));
 

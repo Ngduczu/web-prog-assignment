@@ -395,6 +395,7 @@ public class ExaminationAuthoringTests
             Task.FromResult<StudentAnswer?>(null);
 
         public void Add(ExaminationAttempt attempt) => Items.Add(attempt);
+        public void Remove(ExaminationAttempt attempt) => Items.Remove(attempt);
         public void AddAnswer(StudentAnswer answer) { }
         public void AddFillInBlankAnswer(StudentFillInBlankAnswer answer) { }
         public void RemoveFillInBlankAnswer(StudentFillInBlankAnswer answer) { }

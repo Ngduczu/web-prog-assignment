@@ -192,6 +192,89 @@ public class ExaminationAttemptApplicationTests
     }
 
     [Fact]
+    public async Task CourseTeacherCanDeleteAttemptAndAllowStudentToStartAgain()
+    {
+        var fixture = CreateFixture(currentUserRole: Role.Teacher);
+        var question = fixture.Examination.Questions.First();
+        var attempt = new ExaminationAttempt(
+            fixture.Examination.Id,
+            fixture.Student.Id,
+            fixture.Clock.UtcNow,
+            fixture.Examination.Questions.Count);
+        attempt.SetResult(1, fixture.Examination.Questions.Count);
+        attempt.Submit();
+        attempt.Answers.Add(new StudentAnswer(attempt.Id, question.Id));
+        var violation = new ExaminationViolation(
+            attempt.Id,
+            ExaminationViolationType.TabChanged,
+            fixture.Clock.UtcNow);
+        attempt.Violations.Add(violation);
+        fixture.Attempts.Items.Add(attempt);
+        fixture.Attempts.Violations.Add(violation);
+
+        await fixture.Service.ResetAsync(fixture.Examination.Id, attempt.Id);
+
+        Assert.Empty(fixture.Attempts.Items);
+        Assert.Empty(fixture.Attempts.Violations);
+
+        fixture.CurrentUser.Assume(fixture.Student);
+        var replacement = await fixture.Service.StartAsync(fixture.Examination.Id);
+        Assert.Equal(ExaminationAttemptStatus.InProgress, replacement.Status);
+    }
+
+    [Fact]
+    public async Task TeacherCannotDeleteAttemptForAnotherTeachersCourse()
+    {
+        var fixture = CreateFixture(currentUserRole: Role.Teacher, currentUserOwnsCourse: false);
+        var attempt = new ExaminationAttempt(
+            fixture.Examination.Id,
+            fixture.Student.Id,
+            fixture.Clock.UtcNow,
+            fixture.Examination.Questions.Count);
+        fixture.Attempts.Items.Add(attempt);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            fixture.Service.ResetAsync(fixture.Examination.Id, attempt.Id));
+
+        Assert.Single(fixture.Attempts.Items);
+    }
+
+    [Fact]
+    public async Task ResetCannotDeleteAttemptFromAnotherExamination()
+    {
+        var fixture = CreateFixture(currentUserRole: Role.Teacher);
+        var attempt = new ExaminationAttempt(
+            Guid.NewGuid(),
+            fixture.Student.Id,
+            fixture.Clock.UtcNow,
+            fixture.Examination.Questions.Count);
+        fixture.Attempts.Items.Add(attempt);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            fixture.Service.ResetAsync(fixture.Examination.Id, attempt.Id));
+
+        Assert.Single(fixture.Attempts.Items);
+    }
+
+    [Fact]
+    public async Task ResetDoesNotDeleteAttemptWhenExaminationIsNoLongerAvailable()
+    {
+        var fixture = CreateFixture(currentUserRole: Role.Teacher);
+        var attempt = new ExaminationAttempt(
+            fixture.Examination.Id,
+            fixture.Student.Id,
+            fixture.Clock.UtcNow,
+            fixture.Examination.Questions.Count);
+        fixture.Attempts.Items.Add(attempt);
+        fixture.Clock.UtcNow = fixture.Examination.DueAt;
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            fixture.Service.ResetAsync(fixture.Examination.Id, attempt.Id));
+
+        Assert.Single(fixture.Attempts.Items);
+    }
+
+    [Fact]
     public async Task RecoverAttemptReturnsNotFoundWhenStudentHasNotStartedExamination()
     {
         var fixture = CreateFixture();
@@ -308,7 +391,8 @@ public class ExaminationAttemptApplicationTests
         bool showScoreImmediately = true,
         bool shuffleQuestions = false,
         int maxDisconnectMinutes = 10,
-        Role currentUserRole = Role.Student)
+        Role currentUserRole = Role.Student,
+        bool currentUserOwnsCourse = true)
     {
         var teacher = CreateUser(Role.Teacher);
         var student = CreateUser(Role.Student);
@@ -358,6 +442,14 @@ public class ExaminationAttemptApplicationTests
         }
         var attempts = new FakeExaminationAttemptRepository();
         var clock = new FakeClock(now);
+        var currentUser = currentUserRole switch
+        {
+            Role.Student => student,
+            Role.Teacher when currentUserOwnsCourse => teacher,
+            Role.Teacher => CreateUser(Role.Teacher),
+            _ => CreateUser(currentUserRole)
+        };
+        var currentUserContext = new FakeCurrentUser(currentUser);
         var service = new ExaminationAttemptService(
             attempts,
             new FakeExaminationRepository(examination),
@@ -365,9 +457,9 @@ public class ExaminationAttemptApplicationTests
             new FakeEnrollmentRepository(enrollment),
             new FakeUnitOfWork(),
             new FakeTransactionManager(),
-            new FakeCurrentUser(currentUserRole == Role.Student ? student : CreateUser(currentUserRole)),
+            currentUserContext,
             clock);
-        return new Fixture(service, student, examination, attempts, clock);
+        return new Fixture(service, student, teacher, examination, attempts, clock, currentUserContext);
     }
 
     private static User CreateUser(Role role) => new(
@@ -381,9 +473,11 @@ public class ExaminationAttemptApplicationTests
     private sealed record Fixture(
         ExaminationAttemptService Service,
         User Student,
+        User Teacher,
         Examination Examination,
         FakeExaminationAttemptRepository Attempts,
-        FakeClock Clock);
+        FakeClock Clock,
+        FakeCurrentUser CurrentUser);
 
     private sealed class FakeClock : IClock
     {
@@ -404,8 +498,14 @@ public class ExaminationAttemptApplicationTests
         }
 
         public bool IsAuthenticated => true;
-        public Guid? UserId { get; }
-        public Role? Role { get; }
+        public Guid? UserId { get; private set; }
+        public Role? Role { get; private set; }
+
+        public void Assume(User user)
+        {
+            UserId = user.Id;
+            Role = user.Role;
+        }
     }
 
     private sealed class FakeUnitOfWork : IUnitOfWork
@@ -502,6 +602,12 @@ public class ExaminationAttemptApplicationTests
         public void Add(ExaminationAttempt attempt)
         {
             Items.Add(attempt);
+        }
+
+        public void Remove(ExaminationAttempt attempt)
+        {
+            Items.Remove(attempt);
+            Violations.RemoveAll(violation => violation.ExaminationAttemptId == attempt.Id);
         }
 
         public void AddAnswer(StudentAnswer answer)

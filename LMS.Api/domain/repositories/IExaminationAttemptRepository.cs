@@ -41,6 +41,7 @@ public interface IExaminationAttemptRepository
         bool includeFillInBlankAnswers,
         CancellationToken cancellationToken);
     void Add(ExaminationAttempt attempt);
+    void Remove(ExaminationAttempt attempt);
     void AddAnswer(StudentAnswer answer);
     void AddFillInBlankAnswer(StudentFillInBlankAnswer answer);
     void RemoveFillInBlankAnswer(StudentFillInBlankAnswer answer);

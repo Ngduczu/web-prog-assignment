@@ -473,6 +473,39 @@ public sealed class ExaminationAttemptService : IExaminationAttemptService
         return Map(submittedAttempt!, examination!);
     }
 
+    public async Task ResetAsync(
+        Guid examinationId,
+        Guid attemptId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateId(examinationId, "Examination id");
+        ValidateId(attemptId, "Examination attempt id");
+
+        var examination = await GetExaminationAsync(examinationId, false, cancellationToken);
+        var course = await _courses.GetByIdAsync(examination.CourseId, false, cancellationToken)
+            ?? throw new NotFoundException("Course was not found.");
+        CourseAuthorization.EnsureCanManage(_currentUser, course);
+
+        await _transactionManager.ExecuteSerializableAsync(async transactionCancellationToken =>
+        {
+            var currentExamination = await GetExaminationAsync(
+                examinationId,
+                false,
+                transactionCancellationToken);
+            EnsureAvailable(currentExamination, _clock.UtcNow);
+
+            var attempt = await _attempts.GetByIdAsync(attemptId, false, transactionCancellationToken)
+                ?? throw new NotFoundException("Examination attempt was not found.");
+            if (attempt.ExaminationId != examinationId)
+            {
+                throw new NotFoundException("Examination attempt was not found.");
+            }
+
+            _attempts.Remove(attempt);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
+    }
+
     private void EnsureAutoSubmitReasonApplies(
         ExaminationAttempt attempt,
         Examination examination,
