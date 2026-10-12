@@ -1,5 +1,7 @@
 # API – Authentication
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 Base path: `/api/auth`. Toàn bộ nhóm này chịu rate limit 10 request/phút/IP.
 
 | Method | Path | Quyền | Chức năng |
@@ -235,7 +237,7 @@ Nếu SMTP lỗi: mã và cooldown bị xóa; có thể gọi lại `register` c
 **Hành vi:**
 
 - Email không tồn tại hoặc không có mã → `400 Reset code is invalid or expired.`; tài khoản OAuth → `409`.
-- Tối đa 5 lần nhập sai mỗi mã (vượt → xóa mã, `409`); mã consume atomic.
+- Bộ đếm tăng mỗi lần kiểm tra sau khi tìm thấy entry, kể cả lần nhập đúng; lần thứ 6 xóa mã và trả `409`. TTL bộ đếm tính từ lần tăng đầu tiên; gửi mã reset mới không xóa bộ đếm cũ. Mã consume atomic.
 - Hash mật khẩu mới và tăng `AuthVersion` được commit atomic trong PostgreSQL → mọi access/refresh token cũ bị từ chối.
 - Nếu cập nhật PostgreSQL lỗi, password hash/version cũ và mã reset được khôi phục. Lỗi dọn attempts/cooldown sau commit không làm response thất bại.
 
@@ -332,7 +334,7 @@ Với state `Link`: Google đã thuộc user khác → `409`; user đã có Goog
 
 ## Contract nội bộ `IOAuthProvider`
 
-Frontend không gọi trực tiếp. Interface chuẩn hóa provider: `BuildAuthorizationUrl(redirectUri, state, codeChallenge)`, `ExchangeCodeAsync(code, redirectUri)` trả token provider, `GetUserInfoAsync(token)` trả:
+Frontend không gọi trực tiếp. Interface chuẩn hóa provider: `BuildAuthorizationUrl(OAuthAuthorizationRequest)` (redirectUri, state, codeChallenge), `ExchangeCodeAsync(code, redirectUri, codeVerifier, cancellationToken)` trả token provider, `GetUserInfoAsync(token, cancellationToken)` trả:
 
 ```json
 {
@@ -345,3 +347,7 @@ Frontend không gọi trực tiếp. Interface chuẩn hóa provider: `BuildAuth
 ```
 
 Hiện chỉ có `GoogleOAuthProvider`.
+
+## Phân biệt backend và BFF
+
+Backend trả cặp token, còn các route cùng tên trên Next.js chỉ đặt cookie HttpOnly và trả thời hạn. Backend không có endpoint logout/revoke một refresh token; `POST /api/auth/logout` của frontend chỉ xóa cookie trình duyệt. Với giao diện BFF hiện tại, callback Google phải về cùng host frontend: `http://localhost:3000/api/backend/auth/oauth/Google/callback` ở local, HTTPS tương ứng ở production. Không dùng callback khác host với nơi nhận cookie binding. Xem [../setup.md](../setup.md) và [../tools-and-integrations.md](../tools-and-integrations.md).

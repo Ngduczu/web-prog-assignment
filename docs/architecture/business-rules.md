@@ -1,10 +1,12 @@
 # Backend – Quy tắc nghiệp vụ
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [../api/conventions.md](../api/conventions.md); luồng xử lý xem [data-flow.md](data-flow.md).
 
 ## 1. Ma trận quyền
 
-`S` = Student, `T` = Teacher, `A` = Admin. "Chủ" = Teacher sở hữu course/question bank. "Accepted" = student có enrollment `Accepted` của course.
+`S` = Student, `T` = Teacher, `A` = Admin hoặc System đối với chức năng học tập. Riêng quản lý tài khoản: chỉ System tạo/cấp Admin; Admin chỉ quản lý Student/Teacher; System không sửa tài khoản System qua API quản trị. "Chủ" = Teacher sở hữu course/question bank. "Accepted" = student có enrollment `Accepted` của course.
 
 | Chức năng | S | T | A |
 | --- | --- | --- | --- |
@@ -21,7 +23,8 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 | Đọc bài tập | Accepted, `Published` và `Closed` | Chủ | ✔ |
 | Nộp bài, rút bài | Accepted | ✘ | ✘ |
 | Chấm điểm | ✘ | Chủ | ✔ |
-| Question bank | ✘ | Chủ | ✔ |
+| Đọc question bank/câu hỏi | ✘ | Chủ | ✔ (mọi bank) |
+| Tạo/sửa/xóa/chia sẻ question bank/câu hỏi | ✘ | Chủ | ✘ |
 | Soạn kỳ thi, publish, close | ✘ | Chủ | ✔ |
 | Xem kỳ thi (dạng học viên) | Accepted, không `Draft` | Chủ | ✔ |
 | Làm bài thi | Accepted | ✘ | ✘ |
@@ -39,7 +42,7 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 | Mật khẩu | 8–128 ký tự |
 | Hồ sơ khi đăng ký | Họ tên bắt buộc (tối đa 100 ký tự); số điện thoại tùy chọn (tối đa 20 ký tự) |
 | Đăng ký tự do | Luôn `Student`, `Inactive`; kích hoạt bằng mã email |
-| Tạo bởi Admin | Mọi role, `Active` |
+| Tạo bởi Admin/System | Admin tạo Student/Teacher; System thêm được Admin; luôn `Active`, không gửi mail xác thực |
 | Đăng nhập | Chỉ `Active` |
 | Đổi role/status | Tăng `AuthVersion` → thu hồi mọi token |
 | Admin | Không sửa được admin khác; admin `Active` cuối cùng không bị hạ role hay khóa |
@@ -79,7 +82,8 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 - Bank: `name` 1–200, `description` ≤ 2000; chủ phải là teacher `Active`.
 - Trắc nghiệm: ≥ 2 option, **đúng một** option đúng, nội dung option không rỗng.
 - Điền khuyết: ≥ 1 đáp án; mỗi đáp án `blankOrder ≥ 0`, ≤ 1000 ký tự; không trùng `(blankOrder, expectedAnswer)`.
-- Sửa câu hỏi chỉ đổi `content`, `difficulty`.
+- Sửa câu hỏi đổi `content`, `difficulty`, tùy chọn `shuffleOptions`, thay toàn bộ `options` hoặc `answers` theo đúng loại; snapshot kỳ thi không đổi.
+- Chia sẻ tạo bản sao độc lập cho Teacher Active khác, rồi gửi SMTP thông báo; không phải cấp quyền cùng chỉnh bank gốc.
 - Không xóa được bank đang được selection rule của examination tham chiếu.
 
 ## 6. Kỳ thi
@@ -101,7 +105,7 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 
 | Quy tắc | Giá trị |
 | --- | --- |
-| Số lượt | **Một** lượt cho mỗi student/kỳ thi (409 nếu bắt đầu lại) |
+| Số lượt | **Một** lượt hiện hữu cho mỗi student/kỳ thi (409 nếu bắt đầu lại); Teacher chủ course/Admin/System được reset bằng cách xóa lượt và dữ liệu con |
 | Bắt đầu | Kỳ thi `Published`, `startAt ≤ now < dueAt`, student `Accepted` |
 | Hạn chót của attempt | `min(startedAt + durationMinutes, dueAt)` |
 | Chấm điểm | Mỗi câu 0/1, `score = correct / total × 10` |
@@ -119,3 +123,4 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 - Room archived (course `Closed`/xóa): đọc được lịch sử nhưng không gửi, sửa, join.
 - Sửa: chỉ sender. Xóa (mềm): sender, Admin, Teacher trong course room.
 - Đã đọc: chỉ tiến, không lùi.
+- Xóa direct conversation: lưu `ConversationClearedAt`/`ConversationHiddenAt` theo participant; không xóa message/file của người kia. Mở lại/tin nhắn mới bỏ mốc hidden nhưng giữ mốc cleared.

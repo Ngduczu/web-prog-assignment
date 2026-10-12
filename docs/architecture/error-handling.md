@@ -1,5 +1,7 @@
 # Backend – Xử lý ngoại lệ và lỗi
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 ## 1. Mô hình
 
 Nghiệp vụ ném exception tùy chỉnh (thư mục `domain/exceptions`); `GlobalExceptionHandler` (đăng ký qua `AddExceptionHandler` + `UseExceptionHandler`) biến chúng thành `ProblemDetails`.
@@ -11,10 +13,11 @@ Nghiệp vụ ném exception tùy chỉnh (thư mục `domain/exceptions`); `Glo
 | `ForbiddenException` | 403 | `Forbidden` | message |
 | `NotFoundException` | 404 | `Not found` | message |
 | `ConflictException` | 409 | `Conflict` | message |
-| `ExternalServiceUnavailableException` | 503 | `Service Unavailable` | message (`Unable to reach Google...` / `Google did not respond in time...`) || `DbUpdateException` vi phạm unique nghiệp vụ | 409 | `Conflict` | `The requested change conflicts with existing data.` |
+| `ExternalServiceUnavailableException` | 503 | `Service Unavailable` | message (`Unable to reach Google...` / `Google did not respond in time...`) |
+| `DbUpdateException` vi phạm unique nghiệp vụ | 409 | `Conflict` | `The requested change conflicts with existing data.` |
 | Mọi exception khác | 500 | `Internal Server Error` | `An unexpected error occurred.` (không lộ chi tiết) |
 
-Ghi log: status `>= 500` → `LogError` kèm exception; còn lại `LogWarning` chỉ gồm status và tên kiểu exception (không ghi message để tránh lộ dữ liệu).
+Ghi log: lỗi status `>= 500` dùng `LogError` kèm exception, **trừ** `ExternalServiceUnavailableException` (503) dùng `LogWarning`. Warning chỉ gồm status và tên kiểu exception. Xem [supporting-components.md](supporting-components.md) cho toàn bộ logger và nơi đọc log.
 
 Response mẫu:
 
@@ -36,8 +39,9 @@ Những lỗi này do framework sinh ra nên có hình dạng khác (hành vi m�
 | --- | --- | --- |
 | Thiếu/sai/hết hạn JWT, chữ ký sai, `OnTokenValidated` thất bại (user bị khóa, đổi role, `auth_version` lệch) | 401 | Thường rỗng, kèm header `WWW-Authenticate: Bearer` |
 | Realtime token dùng ngoài `/hubs/chat` | 401 | như trên |
-| `[Authorize(Roles = "Admin")]` không đạt (chỉ `auto-submit`) | 403 | Rỗng |
-| Body JSON sai cú pháp, sai kiểu, enum không hợp lệ, GUID sai định dạng trên route/query | 400 | `ValidationProblemDetails` của `[ApiController]`: `{ "title": "One or more validation errors occurred.", "status": 400, "errors": { "field": ["..."] } }` |
+| `[Authorize(Roles = "Admin,System")]` không đạt (chỉ `auto-submit`) | 403 | Rỗng |
+| Body JSON sai cú pháp/sai kiểu, enum chuỗi không parse được, GUID sai định dạng khi model binding query/body | 400 | `ValidationProblemDetails` của `[ApiController]`: `{ "title": "One or more validation errors occurred.", "status": 400, "errors": { "field": ["..."] } }` |
+| GUID không khớp route constraint `{id:guid}` | 404 | Không match route; không phải lỗi validation của service |
 | Sai `Content-Type` (không phải JSON/multipart) | 415 | Rỗng hoặc ProblemDetails mặc định |
 | Request body vượt `RequestSizeLimit(20_000_000)` ở endpoint upload | 413 / ngắt kết nối | Tùy server |
 | Vượt rate limit | 429 | Rỗng |
@@ -66,7 +70,7 @@ Ví dụ `400` do binding:
 | `DbUpdateConcurrencyException` (row-version `Submission`/`ExaminationAttempt`, concurrency token `User`) | `ConflictException("The data was changed by another request. Please retry.")` |
 | `DbUpdateException` unique violation trên các index nghiệp vụ | `ConflictException("The record already exists.")` |
 
-Các index được coi là "nghiệp vụ" (danh sách `DatabaseConstraintPolicy`): `IX_users_email`, `IX_enrollments_student_id_course_id`, `IX_lessons_course_id_lesson_order`, `IX_submissions_exercise_id_student_id`, `IX_chat_rooms_course_id`, `IX_chat_rooms_direct_message_key`, `IX_materials_object_key`, `IX_exercise_attachments_object_key`, `IX_submission_attachments_object_key`, `IX_chat_attachments_object_key`.
+Các index được coi là "nghiệp vụ" (danh sách `DatabaseConstraintPolicy`): `IX_users_email`, `IX_users_single_system_role`, `IX_enrollments_student_id_course_id`, `IX_lessons_course_id_lesson_order`, `IX_submissions_exercise_id_student_id`, `IX_chat_rooms_course_id`, `IX_chat_rooms_direct_message_key`, `IX_materials_object_key`, `IX_exercise_attachments_object_key`, `IX_submission_attachments_object_key`, `IX_chat_attachments_object_key`.
 
 Các unique index **không** nằm trong danh sách (ví dụ `(examination_id, student_id)` của `examination_attempts`, `(user_id, provider)` của `external_users`, các index trên bảng snapshot câu hỏi) nếu bị vi phạm mà service chưa chặn trước sẽ rơi vào `GlobalExceptionHandler` nhánh `DbUpdateException` không phải nghiệp vụ → `500`. Hầu hết đã được service kiểm tra trước nên trả `409` đúng nghĩa; nếu thêm unique index mới, nhớ thêm vào `DatabaseConstraintPolicy`.
 
@@ -82,6 +86,7 @@ Các unique index **không** nằm trong danh sách (ví dụ `(examination_id, 
 | --- | --- | --- |
 | Redis (nhóm auth) | Mất kết nối / timeout | Exception không thuộc nhóm nghiệp vụ → `500`. Không có fallback |
 | SMTP | Gửi mail lỗi | Dọn mã + cooldown trong Redis rồi ném lỗi (`500`) để client gọi lại ngay; riêng `forgot-password` vẫn không lộ việc email tồn tại khi chưa chạm tới bước gửi |
+| SMTP sau share question bank | Bản sao đã commit | Nuốt lỗi nếu request chưa bị hủy, trả thành công; không queue/retry mail |
 | PostgreSQL sau khi consume mã/refresh token | Lỗi tạm thời | **Hoàn tác trạng thái tạm** (xem mục 5) |
 | Storage khi upload | Lỗi ghi | Exception → `500`, chưa có dữ liệu DB nên không cần dọn |
 | DB lỗi sau khi đã upload file | Lỗi DB/xung đột | File mới được đưa vào cleanup queue ngay (`EnqueueImmediately`); nếu queue lỗi → xóa trực tiếp; nếu vẫn lỗi → chỉ log, **lỗi gốc luôn được ném lại** |
@@ -103,22 +108,22 @@ Các unique index **không** nằm trong danh sách (ví dụ `(examination_id, 
 3c. Lỗi nghiệp vụ                     → không phục hồi (mã đã "cháy")
 ```
 
-Riêng email verification / password reset phục hồi bằng `SET` lại entry với TTL đầy đủ 15 phút và hoàn tác `Status`/`PasswordHash`/`AuthVersion` trong bộ nhớ nếu `SaveChanges` lỗi. Phục hồi dùng `CancellationToken.None` và nuốt lỗi phụ để không che lỗi gốc.
+Riêng email verification / password reset phục hồi bằng `SET` lại entry với TTL đầy đủ 15 phút và hoàn tác `Status`/`PasswordHash`/`AuthVersion` trong bộ nhớ nếu `SaveChanges` lỗi. Hai nhánh này dùng `CancellationToken.None` nhưng không có catch bảo vệ lần `SET` phục hồi; nếu Redis cũng lỗi, lỗi phụ có thể che lỗi DB gốc. Refresh/login-code/OAuth-state mới dùng helper nuốt lỗi phục hồi.
 
 ## 6. Giới hạn thử mã (brute-force)
 
 | Mã | Giới hạn | Khi vượt |
 | --- | --- | --- |
-| Xác thực email | 5 lần/mã (`INCR` Redis, TTL 15 phút) | Xóa mã, `409 Too many verification attempts. Request a new code.` |
-| Đặt lại mật khẩu | 5 lần/mã | Xóa mã, `409 Too many reset attempts. Try again later.` |
+| Xác thực email | 5 lần kiểm tra entry, kể cả mã đúng; TTL 15 phút từ lần INCR đầu tiên; gửi mã mới xóa counter | Lần 6 xóa mã, `409 Too many verification attempts. Request a new code.` |
+| Đặt lại mật khẩu | 5 lần kiểm tra entry; gửi mã mới không xóa counter hiện có | Lần 6 xóa mã, `409 Too many reset attempts. Try again later.` |
 | Toàn bộ `/api/auth/*` | 10 request/phút/IP | `429` |
 | Gửi lại mã | 1 phút/tài khoản | `409 Please wait before requesting another verification code.` |
 
-Ghi chú bảo mật: `verify-email` và `resend-verification` trả `404 Account was not found.` khi email không tồn tại, nên có thể bị dùng để dò email; `forgot-password` thì cố ý che giấu.
+`forgot-password` trong cooldown trả `200 accepted=true`, không trả `409` như resend verification. Ghi chú bảo mật: `verify-email` và `resend-verification` trả `404 Account was not found.` khi email không tồn tại; `forgot-password` cố ý trả cùng response cho trường hợp không gửi mail.
 
 ## 7. Danh mục lỗi nghiệp vụ theo module
 
-Tất cả thông báo bằng tiếng Anh đúng như `detail` trả về. Cột HTTP là status mapping.
+Các thông báo tiêu biểu bên dưới bằng tiếng Anh; danh sách không thay thế mọi nhánh trong service. Cột HTTP là status mapping. Admin/System thao tác ghi question bank nhận `403 Administrator accounts can only view question banks.`; xóa course conversation nhận `400 Only direct conversations can be deleted.` (xem service cho message chính xác).
 
 ### Chung
 

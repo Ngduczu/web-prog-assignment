@@ -1,5 +1,7 @@
 # API – Users
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 Base path: `/api/users`. Cần JWT.
 
 | Method | Path | Quyền | Chức năng |
@@ -52,7 +54,8 @@ Tìm **chính xác** theo email chuẩn hóa, chỉ trả tài khoản `Active`,
   "id": "00000000-0000-0000-0000-000000000001",
   "email": "student@example.com",
   "fullName": "Student",
-  "avatarUrl": null
+  "avatarUrl": null,
+  "role": "Student"
 }
 ```
 

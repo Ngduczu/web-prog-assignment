@@ -1,6 +1,8 @@
 # API – Exercises, Submissions và chấm điểm
 
-Cần JWT. Dữ liệu đi qua PostgreSQL (`exercises`, `exercise_attachments`, `submissions`, `submission_attachments`); endpoint file còn qua Storage và Cleanup queue.
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
+Cần JWT. Dữ liệu đi qua PostgreSQL (`exercises`, `exercise_attachments`, `submissions`, `submission_attachments`); endpoint file còn qua Storage và Cleanup queue. Quyền Admin trong bảng bao gồm System. Không gửi mail khi giao bài, nộp bài hoặc chấm điểm; không dùng Redis/SignalR cho các thao tác này. Tham số `download` hiện không đổi Content-Disposition (xem [conventions.md](conventions.md)).
 
 | Method | Path | Quyền | Chức năng |
 | --- | --- | --- | --- |

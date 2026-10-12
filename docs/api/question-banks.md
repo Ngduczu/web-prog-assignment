@@ -1,19 +1,21 @@
 # API – Question Banks và Questions
 
-Cần JWT. Dữ liệu chỉ qua PostgreSQL (`question_banks`, `questions`, `multiple_choice_options`, `fill_in_blank_answer_keys`).
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
+Cần JWT. Dữ liệu qua PostgreSQL (`question_banks`, `questions`, `multiple_choice_options`, `fill_in_blank_answer_keys`, `users` để lấy chủ bank); chia sẻ còn gửi SMTP sau commit. Không dùng Redis.
 
 | Method | Path | Quyền | Chức năng |
 | --- | --- | --- | --- |
-| POST | `/api/question-banks` | Teacher, Admin | Tạo ngân hàng câu hỏi |
-| GET | `/api/question-banks?teacherId=` | Teacher, Admin | Danh sách ngân hàng |
-| PUT | `/api/question-banks/{questionBankId}` | Chủ bank, Admin | Sửa tên/mô tả |
-| DELETE | `/api/question-banks/{questionBankId}` | Chủ bank, Admin | Xóa bank và câu hỏi |
+| POST | `/api/question-banks` | Teacher cho chính mình | Tạo ngân hàng câu hỏi |
+| GET | `/api/question-banks?teacherId=&ownerSearch=` | Teacher (của mình), Admin/System (mọi bank) | Danh sách ngân hàng |
+| PUT | `/api/question-banks/{questionBankId}` | Teacher chủ bank | Sửa tên/mô tả |
+| DELETE | `/api/question-banks/{questionBankId}` | Teacher chủ bank | Xóa bank và câu hỏi |
 | POST | `/api/question-banks/{questionBankId}/share` | Chủ bank (Teacher) | Sao chép bank cho teacher khác theo email |
-| POST | `/api/question-banks/{questionBankId}/multiple-choice` | Chủ bank, Admin | Thêm câu trắc nghiệm |
-| POST | `/api/question-banks/{questionBankId}/fill-in-blank` | Chủ bank, Admin | Thêm câu điền khuyết |
-| GET | `/api/question-banks/{questionBankId}/questions` | Chủ bank, Admin | Danh sách câu hỏi |
-| PUT | `/api/questions/{questionId}` | Chủ bank, Admin | Sửa nội dung/độ khó |
-| DELETE | `/api/questions/{questionId}` | Chủ bank, Admin | Xóa câu hỏi nguồn |
+| POST | `/api/question-banks/{questionBankId}/multiple-choice` | Teacher chủ bank | Thêm câu trắc nghiệm |
+| POST | `/api/question-banks/{questionBankId}/fill-in-blank` | Teacher chủ bank | Thêm câu điền khuyết |
+| GET | `/api/question-banks/{questionBankId}/questions` | Chủ bank, Admin/System | Danh sách câu hỏi |
+| PUT | `/api/questions/{questionId}` | Teacher chủ bank | Sửa nội dung, độ khó và đáp án |
+| DELETE | `/api/questions/{questionId}` | Teacher chủ bank | Xóa câu hỏi nguồn |
 
 Câu hỏi trong bank là **nguồn**; kỳ thi tạo snapshot nên sửa/xóa câu hỏi nguồn không ảnh hưởng kỳ thi đã tạo.
 
@@ -23,6 +25,8 @@ Câu hỏi trong bank là **nguồn**; kỳ thi tạo snapshot nên sửa/xóa c
 {
   "id": "00000000-0000-0000-0000-000000000005",
   "teacherId": "00000000-0000-0000-0000-000000000002",
+  "ownerFullName": "Example Teacher",
+  "ownerEmail": "teacher@example.com",
   "name": "C# Questions",
   "description": "Basics",
   "createdAt": "2026-09-04T10:00:00Z",
@@ -42,11 +46,11 @@ Câu hỏi trong bank là **nguồn**; kỳ thi tạo snapshot nên sửa/xóa c
 }
 ```
 
-**Response `200 OK`:** Question bank object. Teacher tạo cho chính mình; Admin chỉ định `teacherId`.
+**Response `200 OK`:** Question bank object. Teacher tạo cho chính mình; Admin/System gọi thao tác ghi nhận `403 Administrator accounts can only view question banks.` Mọi QuestionBankDto còn có `ownerFullName` và `ownerEmail` (hai chuỗi bắt buộc), bao gồm response tạo, sửa, danh sách và chia sẻ.
 
 ## `GET /api/question-banks?teacherId={teacherId}`
 
-Teacher bỏ `teacherId` để lấy bank của mình, không xem được của teacher khác. Admin nên truyền `teacherId` (nếu bỏ, tìm theo ID của admin nên thường rỗng).
+Teacher bỏ `teacherId` để lấy bank của mình, không xem được của teacher khác. Admin/System bỏ `teacherId` để lấy mọi bank, truyền ID để giới hạn theo chủ. `ownerSearch` lọc một phần tên/email chủ bank, trim và không phân biệt hoa thường; lọc trong bộ nhớ sau khi tải bank và chủ bank. Response là mảng, chưa phân trang.
 
 **Response `200 OK`:**
 
@@ -55,6 +59,8 @@ Teacher bỏ `teacherId` để lấy bank của mình, không xem được của
   {
     "id": "00000000-0000-0000-0000-000000000005",
     "teacherId": "00000000-0000-0000-0000-000000000002",
+    "ownerFullName": "Example Teacher",
+    "ownerEmail": "teacher@example.com",
     "name": "C# Questions",
     "description": "Basics",
     "createdAt": "2026-09-04T10:00:00Z",
@@ -102,13 +108,13 @@ Xóa bank cùng toàn bộ câu hỏi nguồn. `409` nếu bank đang được s
     {
       "id": "00000000-0000-0000-0000-000000000007",
       "content": "3",
-      "order": 1,
+      "order": 0,
       "isCorrect": false
     },
     {
       "id": "00000000-0000-0000-0000-000000000008",
       "content": "4",
-      "order": 2,
+      "order": 1,
       "isCorrect": true
     }
   ],
@@ -183,18 +189,23 @@ Phải có **chính xác một** option `isCorrect: true`.
 
 ## `PUT /api/questions/{questionId}`
 
-Chỉ sửa `content` và `difficulty`; loại câu hỏi, options và đáp án không đổi.
+`content` và `difficulty` bắt buộc. Các trường tùy chọn: `shuffleOptions` cho trắc nghiệm, `options` thay toàn bộ phương án trắc nghiệm, `answers` thay toàn bộ đáp án điền khuyết. Bỏ qua hoặc gửi `null` thì giữ tập đáp án cũ; mảng rỗng không hợp lệ. Không đổi loại câu hỏi hoặc bank. Gửi `options` cho câu điền khuyết hoặc `answers` cho câu trắc nghiệm → `400`.
 
 **Request:**
 
 ```json
 {
   "content": "Updated question",
-  "difficulty": "Medium"
+  "difficulty": "Medium",
+  "shuffleOptions": true,
+  "options": [
+    { "content": "Đáp án A", "isCorrect": true },
+    { "content": "Đáp án B", "isCorrect": false }
+  ]
 }
 ```
 
-**Response `200 OK`:** Question object.
+**Response `200 OK`:** Question object. Khi thay options/answers, backend xóa tập cũ rồi lưu tập mới trong transaction để tránh trùng order; ID đáp án có thể đổi. Snapshot kỳ thi đã tạo không đổi.
 
 ## `DELETE /api/questions/{questionId}`
 

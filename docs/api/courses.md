@@ -1,6 +1,8 @@
 # API – Courses và Enrollments
 
-Cần JWT. Dữ liệu chỉ qua PostgreSQL (`courses`, `enrollments`, `users`); không dùng Redis/Storage.
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
+Cần JWT. Dữ liệu qua PostgreSQL (`courses`, `enrollments`, `users`, `chat_rooms`, `chat_participants` khi đồng bộ chat); không dùng Redis/Storage/SMTP. Quyền Admin trong bảng bao gồm System. Thêm học viên bằng email là tra tài khoản đã tồn tại, không gửi thư mời và không tạo tài khoản.
 
 | Method | Path | Quyền | Chức năng |
 | --- | --- | --- | --- |

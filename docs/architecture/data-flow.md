@@ -1,5 +1,7 @@
 # Backend – Luồng dữ liệu (Data Flow)
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 Tài liệu này mô tả dữ liệu đi qua những thành phần nào cho từng luồng chính, và điều gì xảy ra khi một bước thất bại. Danh sách endpoint xem ở [../api/conventions.md](../api/conventions.md); mô hình bảng xem [data-model.md](data-model.md).
 
 ## 1. Pipeline chung của mọi request
@@ -17,7 +19,7 @@ HTTP request
       b. validate chữ ký, issuer, audience, hạn (lệch đồng hồ 30 giây)
       c. OnTokenValidated      : token_use=chat_realtime chỉ cho /hubs/chat;
                                  đọc user từ PostgreSQL, so Status=Active, Role, auth_version
- 6. UseAuthorization           → [Authorize], [Authorize(Roles="Admin")]
+ 6. UseAuthorization           → [Authorize], [Authorize(Roles="Admin,System")]
  7. MapControllers / MapHub    → Controller hoặc ChatHub
 ```
 
@@ -32,7 +34,7 @@ Model binding ([ApiController] tự trả 400 nếu body/query sai kiểu)
      ├─ Repository (EF Core)    → PostgreSQL
      ├─ ICache (Redis)          → chỉ nhóm xác thực
      ├─ IFileStorage            → chỉ endpoint file
-     ├─ IMailSender (SMTP)      → chỉ đăng ký / quên mật khẩu
+     ├─ IMailSender (SMTP)      → đăng ký/gửi lại mã, quên mật khẩu, chia sẻ question bank
      └─ IUnitOfWork.SaveChangesAsync (commit)
  → Controller trả DTO (JSON camelCase, enum dạng chuỗi)
 ```
@@ -185,7 +187,7 @@ sequenceDiagram
 
 - **Thứ tự**: ghi file trước, DB sau; nếu DB lỗi thì file mới thành "mồ côi" và được dọn.
 - **Dọn file**: `FileCleanupQueue.Enqueue` chỉ add entity `FileCleanupTask`; `AppDbContext.SaveChangesAsync` tách các task này ra và ghi bằng `INSERT ... ON CONFLICT (object_key) DO NOTHING` trong cùng transaction với dữ liệu nghiệp vụ (idempotent, không vi phạm unique khi cùng key). `FileCleanupWorker` (10 giây/lần, 100 task) xóa file thật; lỗi thì `task.RecordFailure` với backoff `min(60, 2^attemptCount)` phút (tối đa 2^6).
-- **Download**: `GET .../content` kiểm tra quyền → `IFileStorage.OpenReadAsync(objectKey)` → stream về client. Không bao giờ trả `objectKey`/URL trực tiếp của storage.
+- **Download**: `GET .../content` kiểm tra quyền → `IFileStorage.OpenReadAsync(objectKey)` → stream về client. DTO material/exercise/submission có `objectKey`; DTO chat attachment không có. Đây là khóa nội bộ, không phải URL công khai. Controller luôn trả filename, kể cả `download=false`.
 
 ## 7. Enrollment (đăng ký học)
 
@@ -358,3 +360,13 @@ sequenceDiagram
 - `DELETE message` là **xóa mềm** (`DeletedAt`), file đính kèm trong storage không bị xóa; receipt đang trỏ vào message bị xóa được xóa. Người xóa: sender, Admin, hoặc Teacher trong **course** room.
 - Broadcast SignalR được REST controller gọi sau khi lưu thành công; nếu broadcast lỗi thì dữ liệu vẫn đã lưu (client đồng bộ lại bằng REST).
 - Đánh dấu đã đọc: transaction Serializable, chỉ tiến theo `(createdAt, id)`.
+
+`DELETE /api/chat/rooms/{id}` chỉ dành direct room: cập nhật hai mốc cleared/hidden cho participant hiện tại và xóa receipt. Truy vấn lịch sử, preview/unread và kiểm tra file/reply dùng mốc cleared của chính user. Tin nhắn mới hoặc mở lại room bỏ hidden nhưng không bỏ cleared. Không phát event riêng cho xóa conversation.
+
+## 13. Chia sẻ ngân hàng câu hỏi và quyền quản trị
+
+`POST /api/question-banks/{id}/share`: Teacher chủ bank → tìm Teacher Active theo email → transaction sao chép bank, câu hỏi, options/answer keys → lưu correct option sau khi lưu options → commit → SMTP `SendQuestionBankSharedAsync`. Mail lỗi thông thường được bỏ qua sau commit; không có queue gửi lại. Hủy request có thể vẫn làm response lỗi sau khi bản sao đã tồn tại, nên kiểm tra trước khi gửi lại.
+
+Admin/System chỉ đọc bank/câu hỏi, dù được quản lý kỳ thi và dùng bank của teacher sở hữu course. `GET question-banks` không có teacherId trả toàn bộ bank cho Admin/System; `ownerSearch` lọc tên/email chủ trong bộ nhớ.
+
+`SystemAccountSeeder` chạy sau migration, bỏ qua khi thiếu email/password hoặc độ dài password không hợp lệ. Tạo mới System Active nếu chưa có email; nếu đã có user không phải System thì nâng role và tăng AuthVersion, giữ nguyên password/status. Nếu đã là System thì không cập nhật gì. Unique filtered index chặn System thứ hai.

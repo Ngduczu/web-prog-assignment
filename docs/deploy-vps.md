@@ -1,6 +1,8 @@
 # Deploy LMS to a VPS with GitHub Actions
 
-This repository and `frontend/` are separate GitHub repositories. Each has its own CI workflow; both deploy the matching image to one Docker Compose stack on the VPS.
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
+`backend/` and sibling `frontend/` are separate Git repositories in this workspace. Each has its own CI workflow; both deploy the matching image to one Docker Compose stack on the VPS. This guide describes committed configuration, not a verified live deployment. See [operations.md](operations.md) for diagnostics and [project-report.md](project-report.md) for the report-ready technical dossier.
 
 ## Deployment shape
 
@@ -96,7 +98,7 @@ S3_STORAGE_FORCE_PATH_STYLE=false
 
 Generate independent random database, Redis, and JWT values on the VPS (for example with `openssl rand -hex 32`). Avoid whitespace and Compose interpolation characters in database/Redis passwords; hexadecimal values are convenient. Keep SMTP/OAuth/S3 credentials private. If an SMTP password contains special characters or spaces, quote/escape it according to Docker Compose `.env` syntax, then verify the resolved configuration without printing secrets.
 
-`POSTGRES_PASSWORD` and `REDIS_PASSWORD` are first-use container credentials. Changing them later in `.env` does not change credentials already initialized in the persistent volumes; plan credential rotation explicitly.
+`POSTGRES_PASSWORD` initializes credentials only when the database volume is first created; changing `.env` does not alter an existing PostgreSQL user's password. Redis uses `--requirepass` from Compose on container startup, so recreating Redis applies the new configured password; recreate dependent clients consistently. Plan both rotations explicitly.
 
 The application seeds/promotes an account to the System role when both `SYSTEMACCOUNT_EMAIL` and `SYSTEMACCOUNT_PASSWORD` are set. Inspect that behavior and use a controlled account before enabling these values.
 
@@ -128,6 +130,8 @@ Protect `main` with pull requests and required checks. Restrict who can modify w
 
 ## 7. First deployment (backend, then frontend)
 
+The committed stack requires the external Docker network `tino_tino-network`, and nginx also has a default HTTP virtual host forwarding to `tino-web-prod:80`. This is a deployment-specific dependency, not a generic LMS service. Prepare that network or review a separate deployment configuration before using a clean VPS. The stack mounts `./letsencrypt` and `./certbot-www`; it does not provision certificates or contain a certbot renewal service. Valid certificate files for both domains must exist before nginx can start TLS. Arrange issuance/renewal separately; the workflow does not do it for you.
+
 1. Ensure `/opt/lms/.env` exists and is mode `600`, all mandatory values are filled, both DNS records resolve to the VPS, and the VPS can pull private GHCR packages.
 2. In the backend repository, review and merge the deployment files to `main`. The backend workflow runs restore, Release build, and the test suite; only after success does it publish and deploy the API.
 3. Check the backend Actions run. On the VPS, inspect `docker compose --env-file /opt/lms/.env -f /opt/lms/docker-compose.prod.yml ps` and logs for API/database/Redis startup or migration errors.
@@ -135,6 +139,8 @@ Protect `main` with pull requests and required checks. Restrict who can modify w
 5. Confirm nginx has started with valid certificates. Visit the frontend over HTTPS and exercise sign-in, API requests, uploads, and SignalR.
 
 Subsequent pushes to either repository's `main` run that repository's checks and deploy only its image. A failed check prevents publishing/deployment. Each image also keeps the short-lived/current `main` tag and an immutable full commit-SHA tag.
+
+Manual `workflow_dispatch` on main also publishes/deploys after checks. `deploy.sh` accepts only a full 40-character hexadecimal SHA, waits up to 300 seconds for its flock, changes the tag in `.env` before pulling, then runs Compose up/ps. It does not implement automatic rollback or API readiness validation. The API deployment branch starts `api` and dependencies; the frontend branch starts `frontend nginx`. PostgreSQL and Redis have healthchecks, but API/frontend do not have configured Compose healthchecks.
 
 ## 8. OAuth and public-service settings
 

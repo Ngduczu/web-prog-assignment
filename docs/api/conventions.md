@@ -1,5 +1,7 @@
 # API – Quy ước chung
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 ## Kết nối
 
 - Base URL REST: `{API_ORIGIN}/api`. SignalR hub: `{API_ORIGIN}/hubs/chat`.
@@ -11,10 +13,10 @@
 - JSON `camelCase`.
 - UUID là chuỗi, ví dụ `"00000000-0000-0000-0000-000000000001"`.
 - Thời gian là UTC ISO-8601, ví dụ `"2026-09-04T10:00:00Z"`. Trường nhập thời gian (`dueAt`, `startAt`) bắt buộc có hậu tố `Z`.
-- Enum trong JSON dùng **tên chuỗi** đúng chữ hoa/thường (`"Student"`, `"Open"`).
+- Response enum dùng **tên chuỗi** (`"Student"`, `"Open"`). Client nên gửi đúng tên; `JsonStringEnumConverter` mặc định còn chấp nhận tên không phân biệt hoa thường và giá trị số, sau đó service có thể kiểm tra `Enum.IsDefined`.
 - Request không có body được ghi là `Không có body`.
 - Upload dùng `multipart/form-data`, giới hạn mỗi file nhỏ hơn 20 MB (xem [../overview.md](../overview.md#7-lưu-trữ-file)).
-- Binary (`.../content`, `.../attachment`): trả stream với `Content-Type` gốc; `download=true` thêm `Content-Disposition` với tên file gốc, mặc định mở inline.
+- Binary (`.../content`, `.../attachment`): trả stream với `Content-Type` gốc và tên file trong `Content-Disposition`. Controller hiện bỏ qua giá trị `download`: cả `true` và `false` đều truyền tên file vào `File(...)` (attachment). Frontend xem trước bằng Blob URL. Backend bật range processing; BFF hiện chưa chuyển tiếp `Range`/`Content-Range`.
 
 ## Phân trang
 
@@ -36,7 +38,7 @@ Ngoại lệ: `GET /api/chat/rooms/{roomId}/messages` trả **mảng** (mới nh
 
 Chi tiết cơ chế xử lý, danh mục thông báo theo module và các lỗi do framework sinh ra: [../architecture/error-handling.md](../architecture/error-handling.md).
 
-Lỗi trả `application/problem+json`:
+Lỗi nghiệp vụ có cấu trúc `ProblemDetails` như dưới. Handler hiện dùng `WriteAsJsonAsync` không chỉ định media type `application/problem+json`; client cần đọc cả `application/json`, `application/problem+json` và body rỗng của lỗi framework:
 
 ```json
 {
@@ -71,6 +73,9 @@ Lỗi trả `application/problem+json`:
 | `SubmissionStatus` | `Draft`, `Submitted`, `Graded` |
 | `QuestionType` | `MultipleChoice`, `FillInBlank` |
 | `QuestionDifficulty` | `Easy`, `Medium`, `Hard` |
+| `ChatRoomType` | `Course`, `DirectMessage` |
+| `ExternalProvider` | `Google` |
+| `ExaminationQuestionSelectionMode` | `Random`, `Manual` |
 | `ExaminationStatus` | `Draft`, `Published`, `Closed` |
 | `ExaminationAttemptStatus` | `InProgress`, `Disconnected`, `Submitted`, `AutoSubmitted` |
 | `ExaminationSubmitReason` | `StudentSubmitted`, `DurationExpired`, `DisconnectTimeout`, `MaxViolationsExceeded`, `ExaminationClosed` |
@@ -85,7 +90,7 @@ Lỗi trả `application/problem+json`:
 
 ## Chú thích “Lưu trữ” trong tài liệu endpoint
 
-Mỗi endpoint có dòng **Dữ liệu đi qua** cho biết các thành phần được chạm tới:
+Các tài liệu module có mục **Dữ liệu đi qua**; [endpoint-index.md](endpoint-index.md) liệt kê toàn bộ action, [contracts.md](contracts.md) tra trường DTO, và [../tools-and-integrations.md](../tools-and-integrations.md) ánh xạ công cụ với tình huống/API:
 
 - **PostgreSQL**: đọc/ghi qua EF Core (repository + `IUnitOfWork`).
 - **Redis**: key `auth:*` (xem [../overview.md](../overview.md#6-redis)).

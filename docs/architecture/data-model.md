@@ -1,5 +1,7 @@
 # Backend – Mô hình dữ liệu (PostgreSQL)
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 Nguồn: `LMS.Api/domain/entities` và `LMS.Api/infrastructure/persistence/configurations`. Tên bảng/cột là `snake_case`. Khóa chính là `uuid`.
 
 ## 1. Sơ đồ quan hệ
@@ -41,7 +43,7 @@ Index `UNIQUE` là chốt chặn cuối cùng cho các quy tắc nghiệp vụ; 
 
 | Bảng | Vai trò | Ràng buộc / index đáng chú ý |
 | --- | --- | --- |
-| `users` | Tài khoản | `UNIQUE(email)`; `auth_version` là concurrency token, tăng khi đổi mật khẩu/role/status; `password_hash` null với tài khoản chỉ dùng Google |
+| `users` | Tài khoản | `UNIQUE(email)`; unique filtered index `IX_users_single_system_role` với `role = 'System'` (tối đa một System); `auth_version` là concurrency token, tăng khi đổi mật khẩu/role/status; `password_hash` null với tài khoản chỉ dùng Google |
 | `external_users` | Liên kết OAuth | `UNIQUE(provider, external_user_id)`, `UNIQUE(user_id, provider)` |
 | `courses` | Khóa học | Soft delete bằng `deleted_at` (global query filter `deleted_at IS NULL`); index `teacher_id`, `status`, `deleted_at` |
 | `enrollments` | Đăng ký học | `UNIQUE(student_id, course_id)`; index `(course_id, status)`; query filter theo course chưa xóa |
@@ -49,23 +51,23 @@ Index `UNIQUE` là chốt chặn cuối cùng cho các quy tắc nghiệp vụ; 
 | `materials` | Tài liệu bài giảng | `UNIQUE(object_key)` |
 | `exercises` | Bài tập | Index `course_id`, `(course_id, status)`; query filter theo course chưa xóa |
 | `exercise_attachments` | File đề | `UNIQUE(exercise_id)` (một file/bài), `UNIQUE(object_key)` |
-| `submissions` | Bài nộp | `UNIQUE(exercise_id, student_id)`; cột `Version` row-version (optimistic concurrency) |
+| `submissions` | Bài nộp | `UNIQUE(exercise_id, student_id)`; shadow property `Version` ánh xạ system column PostgreSQL `xmin` (optimistic concurrency) |
 | `submission_attachments` | File bài nộp | `UNIQUE(submission_id)`, `UNIQUE(object_key)` |
 | `question_banks` | Ngân hàng câu hỏi | index `teacher_id` |
 | `questions` | Câu hỏi nguồn | index `(question_bank_id, type, difficulty)` |
-| `multiple_choice_options` | Đáp án trắc nghiệm | `UNIQUE(question_id, order)` |
+| `multiple_choice_options` | Đáp án trắc nghiệm | `UNIQUE(question_id, option_order)` |
 | `fill_in_blank_answer_keys` | Đáp án điền khuyết | `UNIQUE(question_id, blank_order, expected_answer)` |
 | `examinations` | Kỳ thi | index `(course_id, status)`, `(start_at, due_at)`; query filter theo course chưa xóa |
 | `examination_question_selection_rules` | Rule chọn câu (Random) | `UNIQUE(examination_id, question_bank_id, difficulty)` |
-| `examination_questions` | **Snapshot** câu hỏi của kỳ thi | `UNIQUE(examination_id, order)`; index `source_question_id` (chỉ để truy vết, không ràng buộc khóa ngoại sống còn) |
-| `examination_multiple_choice_options` | Snapshot option | `UNIQUE(examination_question_id, order)` |
+| `examination_questions` | **Snapshot** câu hỏi của kỳ thi | `UNIQUE(examination_id, question_order)`; index `source_question_id` (chỉ để truy vết, không ràng buộc khóa ngoại sống còn) |
+| `examination_multiple_choice_options` | Snapshot option | `UNIQUE(examination_question_id, option_order)` |
 | `examination_fill_in_blank_answer_keys` | Snapshot đáp án điền khuyết | `UNIQUE(examination_question_id, blank_order, expected_answer)` |
-| `examination_attempts` | Lượt làm bài | `UNIQUE(examination_id, student_id)` → mỗi student **một** lượt/kỳ thi; cột `Version` row-version; index `(status, last_activity_at)` phục vụ worker |
+| `examination_attempts` | Lượt làm bài | `UNIQUE(examination_id, student_id)` → mỗi student **một lượt hiện hữu**/kỳ thi; shadow `Version` ánh xạ `xmin`; index `(status, last_activity_at)` phục vụ worker |
 | `student_answers` | Đáp án đã chọn | `UNIQUE(examination_attempt_id, examination_question_id)` |
 | `student_fill_in_blank_answers` | Đáp án điền khuyết của student | `UNIQUE(student_answer_id, blank_order)` |
 | `examination_violations` | Nhật ký vi phạm | index `(examination_attempt_id, occurred_at)` |
 | `chat_rooms` | Phòng chat | `UNIQUE(course_id)` (một room/course), `UNIQUE(direct_message_key)` (một room/cặp user), index `archived_at` |
-| `chat_participants` | Thành viên room | `UNIQUE(chat_room_id, user_id)`; lưu `last_read_message_id` |
+| `chat_participants` | Thành viên room | `UNIQUE(chat_room_id, user_id)`; `last_read_message_id`, `conversation_cleared_at` (ẩn lịch sử đến mốc này), `conversation_hidden_at` (ẩn direct room khỏi danh sách) |
 | `chat_messages` | Tin nhắn | Index `(chat_room_id, created_at, id)` cho phân trang; xóa mềm bằng `deleted_at` |
 | `chat_attachments` | File chat | `UNIQUE(object_key)` |
 | `file_cleanup_tasks` | Hàng đợi xóa file | `UNIQUE(object_key)`; index `next_attempt_at`; cột `attempt_count`, `last_error` |
@@ -99,4 +101,20 @@ Câu hỏi trong kỳ thi **không tham chiếu** trực tiếp `questions`; ch�
 
 ## 6. Migration
 
-Thư mục `infrastructure/persistence/migrations`, mới nhất: `PersistUserAuthVersion`, `EnforceSingleExaminationAttempt` (thêm unique `(examination_id, student_id)`), `AddSubmissionConcurrencyToken`, `AddPersistentFileCleanupQueue`, `AddExerciseLifecycle`, `AddSubmissionGrading`. API tự `Migrate()` khi khởi động nên không cần chạy tay trong dev.
+Thư mục `infrastructure/persistence/migrations`. Thứ tự migration hiện có:
+
+| ID | Thay đổi |
+| --- | --- |
+| `20260904073847_InitialCreate` | Schema ban đầu |
+| `20260904103655_FixSoftDeleteRelationshipMappings` | Quan hệ/query filter xóa mềm |
+| `20260904123000_UseDecimalMegabyteFileLimit` | Giới hạn file theo MB thập phân |
+| `20261006111627_AddSubmissionGrading` | Điểm và phản hồi bài nộp |
+| `20261006113153_AddExerciseLifecycle` | Trạng thái bài tập |
+| `20261006124414_AddPersistentFileCleanupQueue` | Hàng đợi xóa file bền vững |
+| `20261008020625_AddSubmissionConcurrencyToken` | Concurrency bài nộp |
+| `20261008022024_PersistUserAuthVersion` | Thu hồi phiên bằng version trong DB |
+| `20261008034151_EnforceSingleExaminationAttempt` | Unique kỳ thi/student |
+| `20261010090000_AddSystemRoleSingletonConstraint` | Tối đa một System |
+| `20261012040018_AddDirectConversationVisibility` | Hai mốc ẩn/xóa lịch sử theo participant |
+
+API tự `Migrate()` khi khởi động ngoài `Testing`. Danh sách trên phản ánh mã nguồn, không chứng minh DB triển khai đã áp dụng đủ; kiểm tra `__EFMigrationsHistory` trong môi trường tương ứng. Không chạy downgrade hoặc drop DB để đồng bộ tài liệu.

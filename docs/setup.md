@@ -1,5 +1,7 @@
 # Backend – Cài đặt và vận hành
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 ## 1. Yêu cầu
 
 - .NET SDK 10
@@ -33,7 +35,7 @@ dotnet run --project LMS.Api --launch-profile http
 
 ### Log EF Core
 
-Log câu lệnh SQL do EF Core sinh ra (`Microsoft.EntityFrameworkCore.Database.Command`) được đặt mức `Warning` trong `appsettings.json` và `appsettings.Development.json`, nên các câu SQL ở mức `Information` không hiển thị trong cửa sổ log. Cảnh báo và lỗi của EF Core vẫn được ghi lại. Nếu cần bật lại log SQL để debug, đặt mức category này thành `Information` qua cấu hình logging hoặc biến môi trường `Logging__LogLevel__Microsoft.EntityFrameworkCore.Database__Command=Information`.
+Log câu lệnh SQL (`Microsoft.EntityFrameworkCore.Database.Command`) ở mức `Warning` trong cả hai appsettings. Muốn debug, đặt chính xác khóa cấu hình `Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command=Information`; không thay dấu chấm trong tên category bằng `__` (sẽ thành khóa khác). Có thể truyền đối số `--Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command=Information` cho ứng dụng. Không bật sensitive-data logging với dữ liệu thật.
 
 > Cổng PostgreSQL trong `ConnectionStrings:DefaultConnection` phải trùng `POSTGRES_PORT` (mẫu dùng `5433`).
 
@@ -45,7 +47,7 @@ Log câu lệnh SQL do EF Core sinh ra (`Microsoft.EntityFrameworkCore.Database.
 | `REDIS_PORT` | Cổng Redis expose ra host | Có (khi dùng Docker) |
 | `CONNECTIONSTRINGS__DEFAULTCONNECTION` | Connection string Npgsql (cần đặt trong dấu nháy kép) | Có |
 | `CONNECTIONSTRINGS__REDIS` | Ví dụ `localhost:6379,abortConnect=false` | Có (thiếu sẽ lỗi khi khởi động) |
-| `JWT__ISSUER`, `JWT__AUDIENCE` | Issuer/audience của JWT (mặc định `LMS.Api` / `LMS.Client`) | Có |
+| `JWT__ISSUER`, `JWT__AUDIENCE` | Issuer/audience của JWT (mặc định `LMS.Api` / `LMS.Client`) | Không nếu dùng mặc định |
 | `JWT__SIGNINGKEY` | Khóa ký, **tối thiểu 32 byte**, thiếu/ngắn thì API không khởi động | Có |
 | `JWT__EXPIRATIONMINUTES` | Thời sống access token (phút), mặc định 60 | Không |
 | `MAIL__HOST`, `MAIL__PORT`, `MAIL__ENABLESSL`, `MAIL__USERNAME`, `MAIL__PASSWORD`, `MAIL__FROMEMAIL`, `MAIL__FROMNAME` | SMTP gửi mail (Gmail: `smtp.gmail.com`, 587, SSL, App Password) | Có nếu dùng đăng ký/quên mật khẩu |
@@ -55,7 +57,7 @@ Log câu lệnh SQL do EF Core sinh ra (`Microsoft.EntityFrameworkCore.Database.
 | `S3STORAGE__ENABLED` | `true` để chuyển sang S3 | Không |
 | `S3STORAGE__BUCKETNAME`, `__REGION`, `__SERVICEURL`, `__ACCESSKEY`, `__SECRETKEY`, `__FORCEPATHSTYLE` | Thông số S3/S3-compatible (MinIO: đặt `SERVICEURL` và `FORCEPATHSTYLE=true`) | Khi bật S3 |
 | `OAUTH__GOOGLE__CLIENTID`, `__CLIENTSECRET` | Credential Google OAuth | Khi dùng Google |
-| `OAUTH__GOOGLE__REDIRECTURI` | Callback phía backend, ví dụ `http://localhost:5258/api/auth/oauth/Google/callback`; phải đăng ký trong Google Cloud | Khi dùng Google |
+| `OAUTH__GOOGLE__REDIRECTURI` | Với frontend BFF: `http://localhost:3000/api/backend/auth/oauth/Google/callback`; phải đăng ký chính xác trong Google Cloud | Khi dùng Google |
 | `OAUTH__GOOGLE__CLIENTCALLBACKURI` | Trang frontend nhận `loginCode`, ví dụ `http://localhost:3000/oauth/callback`. Nếu bỏ trống, callback trả JSON thay vì redirect | Không |
 
 `.env` chứa bí mật, đã nằm trong `.gitignore`; chỉ commit `example.env`.
@@ -77,11 +79,13 @@ dotnet ef database update --project LMS.Api
 
 API cũng tự `Migrate()` khi chạy (bỏ qua ở môi trường `Testing`). `AppDbContextFactory` phục vụ công cụ design-time.
 
-### Gửi email (xác thực, quên mật khẩu)
+### Gửi email (xác thực, quên mật khẩu, chia sẻ bank)
 
 1. Bật xác minh hai bước cho tài khoản Gmail và tạo **App Password**.
 2. Điền `MAIL__USERNAME`, `MAIL__PASSWORD` (App Password), `MAIL__FROMEMAIL`.
 3. Mã có hiệu lực 15 phút, gửi lại cách nhau tối thiểu 1 phút.
+
+Chia sẻ bank gửi mail thông báo sau commit, không dùng mã/cooldown Redis. Mail hiện là HTML tiếng Anh. Xem [tools-and-integrations.md](tools-and-integrations.md) để phân biệt lỗi mail làm thất bại request và lỗi được bỏ qua.
 
 ### Google OAuth
 
@@ -89,6 +93,8 @@ API cũng tự `Migrate()` khi chạy (bỏ qua ở môi trường `Testing`). `
 2. Thêm `OAUTH__GOOGLE__REDIRECTURI` vào *Authorized redirect URIs*.
 3. Điền `CLIENTID`, `CLIENTSECRET`, và `CLIENTCALLBACKURI` trỏ tới `/oauth/callback` của frontend.
 4. Bảo đảm trình duyệt gọi `authorize` bằng cùng origin với callback (cookie `__Host-LMS.OAuth.*` cần `Secure`/HTTPS ngoài môi trường localhost).
+
+`example.env` hiện minh họa callback gọi backend trực tiếp ở port 5258. Khi chạy giao diện BFF, thay giá trị trong `.env` của môi trường thành callback qua frontend như bảng trên. Nếu frontend/backend khác hostname, cookie host-only đặt qua frontend không được gửi tới hostname backend. Không thay mã nguồn để khắc phục cấu hình host sai.
 
 ### Lưu file
 
@@ -110,10 +116,11 @@ cd backend
 dotnet test LMS.sln
 ```
 
-Test tích hợp dùng `ApiWebApplicationFactory` với môi trường `Testing` (không tự động migrate).
+Test tích hợp dùng `ApiWebApplicationFactory` với môi trường `Testing` (không tự động migrate/seed, không redirect HTTPS). Factory thay cache/auth bằng fake, test SignalR có chế độ JWT thật nhưng repository/service giả. Test xanh không xác nhận SMTP, Google, Redis, S3 hay PostgreSQL production hoạt động. Xem [operations.md](operations.md).
 
 ## 6. Triển khai – lưu ý
 
 - Đặt `ASPNETCORE_ENVIRONMENT=Production` (tắt Swagger), dùng HTTPS (`UseHttpsRedirection` bật ngoài `Testing`).
 - `JWT__SIGNINGKEY`, mật khẩu DB, SMTP, S3 phải truyền qua secret của môi trường, không đưa vào `appsettings.json`.
-- Chạy một instance API hoặc bảo đảm các instance dùng chung PostgreSQL + Redis. Worker chạy trong mỗi instance; auto-submit và cleanup idempotent nên an toàn khi chạy nhiều instance.
+- Cấu hình triển khai hiện tại dành cho một API instance. Chưa có SignalR backplane, distributed rate limiter, distributed worker lock hoặc điều phối migration. Dùng chung PostgreSQL/Redis chưa đủ để khẳng định chạy nhiều replica an toàn; local storage cũng cần dùng chung hoặc chuyển S3. Xem [review-findings.md](review-findings.md).
+- Biến local dùng tên `JWT__SIGNINGKEY`, còn Compose production nhận `JWT_SIGNING_KEY` rồi ánh xạ vào container. Không dùng lẫn hai mẫu. Xem [deploy-vps.md](deploy-vps.md).

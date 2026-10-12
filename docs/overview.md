@@ -1,8 +1,10 @@
 # Backend – Tổng quan
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 ## 1. Mục tiêu
 
-Backend cung cấp REST API và SignalR cho hệ thống LMS với ba vai trò `Student`, `Teacher`, `Admin`:
+Backend cung cấp REST API và SignalR cho hệ thống LMS với bốn vai trò `Student`, `Teacher`, `Admin`, `System`:
 
 - Tài khoản: đăng ký + xác thực email, đăng nhập JWT, refresh token, quên/đặt lại mật khẩu, đăng nhập/liên kết Google.
 - Khóa học: tạo/sửa/xóa mềm/khôi phục, đăng ký học và duyệt học viên.
@@ -81,10 +83,10 @@ Rate limit vượt ngưỡng trả `429`.
 ## 4. Xác thực và phân quyền
 
 - **Access token**: JWT chứa `NameIdentifier` (userId), `Email`, `Role`, `auth_version`, `jti`. Thời sống mặc định 60 phút (`Jwt:ExpirationMinutes`).
-- **Đối chiếu mỗi request**: `OnTokenValidated` đọc user từ PostgreSQL, từ chối nếu user không tồn tại, không `Active`, role khác token hoặc `auth_version` khác `users.auth_version`. Vì vậy khóa tài khoản, đổi role, đổi/đặt lại mật khẩu có hiệu lực ngay (thu hồi toàn bộ token cũ).
+- **Đối chiếu mỗi request xác thực HTTP**: `OnTokenValidated` đọc user từ PostgreSQL, từ chối nếu user không tồn tại, không `Active`, role khác token hoặc `auth_version` khác `users.auth_version`. Khóa tài khoản, đổi role, đổi/đặt lại mật khẩu khiến token cũ bị từ chối ở lần xác thực tiếp theo; không đồng nghĩa ngắt ngay WebSocket đang mở (xem [giới hạn chat](api/chat.md)).
 - **Refresh token**: chuỗi opaque, chỉ lưu hash SHA-256 trong Redis (`auth:refresh:*`), TTL 30 ngày, dùng một lần (rotation).
 - **Realtime token**: JWT sống 2 phút, claim `token_use=chat_realtime`, chỉ hợp lệ trên `/hubs/chat`. Query `access_token` chỉ được nhận ở path `/hubs/chat`.
-- **Phân quyền nghiệp vụ** nằm ở service: Teacher chỉ thao tác tài nguyên mình sở hữu, Student chỉ truy cập khóa học có enrollment `Accepted`, Admin có quyền rộng. Chỉ `POST /api/examination-attempts/{attemptId}/auto-submit` dùng `[Authorize(Roles = "Admin")]` ở controller.
+- **Phân quyền nghiệp vụ** nằm ở service: Teacher thao tác tài nguyên mình sở hữu, Student truy cập nội dung khóa học có enrollment `Accepted`. Admin/System quản trị khóa học và người dùng theo quy tắc riêng; ngân hàng câu hỏi chỉ được đọc. `POST /api/examination-attempts/{attemptId}/auto-submit` dùng `[Authorize(Roles = "Admin,System")]`. Chỉ System được tạo/cấp vai trò Admin; không API nào cấp vai trò System.
 - **Mật khẩu**: hash bằng `PasswordHasher` của ASP.NET Core; độ dài 8–128 ký tự.
 - **CORS**: chỉ bật khi `Cors:AllowedOrigins` có giá trị (policy `Frontend`, cho phép credentials). Frontend mặc định gọi qua Next.js server nên không cần CORS, trừ khi trình duyệt kết nối SignalR trực tiếp tới backend.
 - **Rate limit** (fixed window 1 phút, partition theo IP): `/api/auth/*` 10 request/phút, các path còn lại 240 request/phút.
@@ -99,7 +101,7 @@ Rate limit vượt ngưỡng trả `429`.
 | Câu hỏi | `QuestionBank`, `Question`, `MultipleChoiceOption`, `FillInBlankAnswerKey` | Nguồn để tạo snapshot cho kỳ thi |
 | Kỳ thi | `Examination`, `ExaminationQuestionSelectionRule`, `ExaminationQuestion`, `ExaminationMultipleChoiceOption`, `ExaminationFillInBlankAnswerKey` | Câu hỏi được **snapshot** khi tạo/đổi question set, sửa/xóa câu hỏi nguồn không ảnh hưởng kỳ thi |
 | Làm bài | `ExaminationAttempt`, `StudentAnswer`, `StudentFillInBlankAnswer`, `ExaminationViolation` | Mỗi student chỉ có **một** attempt cho mỗi kỳ thi (unique `(examination_id, student_id)`) |
-| Chat | `ChatRoom`, `ChatParticipant`, `ChatMessage`, `ChatAttachment` | Room loại `Course` hoặc `Direct`; có `ArchivedAt` |
+| Chat | `ChatRoom`, `ChatParticipant`, `ChatMessage`, `ChatAttachment` | Room loại `Course` hoặc `DirectMessage`; có `ArchivedAt`; participant có mốc ẩn/xóa lịch sử direct conversation |
 | Hệ thống | `FileCleanupTask` | Hàng đợi xóa file bền vững |
 
 Migration nằm ở `infrastructure/persistence/migrations`, tự động chạy (`db.Database.Migrate()`) khi API khởi động, trừ môi trường `Testing`. Sau migrate, `SystemAccountSeeder` seed/nâng cấp tài khoản System từ `SYSTEMACCOUNT__EMAIL`/`SYSTEMACCOUNT__PASSWORD`.
@@ -111,11 +113,11 @@ Redis dùng cho state ngắn hạn của xác thực, truy cập qua `ICache` (`
 | Key | Nội dung | TTL | Dùng ở |
 | --- | --- | --- | --- |
 | `auth:refresh:{sha256(refreshToken)}` | Session refresh (userId, authVersion) | 30 ngày | login, refresh |
-| `auth:email-verification:{userId}` | Mã xác thực email 6 ký tự | 15 phút | register, resend, verify-email |
-| `auth:email-verification-attempts:{userId}` | Số lần nhập sai (tối đa 5) | theo mã | verify-email |
+| `auth:email-verification:{userId:N}` | userId, email, hash mã 6 ký tự | 15 phút | register, resend, verify-email |
+| `auth:email-verification-attempts:{userId:N}` | Số lần kiểm tra mã sau khi tìm thấy entry; lần thứ 6 bị chặn | 15 phút từ lần tăng đầu tiên | verify-email |
 | `auth:email-verification-cooldown:{userId}` | Khóa gửi lại mã | 1 phút | register, resend |
 | `auth:password-reset:{userId}` | Mã đặt lại mật khẩu | 15 phút | forgot/reset-password |
-| `auth:password-reset-attempts:{userId}` | Số lần nhập sai (tối đa 5) | theo mã | reset-password |
+| `auth:password-reset-attempts:{userId:N}` | Số lần kiểm tra mã sau khi tìm thấy entry; lần thứ 6 bị chặn | 15 phút từ lần tăng đầu tiên | reset-password |
 | `auth:password-reset-cooldown:{userId}` | Khóa gửi lại | 1 phút | forgot-password |
 | `auth:oauth-state:{state}` | State, PKCE verifier, mục đích (Login/Link), userId (khi Link) | 10 phút | OAuth authorize/callback |
 | `auth:oauth-identity:{sha256(binding)}` | Identity Google chờ xử lý | 10 phút | OAuth callback |
@@ -147,7 +149,7 @@ Metadata (tên file, content type, size, `objectKey`) nằm trong PostgreSQL. Cl
 
 ## 9. Email
 
-`IMailSender` (SMTP) gửi mã xác thực email và mã đặt lại mật khẩu. Nếu gửi lỗi, mã và cooldown vừa tạo trong Redis bị xóa để client retry ngay.
+`IMailSender` → `GmailService` dùng `System.Net.Mail.SmtpClient`, gửi trực tiếp trong request: mã xác thực email, mã đặt lại mật khẩu và thông báo chia sẻ ngân hàng câu hỏi. Hai luồng mã xác thực/reset dọn mã/cooldown nếu gửi lỗi. Chia sẻ bank commit bản sao trước rồi gửi mail; lỗi mail thông thường không làm thất bại việc chia sẻ. Không có mail queue/worker hoặc retry mail tự động. Xem [tools-and-integrations.md](tools-and-integrations.md) để tra API, TTL và tình huống lỗi.
 
 ## 10. Google OAuth
 
@@ -160,7 +162,7 @@ Authorization Code + PKCE, `state` lưu Redis, gắn với cookie `__Host-LMS.OA
 ## 12. Hạn chế hiện tại
 
 - Chưa có `GET /api/users/me`; client đọc `userId` từ JWT rồi gọi `GET /api/users/{userId}/profile`.
-- Mỗi student chỉ được làm một lượt cho mỗi kỳ thi, chưa có cấu hình cho phép làm lại.
+- Mỗi student có tối đa một lượt hiện hữu cho mỗi kỳ thi; Teacher sở hữu/Admin/System có thể xóa lượt qua API reset để cho bắt đầu lại, vẫn phải còn trong thời gian thi.
 - Course `Closed` nghĩa là ngừng tuyển: student đã `Accepted` vẫn xem nội dung/lịch sử.
 - Khi enrollment bị cancel/revoke, student mất quyền đọc nội dung khóa học.
 - Chưa có OAuth Microsoft.

@@ -1,5 +1,7 @@
 # API – Examination Attempts (làm bài thi)
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 Base path: `/api/examination-attempts`. Cần JWT, student phải có enrollment `Accepted`. Dữ liệu chỉ qua PostgreSQL (`examination_attempts`, `student_answers`, `examination_violations`); auto-submit do `ExaminationAutoSubmitWorker` (30 giây/lần) hoặc admin thực hiện.
 
 | Method | Path | Quyền | Chức năng |
@@ -12,7 +14,7 @@ Base path: `/api/examination-attempts`. Cần JWT, student phải có enrollment
 | POST | `/api/examination-attempts/{attemptId}/reconnect` | Student chủ attempt | Kết nối lại |
 | POST | `/api/examination-attempts/{attemptId}/violations` | Student chủ attempt | Ghi nhận vi phạm |
 | POST | `/api/examination-attempts/{attemptId}/submit` | Student chủ attempt | Nộp bài |
-| POST | `/api/examination-attempts/{attemptId}/auto-submit` | Admin | Ép nộp theo lý do |
+| POST | `/api/examination-attempts/{attemptId}/auto-submit` | Admin/System | Ép nộp theo lý do |
 | DELETE | `/api/examinations/{examinationId}/attempts/{attemptId}` | Giảng viên của khóa học, Admin/System | Xóa lượt thi để học viên có thể bắt đầu lại |
 
 `DELETE` chỉ xóa lượt thi thuộc đúng kỳ thi trong đường dẫn. Dữ liệu đáp án và vi phạm liên quan được xóa theo quan hệ cascade. Lượt thi mới vẫn tuân thủ điều kiện bắt đầu hiện hành (kỳ thi Published, đang trong khoảng thời gian cho phép, học viên còn enrollment Accepted); thao tác reset không gia hạn kỳ thi hoặc thời lượng.
@@ -144,4 +146,4 @@ Thứ tự shuffle ổn định theo `attemptId` (gọi lại vẫn cùng thứ 
 
 ## `POST /api/examination-attempts/{attemptId}/auto-submit?reason=DurationExpired`
 
-**Quyền:** Admin (`[Authorize(Roles = "Admin")]`); frontend student không gọi. **Không có body.** `reason` không được là `StudentSubmitted`; backend kiểm tra điều kiện thực tế (deadline, disconnect timeout, ngưỡng vi phạm, kỳ thi đã đóng), không đúng điều kiện trả `409`. **Response `200 OK`:** Attempt object.
+**Quyền:** Admin/System (`[Authorize(Roles = "Admin,System")]`); frontend student không gọi. **Không có body.** `reason` không được là `StudentSubmitted`; backend kiểm tra điều kiện thực tế (deadline, disconnect timeout, ngưỡng vi phạm, kỳ thi đã đóng), không đúng điều kiện trả `409`. **Response `200 OK`:** Attempt object.

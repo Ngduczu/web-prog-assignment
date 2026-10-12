@@ -1,6 +1,8 @@
 # API – Course Content: Lessons và Materials
 
-Cần JWT. Teacher sở hữu course hoặc Admin được tạo/sửa; student có enrollment `Accepted` được đọc (chỉ nội dung `Published`).
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
+Cần JWT. Teacher sở hữu course hoặc Admin/System được tạo/sửa; student có enrollment `Accepted` được đọc (chỉ nội dung `Published`). Trong bảng dưới, quyền Admin bao gồm System.
 
 | Method | Path | Quyền | Chức năng |
 | --- | --- | --- | --- |
@@ -124,7 +126,7 @@ file=@lesson.pdf
 
 ## `GET /api/materials/{materialId}/content?download=false`
 
-**Response `200 OK`:** Binary stream với `Content-Type` của file. `download=true` trả kèm tên gốc trong `Content-Disposition`.
+**Response `200 OK`:** Binary stream với `Content-Type` của file và tên gốc trong `Content-Disposition`. Hiện `download` không thay đổi hành vi; cả hai giá trị đều trả attachment. Xem [conventions.md](conventions.md).
 
 ## `DELETE /api/materials/{materialId}`
 

@@ -1,10 +1,12 @@
 # API – Chat (REST + SignalR)
 
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
 Base path: `/api/chat`, hub `/hubs/chat`. Cần JWT. Dữ liệu đi qua PostgreSQL (`chat_rooms`, `chat_participants`, `chat_messages`, `chat_attachments`), Storage (file đính kèm), SignalR (broadcast realtime). Chat không dùng Redis.
 
 Quyền truy cập được kiểm tra lại ở service **mỗi lần** gọi REST/SignalR (không dựa vào `ChatParticipant` cũ):
 
-- Course room: teacher hiện tại của course, Admin, hoặc student có enrollment `Accepted`.
+- Course room: teacher hiện tại của course, Admin/System, hoặc student có enrollment `Accepted`.
 - Direct room: hai participant của room.
 - Room không còn quyền sẽ biến mất khỏi `GET /api/chat/rooms`.
 
@@ -85,7 +87,7 @@ Attachment không lộ `objectKey`; dùng endpoint `content`.
 
 ## `POST /api/chat/realtime-token`
 
-**Không có body.** Cấp JWT sống 2 phút, claim `token_use=chat_realtime`, vẫn mang `auth_version` (bị từ chối ngay khi tài khoản khóa/đổi role/thu hồi session). Chỉ hợp lệ trên `/hubs/chat`; dùng cho REST trả `401`.
+**Không có body.** Cấp JWT sống 2 phút, claim `token_use=chat_realtime`, vẫn mang `auth_version` (bị từ chối ở lần xác thực HTTP tiếp theo khi tài khoản khóa/đổi role/thu hồi session). Chỉ hợp lệ trên `/hubs/chat`; dùng cho REST trả `401`. Connection đã mở không tra lại AuthVersion mỗi event; xem giới hạn realtime cuối trang.
 
 **Response `200 OK`:**
 
@@ -133,7 +135,7 @@ Chỉ áp dụng cho direct conversation và chỉ xóa đối với tài khoả
 
 `content` bắt buộc có nội dung, tối đa 4000 ký tự (cũng áp dụng khi sửa). `replyToMessageId` nếu có phải thuộc cùng room và chưa xóa. Room archived trả `409`.
 
-**Hành vi:** Lưu PostgreSQL → broadcast `MessageReceived` tới group `chat-room:{roomId}`. **Response `201 Created`:** Chat message.
+**Hành vi:** Lưu PostgreSQL → broadcast `MessageReceived` tới group `chat-room:{roomId:N}` (GUID không dấu gạch). **Response `201 Created`:** Chat message.
 
 ## `POST /api/chat/rooms/{roomId}/messages/attachment`
 
@@ -149,7 +151,7 @@ Chỉ áp dụng cho direct conversation và chỉ xóa đối với tài khoả
 
 ## `GET /api/chat/messages/{messageId}/attachments/{attachmentId}/content?download=false`
 
-Chỉ user còn quyền vào room. Message đã xóa trả `404`. **Response `200 OK`:** Binary stream.
+Chỉ user còn quyền vào room và còn thấy message sau mốc cleared của mình. Message đã xóa trả `404`. **Response `200 OK`:** Binary stream, filename trong Content-Disposition kể cả `download=false`.
 
 ## `PATCH /api/chat/messages/{messageId}`
 
@@ -191,7 +193,7 @@ Sender, Admin, hoặc Teacher trong **course** room được xóa. Xóa mềm (`
 | `MessageUpdated` | Chat message sau khi sửa |
 | `MessageDeleted` | ID message đã xóa |
 
-Quyền được kiểm tra lại khi `JoinRoom`, reconnect và `SendMessage`: enrollment bị revoke hoặc course archive thì lần ghi tiếp theo bị từ chối.
+Quyền room được kiểm tra lại khi `JoinRoom` và `SendMessage`; sau reconnect frontend gọi JoinRoom lại. Tuy nhiên broadcast tới group không kiểm tra lại từng người nhận và chưa tự đẩy connection cũ khỏi group khi revoke enrollment. `OnTokenValidated` kiểm tra AuthVersion khi xác thực kết nối HTTP, không phải mỗi event gửi ra trên connection đang mở. Không suy diễn việc thu hồi token là ngắt ngay mọi WebSocket; xem [../review-findings.md](../review-findings.md).
 
 ```javascript
 const connection = new signalR.HubConnectionBuilder()

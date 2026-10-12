@@ -1,6 +1,8 @@
 # API – Examinations (soạn kỳ thi)
 
-Cần JWT. Dữ liệu chỉ qua PostgreSQL (`examinations`, `examination_questions`, … snapshot); không dùng Redis/Storage.
+Đối chiếu mã nguồn ngày **2026-10-13**. Mô tả implementation trong repository, không phải xác nhận môi trường production.
+
+Cần JWT. Dữ liệu chỉ qua PostgreSQL (`examinations`, `examination_questions`, … snapshot); không dùng Redis/Storage/SMTP. Quyền Admin trong bảng bao gồm System.
 
 | Method | Path | Quyền | Chức năng |
 | --- | --- | --- | --- |
@@ -8,9 +10,10 @@ Cần JWT. Dữ liệu chỉ qua PostgreSQL (`examinations`, `examination_questi
 | GET | `/api/courses/{courseId}/examinations` | Teacher sở hữu, Admin | Danh sách (mọi trạng thái) |
 | GET | `/api/courses/{courseId}/examinations/available` | Student `Accepted`, Teacher sở hữu, Admin | Danh sách cho người thi |
 | GET | `/api/examinations/{examinationId}` | Teacher sở hữu, Admin | Chi tiết đầy đủ |
-| GET | `/api/examinations/{examinationId}/student` | Student `Accepted` | Chi tiết dành cho học viên |
+| GET | `/api/examinations/{examinationId}/student` | Student `Accepted`, Teacher sở hữu, Admin/System | Chi tiết dạng học viên; người quản lý xem được cả Draft |
 | GET | `/api/examinations/{examinationId}/my-attempt` | Student `Accepted` | Lượt làm bài của tôi |
 | GET | `/api/examinations/{examinationId}/attempts` | Teacher sở hữu, Admin | Kết quả cả lớp |
+| DELETE | `/api/examinations/{examinationId}/attempts/{attemptId}` | Teacher sở hữu, Admin/System | Xóa lượt hiện hữu và dữ liệu con; xem [examination-attempts.md](examination-attempts.md) |
 | PUT | `/api/examinations/{examinationId}` | Teacher sở hữu, Admin | Sửa cấu hình (`Draft`) |
 | PUT | `/api/examinations/{examinationId}/question-set` | Teacher sở hữu, Admin | Thay bộ câu hỏi (`Draft`) |
 | POST | `/api/examinations/{examinationId}/publish` | Teacher sở hữu, Admin | `Draft` → `Published` |
