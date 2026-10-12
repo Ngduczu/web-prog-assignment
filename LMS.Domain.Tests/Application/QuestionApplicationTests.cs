@@ -229,6 +229,32 @@ public class QuestionApplicationTests
         await fixture.Service.DeleteQuestionAsync(question.Id);
 
         Assert.Empty(fixture.Questions.Items);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+        Assert.Equal(1, fixture.TransactionManager.ExecutionCount);
+    }
+
+    [Fact]
+    public async Task DeleteMultipleChoiceQuestionClearsCorrectOptionBeforeRemovingQuestion()
+    {
+        var fixture = CreateFixture();
+        var question = new Question(
+            fixture.QuestionBank.Id,
+            "Question",
+            QuestionType.MultipleChoice,
+            QuestionDifficulty.Easy,
+            true,
+            fixture.QuestionBank.TeacherId);
+        var option = new MultipleChoiceOption(question.Id, "Answer", 0);
+        question.MultipleChoiceOptions.Add(option);
+        question.SetCorrectOption(option.Id);
+        fixture.Questions.Items.Add(question);
+
+        await fixture.Service.DeleteQuestionAsync(question.Id);
+
+        Assert.Null(question.CorrectOptionId);
+        Assert.Empty(fixture.Questions.Items);
+        Assert.Equal(2, fixture.UnitOfWork.SaveCount);
+        Assert.Equal(1, fixture.TransactionManager.ExecutionCount);
     }
 
     [Fact]

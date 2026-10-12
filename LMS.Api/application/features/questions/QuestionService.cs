@@ -419,11 +419,23 @@ public sealed class QuestionService : IQuestionService
         CancellationToken cancellationToken = default)
     {
         ValidateId(questionId, "Question id");
-        var question = await _questions.GetByIdAsync(questionId, true, cancellationToken)
-            ?? throw new NotFoundException("Question was not found.");
-        _ = await GetManagedQuestionBankAsync(question.QuestionBankId, cancellationToken);
-        _questions.Remove(question);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _transactionManager.ExecuteAsync(async transactionCancellationToken =>
+        {
+            var question = await _questions.GetByIdAsync(questionId, true, transactionCancellationToken)
+                ?? throw new NotFoundException("Question was not found.");
+            _ = await GetManagedQuestionBankAsync(question.QuestionBankId, transactionCancellationToken);
+
+            // A multiple-choice question points to one of its own options while every option
+            // points back to the question. Break that cycle before deleting the aggregate.
+            if (question.CorrectOptionId is not null)
+            {
+                question.SetCorrectOption(null);
+                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            }
+
+            _questions.Remove(question);
+            await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+        }, cancellationToken);
     }
 
     private async Task<QuestionBank> GetManagedQuestionBankAsync(
