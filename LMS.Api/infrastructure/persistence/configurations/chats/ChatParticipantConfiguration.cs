@@ -18,6 +18,8 @@ public class ChatParticipantConfiguration : IEntityTypeConfiguration<ChatPartici
         builder.Property(x => x.UserId).HasColumnName("user_id");
         builder.Property(x => x.JoinedAt).HasColumnName("joined_at");
         builder.Property(x => x.LastReadMessageId).HasColumnName("last_read_message_id");
+        builder.Property(x => x.ConversationClearedAt).HasColumnName("conversation_cleared_at");
+        builder.Property(x => x.ConversationHiddenAt).HasColumnName("conversation_hidden_at");
 
         builder.HasIndex(x => new { x.ChatRoomId, x.UserId }).IsUnique();
         builder.HasIndex(x => x.UserId);

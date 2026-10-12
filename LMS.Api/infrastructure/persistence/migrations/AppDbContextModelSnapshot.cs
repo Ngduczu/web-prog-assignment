@@ -130,6 +130,14 @@ namespace LMS.Api.infrastructure.persistence.migrations
                         .HasColumnType("uuid")
                         .HasColumnName("chat_room_id");
 
+                    b.Property<DateTime?>("ConversationClearedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("conversation_cleared_at");
+
+                    b.Property<DateTime?>("ConversationHiddenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("conversation_hidden_at");
+
                     b.Property<DateTime>("JoinedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("joined_at");

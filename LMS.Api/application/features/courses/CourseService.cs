@@ -1,6 +1,7 @@
 using LMS.Api.application.abstractions.auth;
 using LMS.Api.application.abstractions.persistence;
 using LMS.Api.application.common;
+using LMS.Api.domain.Entities.Chats;
 using LMS.Api.domain.Entities.Courses;
 using LMS.Api.domain.Enums.Courses;
 using LMS.Api.domain.Enums.Users;
@@ -64,7 +65,16 @@ public sealed class CourseService : ICourseService
             request.Status,
             actorId);
 
+        var chatRoom = ChatRoom.CreateForCourse(course.Id, actorId);
+        chatRoom.AddCourseParticipant(actorId);
+        if (request.TeacherId != actorId)
+        {
+            chatRoom.AddCourseParticipant(request.TeacherId);
+        }
+        chatRoom.SynchronizeWithCourse(course);
+
         _courses.Add(course);
+        _chatRooms.Add(chatRoom);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return Map(course);
     }

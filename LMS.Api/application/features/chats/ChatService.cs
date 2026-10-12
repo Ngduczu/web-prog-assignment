@@ -171,6 +171,7 @@ public sealed class ChatService : IChatService
             accessibleRooms.Select(room => room.Id).ToArray(),
             cancellationToken);
         var latestMessages = await _messages.ListLatestByRoomAsync(
+            userId,
             accessibleRooms.Select(room => room.Id).ToArray(),
             cancellationToken);
         return accessibleRooms
@@ -246,16 +247,34 @@ public sealed class ChatService : IChatService
             _rooms.Add(room);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
+        else if (room.RevealDirectConversation(userId))
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
 
         return MapRoom(room, otherUser.FullName, otherUser.FullName, otherUser.Email);
     }
 
+    public async Task DeleteDirectConversationAsync(Guid roomId, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.GetRequiredUserId();
+        var room = await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
+        if (room.Type != ChatRoomType.DirectMessage)
+        {
+            throw new BadRequestException("Only direct conversations can be deleted.");
+        }
+
+        room.ClearDirectConversation(userId);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ChatMessageDto>> ListMessagesAsync(Guid roomId, ChatPageQuery query, CancellationToken cancellationToken)
     {
-        await EnsureRoomAccessAsync(roomId, cancellationToken);
+        var room = await EnsureRoomAccessInternalAsync(roomId, cancellationToken);
+        var visibleAfter = GetConversationVisibleAfter(room, _currentUser.GetRequiredUserId());
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
-        var messages = await _messages.ListByRoomAsync(roomId, (page - 1) * pageSize, pageSize, cancellationToken);
+        var messages = await _messages.ListByRoomAsync(roomId, (page - 1) * pageSize, pageSize, visibleAfter, cancellationToken);
         var visibleMessages = messages.Where(message => !message.IsDeleted).ToArray();
         var senderIds = visibleMessages.Select(message => message.SenderId).Distinct().ToArray();
         var senders = await _users.ListByIdsAsync(senderIds, cancellationToken);
@@ -310,7 +329,7 @@ public sealed class ChatService : IChatService
         if (request.ReplyToMessageId is not null)
         {
             var reply = await _messages.GetByIdAsync(request.ReplyToMessageId.Value, cancellationToken);
-            if (reply is null || reply.ChatRoomId != roomId || reply.IsDeleted)
+            if (reply is null || reply.ChatRoomId != roomId || reply.IsDeleted || !IsMessageVisible(room, userId, reply))
             {
                 throw new BadRequestException("The reply message is invalid for this room.");
             }
@@ -327,6 +346,7 @@ public sealed class ChatService : IChatService
         }
 
         _messages.Add(message);
+        room.RevealDirectConversationForAll();
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         var sender = await _users.GetByIdAsync(userId, cancellationToken);
         return MapMessage(message, sender);
@@ -341,7 +361,7 @@ public sealed class ChatService : IChatService
         if (replyToMessageId is not null)
         {
             var reply = await _messages.GetByIdAsync(replyToMessageId.Value, cancellationToken);
-            if (reply is null || reply.ChatRoomId != roomId || reply.IsDeleted) throw new BadRequestException("The reply message is invalid for this room.");
+            if (reply is null || reply.ChatRoomId != roomId || reply.IsDeleted || !IsMessageVisible(room, userId, reply)) throw new BadRequestException("The reply message is invalid for this room.");
         }
 
         string? uploadedObjectKey = null;
@@ -351,6 +371,7 @@ public sealed class ChatService : IChatService
             uploadedObjectKey = storedFile.ObjectKey;
             var message = ChatMessage.CreateWithAttachment(roomId, userId, content, storedFile.FileName, storedFile.ObjectKey, storedFile.ContentType, storedFile.FileSize, replyToMessageId);
             _messages.Add(message);
+            room.RevealDirectConversationForAll();
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             var sender = await _users.GetByIdAsync(userId, cancellationToken);
             return MapMessage(message, sender);
@@ -400,8 +421,8 @@ public sealed class ChatService : IChatService
     {
         var message = await _messages.GetByIdAsync(messageId, cancellationToken)
             ?? throw new NotFoundException("The chat message was not found.");
-        await EnsureRoomAccessInternalAsync(message.ChatRoomId, cancellationToken);
-        if (message.IsDeleted)
+        var room = await EnsureRoomAccessInternalAsync(message.ChatRoomId, cancellationToken);
+        if (message.IsDeleted || !IsMessageVisible(room, _currentUser.GetRequiredUserId(), message))
         {
             throw new NotFoundException("The chat attachment was not found.");
         }
@@ -418,6 +439,10 @@ public sealed class ChatService : IChatService
         var message = await _messages.GetByIdAsync(messageId, cancellationToken)
             ?? throw new NotFoundException("The chat message was not found.");
         var room = await EnsureRoomAccessInternalAsync(message.ChatRoomId, cancellationToken);
+        if (!IsMessageVisible(room, userId, message))
+        {
+            throw new NotFoundException("The chat message was not found.");
+        }
         if (message.SenderId != userId)
         {
             throw new ForbiddenException("Only the message sender can edit this message.");
@@ -447,6 +472,10 @@ public sealed class ChatService : IChatService
         var message = await _messages.GetByIdAsync(messageId, cancellationToken)
             ?? throw new NotFoundException("The chat message was not found.");
         var room = await EnsureRoomAccessInternalAsync(message.ChatRoomId, cancellationToken);
+        if (!IsMessageVisible(room, userId, message))
+        {
+            throw new NotFoundException("The chat message was not found.");
+        }
         var role = _currentUser.GetRequiredRole();
         if (message.SenderId != userId && !CanModerate(room, role))
         {
@@ -480,6 +509,10 @@ public sealed class ChatService : IChatService
             var message = await _messages.GetByIdAsync(messageId, transactionCancellationToken)
                 ?? throw new NotFoundException("The chat message was not found.");
             if (message.ChatRoomId != roomId || message.IsDeleted)
+            {
+                throw new BadRequestException("The read receipt target is invalid for this room.");
+            }
+            if (!IsMessageVisible(room, userId, message))
             {
                 throw new BadRequestException("The read receipt target is invalid for this room.");
             }
@@ -595,6 +628,15 @@ public sealed class ChatService : IChatService
     }
 
     private static bool CanModerate(ChatRoom room, Role role) => role.IsAdminOrSystem() || room.Type == ChatRoomType.Course && role == Role.Teacher;
+    private static DateTime? GetConversationVisibleAfter(ChatRoom room, Guid userId) =>
+        room.Type == ChatRoomType.DirectMessage
+            ? room.Participants.Single(participant => participant.UserId == userId).ConversationClearedAt
+            : null;
+    private static bool IsMessageVisible(ChatRoom room, Guid userId, ChatMessage message)
+    {
+        var visibleAfter = GetConversationVisibleAfter(room, userId);
+        return visibleAfter is null || message.CreatedAt > visibleAfter.Value;
+    }
     private static ChatRoomDto MapRoom(
         ChatRoom room,
         string? title = null,

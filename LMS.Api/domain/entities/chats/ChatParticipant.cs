@@ -8,6 +8,8 @@ public class ChatParticipant
     public Guid UserId { get; private set; }
     public DateTime JoinedAt { get; private set; }
     public Guid? LastReadMessageId { get; private set; }
+    public DateTime? ConversationClearedAt { get; private set; }
+    public DateTime? ConversationHiddenAt { get; private set; }
 
     private ChatParticipant() { }
 
@@ -27,5 +29,18 @@ public class ChatParticipant
     public void ClearReadReceipt()
     {
         LastReadMessageId = null;
+    }
+
+    public void ClearConversation()
+    {
+        var now = DateTime.UtcNow;
+        ConversationClearedAt = now;
+        ConversationHiddenAt = now;
+        ClearReadReceipt();
+    }
+
+    public void RevealConversation()
+    {
+        ConversationHiddenAt = null;
     }
 }

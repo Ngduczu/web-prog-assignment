@@ -20,7 +20,14 @@ public class CourseApplicationTests
         var teacher = CreateUser(Role.Teacher);
         var courses = new FakeCourseRepository();
         var unitOfWork = new FakeUnitOfWork();
-        var service = CreateCourseService(teacher, courses, unitOfWork);
+        var chatRooms = new FakeChatRoomRepository();
+        var service = new CourseService(
+            courses,
+            new FakeUserRepository(teacher),
+            new FakeEnrollmentRepository(),
+            unitOfWork,
+            new FakeCurrentUser(teacher),
+            chatRooms);
 
         var result = await service.CreateAsync(new CreateCourseRequest(
             "  Domain Driven Design  ",
@@ -32,6 +39,9 @@ public class CourseApplicationTests
         Assert.Equal("Course description", result.Description);
         Assert.Equal(teacher.Id, result.TeacherId);
         Assert.Single(courses.Items);
+        var chatRoom = await chatRooms.GetByCourseIdAsync(result.Id, CancellationToken.None);
+        Assert.NotNull(chatRoom);
+        Assert.Contains(chatRoom.Participants, participant => participant.UserId == teacher.Id);
         Assert.Equal(1, unitOfWork.SaveCount);
     }
 

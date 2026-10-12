@@ -17,6 +17,7 @@ Vòng đời course room: archive khi course `Closed` hoặc bị xóa mềm; m�
 | POST | `/api/chat/courses/{courseId}` | Lấy/tạo course room |
 | POST | `/api/chat/direct/{userId}` | Lấy/tạo direct room |
 | POST | `/api/chat/rooms/{roomId}/join` | Kiểm tra quyền và lấy thông tin room |
+| DELETE | `/api/chat/rooms/{roomId}` | Xóa direct conversation khỏi tài khoản hiện tại |
 | GET | `/api/chat/rooms/{roomId}/messages` | Lịch sử tin nhắn |
 | POST | `/api/chat/rooms/{roomId}/messages` | Gửi tin nhắn text |
 | POST | `/api/chat/rooms/{roomId}/messages/attachment` | Gửi tin nhắn kèm file |
@@ -111,9 +112,13 @@ Attachment không lộ `objectKey`; dùng endpoint `content`.
 
 **Không có body.** Kiểm tra quyền, `409` nếu room archived. **Response `200 OK`:** Chat room object (course room kèm `title`).
 
+## `DELETE /api/chat/rooms/{roomId}`
+
+Chỉ áp dụng cho direct conversation và chỉ xóa đối với tài khoản hiện tại. Room biến khỏi danh sách, lịch sử trước thời điểm xóa không còn đọc hoặc tải attachment được; participant còn lại không bị ảnh hưởng. Khi có tin nhắn mới hoặc user chủ động mở lại direct conversation, room xuất hiện lại nhưng lịch sử cũ vẫn ẩn. Course room trả `400`. **Response `204 No Content`.**
+
 ## `GET /api/chat/rooms/{roomId}/messages?page=1&pageSize=20`
 
-**Response `200 OK`:** Mảng Chat message, mới nhất trước (không phải PagedResult). Tăng `page` để tải lịch sử cũ hơn. Message đã xóa (và attachment của nó) bị loại.
+**Response `200 OK`:** Mảng Chat message, mới nhất trước (không phải PagedResult). Tăng `page` để tải lịch sử cũ hơn. Message đã xóa (và attachment của nó), hoặc lịch sử direct conversation mà participant đã xóa, bị loại.
 
 ## `POST /api/chat/rooms/{roomId}/messages`
 

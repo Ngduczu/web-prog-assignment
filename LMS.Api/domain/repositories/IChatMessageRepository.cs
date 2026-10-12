@@ -5,8 +5,8 @@ namespace LMS.Api.domain.repositories;
 public interface IChatMessageRepository
 {
     Task<ChatMessage?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
-    Task<IReadOnlyList<ChatMessage>> ListByRoomAsync(Guid roomId, int skip, int take, CancellationToken cancellationToken);
-    Task<IReadOnlyDictionary<Guid, ChatRoomLatestMessage>> ListLatestByRoomAsync(IReadOnlyCollection<Guid> roomIds, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ChatMessage>> ListByRoomAsync(Guid roomId, int skip, int take, DateTime? visibleAfter, CancellationToken cancellationToken);
+    Task<IReadOnlyDictionary<Guid, ChatRoomLatestMessage>> ListLatestByRoomAsync(Guid userId, IReadOnlyCollection<Guid> roomIds, CancellationToken cancellationToken);
     Task<IReadOnlySet<Guid>> ListUnreadRoomIdsAsync(Guid userId, IReadOnlyCollection<Guid> roomIds, CancellationToken cancellationToken);
     void Add(ChatMessage message);
 }

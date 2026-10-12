@@ -11,6 +11,23 @@ namespace LMS.Domain.Tests.Presentation;
 public sealed class ChatsControllerTests
 {
     [Fact]
+    public async Task DeleteDirectConversationReturnsNoContent()
+    {
+        var roomId = Guid.NewGuid();
+        var service = new Mock<IChatService>();
+
+        var result = await new ChatsController().DeleteDirectConversation(
+            roomId,
+            service.Object,
+            CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        service.Verify(item => item.DeleteDirectConversationAsync(
+            roomId,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task RestTextMessageBroadcastsToRoomAfterSave()
     {
         var roomId = Guid.NewGuid();

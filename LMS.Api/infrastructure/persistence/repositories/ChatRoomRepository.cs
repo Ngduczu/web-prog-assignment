@@ -49,7 +49,9 @@ public sealed class ChatRoomRepository : IChatRoomRepository
         return await _dbContext.ChatRooms
             .Include(room => room.Participants)
             .Where(room =>
-                room.Participants.Any(participant => participant.UserId == userId) ||
+                room.Participants.Any(participant =>
+                    participant.UserId == userId &&
+                    (room.Type != ChatRoomType.DirectMessage || participant.ConversationHiddenAt == null)) ||
                 room.Type == ChatRoomType.Course &&
                 room.CourseId.HasValue &&
                 accessibleCourseIds.Contains(room.CourseId.Value))

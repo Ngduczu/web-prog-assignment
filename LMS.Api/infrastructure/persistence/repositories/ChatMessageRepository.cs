@@ -1,4 +1,5 @@
 using LMS.Api.domain.Entities.Chats;
+using LMS.Api.domain.Enums.Chats;
 using LMS.Api.domain.repositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,11 +13,14 @@ public sealed class ChatMessageRepository : IChatMessageRepository
     public Task<ChatMessage?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
         _dbContext.ChatMessages.Include(message => message.Attachments).SingleOrDefaultAsync(message => message.Id == id, cancellationToken);
 
-    public async Task<IReadOnlyList<ChatMessage>> ListByRoomAsync(Guid roomId, int skip, int take, CancellationToken cancellationToken) =>
+    public async Task<IReadOnlyList<ChatMessage>> ListByRoomAsync(Guid roomId, int skip, int take, DateTime? visibleAfter, CancellationToken cancellationToken) =>
         await _dbContext.ChatMessages
             .AsNoTracking()
             .Include(message => message.Attachments)
-            .Where(message => message.ChatRoomId == roomId && message.DeletedAt == null)
+            .Where(message =>
+                message.ChatRoomId == roomId &&
+                message.DeletedAt == null &&
+                (visibleAfter == null || message.CreatedAt > visibleAfter))
             .OrderByDescending(message => message.CreatedAt)
             .ThenByDescending(message => message.Id)
             .Skip(skip)
@@ -24,6 +28,7 @@ public sealed class ChatMessageRepository : IChatMessageRepository
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyDictionary<Guid, ChatRoomLatestMessage>> ListLatestByRoomAsync(
+        Guid userId,
         IReadOnlyCollection<Guid> roomIds,
         CancellationToken cancellationToken)
     {
@@ -31,7 +36,14 @@ public sealed class ChatMessageRepository : IChatMessageRepository
 
         var latestMessages = await _dbContext.ChatMessages
             .AsNoTracking()
-            .Where(message => roomIds.Contains(message.ChatRoomId) && message.DeletedAt == null)
+            .Where(message =>
+                roomIds.Contains(message.ChatRoomId) &&
+                message.DeletedAt == null &&
+                _dbContext.ChatRooms.Any(room =>
+                    room.Id == message.ChatRoomId &&
+                    (room.Type == ChatRoomType.Course || room.Participants.Any(participant =>
+                        participant.UserId == userId &&
+                        (participant.ConversationClearedAt == null || message.CreatedAt > participant.ConversationClearedAt)))))
             .GroupBy(message => message.ChatRoomId)
             .Select(group => group
                 .OrderByDescending(message => message.CreatedAt)
@@ -61,7 +73,12 @@ public sealed class ChatMessageRepository : IChatMessageRepository
             .Where(message =>
                 roomIds.Contains(message.ChatRoomId) &&
                 message.SenderId != userId &&
-                message.DeletedAt == null)
+                message.DeletedAt == null &&
+                _dbContext.ChatRooms.Any(room =>
+                    room.Id == message.ChatRoomId &&
+                    (room.Type == ChatRoomType.Course || room.Participants.Any(participant =>
+                        participant.UserId == userId &&
+                        (participant.ConversationClearedAt == null || message.CreatedAt > participant.ConversationClearedAt)))))
             .GroupBy(message => message.ChatRoomId)
             .Select(group => new { RoomId = group.Key, CreatedAt = group.Max(message => message.CreatedAt) })
             .ToListAsync(cancellationToken);

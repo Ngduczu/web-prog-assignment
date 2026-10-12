@@ -42,6 +42,27 @@ public class ChatRoomTests
     }
 
     [Fact]
+    public void DirectConversationCanBeClearedAndRevealedForOneParticipant()
+    {
+        var firstUserId = Guid.NewGuid();
+        var secondUserId = Guid.NewGuid();
+        var chatRoom = ChatRoom.CreateDirectMessage(firstUserId, secondUserId);
+
+        chatRoom.ClearDirectConversation(firstUserId);
+
+        var firstParticipant = chatRoom.Participants.Single(participant => participant.UserId == firstUserId);
+        var secondParticipant = chatRoom.Participants.Single(participant => participant.UserId == secondUserId);
+        Assert.NotNull(firstParticipant.ConversationClearedAt);
+        Assert.NotNull(firstParticipant.ConversationHiddenAt);
+        Assert.Null(secondParticipant.ConversationClearedAt);
+        Assert.Null(secondParticipant.ConversationHiddenAt);
+
+        Assert.True(chatRoom.RevealDirectConversation(firstUserId));
+        Assert.Null(firstParticipant.ConversationHiddenAt);
+        Assert.NotNull(firstParticipant.ConversationClearedAt);
+    }
+
+    [Fact]
     public void CourseParticipantIsAddedIdempotently()
     {
         var chatRoom = ChatRoom.CreateForCourse(Guid.NewGuid(), Guid.NewGuid());

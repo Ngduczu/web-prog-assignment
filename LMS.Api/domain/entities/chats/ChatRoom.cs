@@ -85,6 +85,49 @@ public class ChatRoom
         return participant;
     }
 
+    public void ClearDirectConversation(Guid userId)
+    {
+        if (Type != ChatRoomType.DirectMessage)
+        {
+            throw new InvalidOperationException("Only direct conversations can be cleared.");
+        }
+
+        var participant = _participants.SingleOrDefault(item => item.UserId == userId)
+            ?? throw new InvalidOperationException("Only a participant can clear this conversation.");
+        participant.ClearConversation();
+    }
+
+    public bool RevealDirectConversation(Guid userId)
+    {
+        if (Type != ChatRoomType.DirectMessage)
+        {
+            return false;
+        }
+
+        var participant = _participants.SingleOrDefault(item => item.UserId == userId)
+            ?? throw new InvalidOperationException("Only a participant can reveal this conversation.");
+        if (participant.ConversationHiddenAt is null)
+        {
+            return false;
+        }
+
+        participant.RevealConversation();
+        return true;
+    }
+
+    public void RevealDirectConversationForAll()
+    {
+        if (Type != ChatRoomType.DirectMessage)
+        {
+            return;
+        }
+
+        foreach (var participant in _participants)
+        {
+            participant.RevealConversation();
+        }
+    }
+
     public void Archive()
     {
         if (IsArchived)

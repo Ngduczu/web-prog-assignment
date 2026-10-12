@@ -55,7 +55,7 @@ Teacher tự tạo; Admin tạo cho một teacher đang `Active`.
 }
 ```
 
-**Response `201 Created`:** Course object.
+**Response `201 Created`:** Course object. Course room tương ứng được tạo trong cùng lần lưu, gồm người tạo và teacher được chỉ định; endpoint chat lấy/tạo room vẫn giữ tính idempotent cho dữ liệu cũ.
 
 ## `GET /api/courses?search=&status=&teacherId=&includeDeleted=false&page=1&pageSize=20`
 

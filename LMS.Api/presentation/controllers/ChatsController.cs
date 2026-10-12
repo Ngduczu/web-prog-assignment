@@ -40,6 +40,16 @@ public sealed class ChatsController : ControllerBase
         [FromServices] IChatService service,
         CancellationToken cancellationToken) => Ok(await service.JoinRoomAsync(roomId, cancellationToken));
 
+    [HttpDelete("rooms/{roomId:guid}")]
+    public async Task<IActionResult> DeleteDirectConversation(
+        Guid roomId,
+        [FromServices] IChatService service,
+        CancellationToken cancellationToken)
+    {
+        await service.DeleteDirectConversationAsync(roomId, cancellationToken);
+        return NoContent();
+    }
+
     [HttpGet("rooms/{roomId:guid}/messages")]
     public async Task<ActionResult<IReadOnlyList<ChatMessageDto>>> ListMessages(
         Guid roomId,

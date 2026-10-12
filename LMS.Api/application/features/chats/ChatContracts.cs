@@ -28,6 +28,7 @@ public interface IChatService
     Task<ChatRealtimeTokenDto> CreateRealtimeTokenAsync(CancellationToken cancellationToken);
     Task<ChatRoomDto> GetOrCreateCourseRoomAsync(Guid courseId, CancellationToken cancellationToken);
     Task<ChatRoomDto> GetOrCreateDirectRoomAsync(Guid otherUserId, CancellationToken cancellationToken);
+    Task DeleteDirectConversationAsync(Guid roomId, CancellationToken cancellationToken);
     Task<IReadOnlyList<ChatMessageDto>> ListMessagesAsync(Guid roomId, ChatPageQuery query, CancellationToken cancellationToken);
     Task EnsureRoomAccessAsync(Guid roomId, CancellationToken cancellationToken);
     Task EnsureRoomJoinAccessAsync(Guid roomId, CancellationToken cancellationToken);

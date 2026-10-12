@@ -16,6 +16,38 @@ namespace LMS.Domain.Tests.Application;
 public class ChatApplicationTests
 {
     [Fact]
+    public async Task ParticipantCanDeleteDirectConversationForThemselves()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var course = new Course("Course", null, otherUserId, 30, CourseStatus.Open, otherUserId);
+        var room = ChatRoom.CreateDirectMessage(userId, otherUserId);
+        var fixture = CreateFixture(userId, Role.Student, course, room);
+
+        await fixture.Service.DeleteDirectConversationAsync(room.Id, CancellationToken.None);
+
+        var participant = room.Participants.Single(item => item.UserId == userId);
+        Assert.NotNull(participant.ConversationClearedAt);
+        Assert.NotNull(participant.ConversationHiddenAt);
+        Assert.Null(room.Participants.Single(item => item.UserId == otherUserId).ConversationHiddenAt);
+        fixture.UnitOfWork.Verify(unitOfWork =>
+            unitOfWork.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CourseConversationCannotBeDeleted()
+    {
+        var teacherId = Guid.NewGuid();
+        var course = new Course("Course", null, teacherId, 30, CourseStatus.Open, teacherId);
+        var room = ChatRoom.CreateForCourse(course.Id, teacherId);
+        room.AddCourseParticipant(teacherId);
+        var fixture = CreateFixture(teacherId, Role.Teacher, course, room);
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            fixture.Service.DeleteDirectConversationAsync(room.Id, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task AuthenticatedUserCanCreateShortLivedRealtimeToken()
     {
         var user = new User(
@@ -162,6 +194,7 @@ public class ChatApplicationTests
         var quietTime = DateTime.UtcNow.AddMinutes(-5);
         var activeTime = DateTime.UtcNow;
         fixture.Messages.Setup(repository => repository.ListLatestByRoomAsync(
+                userId,
                 It.IsAny<IReadOnlyCollection<Guid>>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, ChatRoomLatestMessage>
@@ -410,6 +443,7 @@ public class ChatApplicationTests
                 room.Id,
                 0,
                 20,
+                It.IsAny<DateTime?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([deleted, visible]);
 
@@ -447,6 +481,7 @@ public class ChatApplicationTests
                 room.Id,
                 0,
                 20,
+                It.IsAny<DateTime?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([message]);
         fixture.Users.Setup(repository => repository.ListByIdsAsync(
@@ -673,6 +708,7 @@ public class ChatApplicationTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HashSet<Guid>());
         messages.Setup(repository => repository.ListLatestByRoomAsync(
+                userId,
                 It.IsAny<IReadOnlyCollection<Guid>>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, ChatRoomLatestMessage>());
