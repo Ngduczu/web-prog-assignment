@@ -88,7 +88,7 @@ public class RegistrationApplicationTests
     }
 
     [Fact]
-    public async Task RegisterCanBeRetriedAfterMailFailureWithoutDuplicatingAccount()
+    public async Task RegisterAfterMailFailureRequiresTheExistingAccountResendFlow()
     {
         var fixture = CreateFixture();
         fixture.Mail.FailNext = true;
@@ -102,15 +102,15 @@ public class RegistrationApplicationTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fixture.Service.RegisterAsync(request));
 
-        var result = await fixture.Service.RegisterAsync(request with
-        {
-            FullName = "Changed Name",
-            Phone = "0909999999"
-        });
+        var exception = await Assert.ThrowsAsync<ConflictException>(() =>
+            fixture.Service.RegisterAsync(request));
         var user = Assert.Single(fixture.Users.Items);
-        Assert.Equal(user.Id, result.UserId);
+        Assert.Equal("An account with this email already exists.", exception.Message);
         Assert.Equal("Test User", user.FullName);
         Assert.Null(user.Phone);
+
+        await fixture.Service.ResendVerificationAsync(new ResendVerificationRequest(user.Email));
+
         Assert.False(string.IsNullOrWhiteSpace(fixture.Mail.LastCode));
     }
 
@@ -127,8 +127,10 @@ public class RegistrationApplicationTests
         await fixture.Service.RegisterAsync(request);
         var firstCode = fixture.Mail.LastCode;
 
-        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.RegisterAsync(request));
+        var exception = await Assert.ThrowsAsync<ConflictException>(() =>
+            fixture.Service.RegisterAsync(request));
 
+        Assert.Equal("An account with this email already exists.", exception.Message);
         Assert.Equal(1, fixture.Mail.VerificationMessagesSent);
         Assert.Equal(firstCode, fixture.Mail.LastCode);
         await fixture.Service.VerifyEmailAsync(new VerifyEmailRequest("user@example.com", firstCode));
@@ -146,7 +148,7 @@ public class RegistrationApplicationTests
             null));
         var firstCode = fixture.Mail.LastCode;
 
-        await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.RegisterAsync(
+        var exception = await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.RegisterAsync(
             new RegisterAccountRequest(
                 "user@example.com",
                 "different-password",
@@ -154,6 +156,7 @@ public class RegistrationApplicationTests
                 "Test User",
                 null)));
 
+        Assert.Equal("An account with this email already exists.", exception.Message);
         Assert.Equal(1, fixture.Mail.VerificationMessagesSent);
         Assert.Equal(firstCode, fixture.Mail.LastCode);
     }

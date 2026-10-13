@@ -71,22 +71,6 @@ public sealed class RegistrationService : IRegistrationService
         var existingUser = await _users.GetByEmailAsync(normalizedEmail, cancellationToken);
         if (existingUser is not null)
         {
-            if (existingUser.Status == AccountStatus.Inactive && existingUser.PasswordHash is not null)
-            {
-                if (!_passwordHasher.Verify(request.Password, existingUser.PasswordHash))
-                {
-                    throw new ConflictException(
-                        "The registration request does not match the existing inactive account.");
-                }
-
-                await AcquireCooldownAndSendVerificationCodeAsync(existingUser, cancellationToken);
-                return new RegistrationDto(
-                    existingUser.Id,
-                    existingUser.Email,
-                    existingUser.Status,
-                    _clock.UtcNow.Add(VerificationTimeToLive));
-            }
-
             throw new ConflictException("An account with this email already exists.");
         }
 

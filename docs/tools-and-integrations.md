@@ -98,7 +98,7 @@ Nguồn: [AuthCacheKeys](../LMS.Api/application/features/auth/utils/AuthCacheKey
 | `auth:refresh:{sha256(token)}` | userId, authVersion | 30 ngày | Login/login-code/refresh tạo; refresh consume |
 | `auth:email-verification:{id:N}` | userId, email, codeHash | 15 phút | Register/resend tạo; verify đọc, verify đúng consume; quá attempts hoặc SMTP lỗi xóa |
 | `auth:email-verification-attempts:{id:N}` | Counter | 15 phút từ INCR đầu | Verify tăng; lần 6 chặn; tạo mã mới hoặc verify thành công xóa |
-| `auth:email-verification-cooldown:{id:N}` | true | 1 phút | Register/resend SET NX; đã có → 409; SMTP lỗi/verify thành công xóa |
+| `auth:email-verification-cooldown:{id:N}` | true | 1 phút | Register tài khoản mới hoặc resend SET NX; đã có → 409; SMTP lỗi/verify thành công xóa |
 | `auth:password-reset:{id:N}` | userId, email, codeHash | 15 phút | Forgot tạo; reset đọc/consume; SMTP lỗi/quá attempts xóa |
 | `auth:password-reset-attempts:{id:N}` | Counter | 15 phút từ INCR đầu | Reset tăng; lần 6 chặn; reset thành công xóa; forgot không reset counter |
 | `auth:password-reset-cooldown:{id:N}` | true | 1 phút | Forgot SET NX; đã có → accepted=true không gửi; SMTP lỗi/reset thành công xóa |

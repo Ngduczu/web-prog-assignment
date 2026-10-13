@@ -38,7 +38,7 @@ Luồng xử lý và dữ liệu:
 ```mermaid
 flowchart TD
     N0["AuthController → RegistrationService: normalize và hash"]
-    N1["PostgreSQL: tạo Student Inactive hoặc kiểm account đăng ký lại"]
+    N1["PostgreSQL: email đã tồn tại → 409; nếu chưa có thì tạo Student Inactive"]
     N2["Redis cooldown và hash mã → SMTP"]
     N3["201; SMTP lỗi dọn cache, user vẫn Inactive"]
     N0 --> N1
@@ -74,11 +74,12 @@ flowchart TD
 **Hành vi:**
 
 1. Validate dữ liệu; chuẩn hóa email, họ tên và số điện thoại; hash mật khẩu. `fullName` là bắt buộc (tối đa 100 ký tự), `phone` là tùy chọn (tối đa 20 ký tự).
-2. Ghi user vào PostgreSQL.
-3. Chiếm cooldown (`SetIfNotExists`, 1 phút), sinh mã, lưu Redis TTL 15 phút.
-4. Gửi mã qua SMTP.
+2. Nếu email đã thuộc bất kỳ tài khoản nào, kể cả `Inactive`, trả `409 An account with this email already exists.` và không gửi thêm email.
+3. Ghi user mới vào PostgreSQL.
+4. Chiếm cooldown (`SetIfNotExists`, 1 phút), sinh mã, lưu Redis TTL 15 phút.
+5. Gửi mã qua SMTP.
 
-Nếu SMTP lỗi: mã và cooldown bị xóa; có thể gọi lại `register` cho đúng account `Inactive` đó (phải dùng đúng mật khẩu đã đăng ký, chịu cùng cooldown 1 phút như resend) mà không tạo user trùng. Trong cooldown, mã hiện hành không bị thay.
+Nếu SMTP lỗi: mã và cooldown bị xóa nhưng user vẫn tồn tại ở trạng thái `Inactive`. Lần đăng ký lại trả `409`; người dùng phải dùng `POST /api/auth/resend-verification` (nút **Kích hoạt tài khoản** ở frontend) để nhận mã mới.
 
 **Dữ liệu đi qua:** PostgreSQL (`users`), Redis (`auth:email-verification*`), SMTP.
 

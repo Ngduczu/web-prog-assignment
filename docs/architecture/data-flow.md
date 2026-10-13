@@ -100,7 +100,7 @@ sequenceDiagram
     participant R as Redis
     participant M as SMTP
     C->>S: POST /api/auth/register
-    S->>DB: GetByEmail (đã có Active → 409, Inactive + cùng mật khẩu → gửi lại mã)
+    S->>DB: GetByEmail (mọi account đã tồn tại → 409)
     S->>DB: INSERT user (Student, Inactive, hash mật khẩu)
     S->>R: SET NX auth:email-verification-cooldown TTL 1m (đã tồn tại → 409)
     S->>R: SET auth:email-verification = {userId, email, hash(code)} TTL 15m
@@ -132,7 +132,7 @@ sequenceDiagram
     participant R as Redis
     participant M as SMTP
     C->>S: POST /api/auth/register
-    S->>DB: GetByEmail (đã có Active → 409; Inactive + cùng mật khẩu → gửi lại mã)
+    S->>DB: GetByEmail (mọi account đã tồn tại → 409)
     S->>DB: INSERT user (Student, Inactive, hash mật khẩu)
     S->>R: SET NX auth:email-verification-cooldown TTL 1m (đã tồn tại → 409)
     S->>R: SET auth:email-verification = {userId, email, hash(code)} TTL 15m

@@ -97,7 +97,7 @@ flowchart TD
 | Triệu chứng | Kiểm tra | Nguồn |
 | --- | --- | --- |
 | Login 500 | Redis reachable; DB user lookup; log exception; không phải SMTP nếu login local | AuthenticationService, RedisCache |
-| Verify/reset báo hết mã | TTL, counter, cooldown; đúng email và mã normalize; register gửi lại khác forgot reset counter | RegistrationService, PasswordResetService |
+| Verify/reset báo hết mã | TTL, counter, cooldown; đúng email và mã normalize; tài khoản đã tồn tại phải dùng resend-verification | RegistrationService, PasswordResetService |
 | Không nhận mail nhưng share thành công | Bản sao bank có tồn tại; SMTP credentials/delivery; lỗi mail share bị nuốt | QuestionService, GmailService |
 | JWT 401 dù chưa hết hạn | Role/status/AuthVersion DB, issuer/audience/signing key; realtime token dùng nhầm REST | infrastructure/DependencyInjection, JwtTokenProvider |
 | Reload bị về login sau khoảng 60 phút | Access cookie đã mất; refresh còn nhưng getCurrentUser không tự bắt đầu refresh; cookie write trong server render | frontend lib/auth/session, lib/api/server-client |

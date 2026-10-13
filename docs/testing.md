@@ -322,7 +322,7 @@ Nguồn: [RegistrationApplicationTests.cs](<../LMS.Domain.Tests/Application/Regi
 | Fact | `RegisterRejectsFullNameLongerThanDatabaseColumn` |
 | Theory | `RegisterRejectsBlankFullName` |
 | Fact | `RegisterRejectsPhoneLongerThanDatabaseColumn` |
-| Fact | `RegisterCanBeRetriedAfterMailFailureWithoutDuplicatingAccount` |
+| Fact | `RegisterAfterMailFailureRequiresTheExistingAccountResendFlow` |
 | Fact | `RepeatedRegisterDuringCooldownDoesNotReplaceVerificationCode` |
 | Fact | `RegisterRetryWithDifferentPasswordIsRejectedWithoutReplacingCode` |
 | Fact | `CorrectCodeActivatesAccountAndRemovesVerificationState` |
