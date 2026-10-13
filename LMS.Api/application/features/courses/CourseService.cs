@@ -76,7 +76,7 @@ public sealed class CourseService : ICourseService
         _courses.Add(course);
         _chatRooms.Add(chatRoom);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return Map(course);
+        return Map(course, teacher.FullName);
     }
 
     public async Task<CourseDto> GetByIdAsync(
@@ -101,7 +101,7 @@ public sealed class CourseService : ICourseService
         }
 
         var acceptedCount = await _enrollments.CountAcceptedByCourseAsync(course.Id, cancellationToken);
-        return Map(course, acceptedCount);
+        return await MapWithTeacherAsync(course, acceptedCount, cancellationToken);
     }
 
     private async Task<bool> CanStudentViewAsync(Course course, CancellationToken cancellationToken)
@@ -220,7 +220,7 @@ public sealed class CourseService : ICourseService
             course.SetModifiedBy(actorId);
             await SynchronizeChatRoomAsync(course, transactionCancellationToken);
             await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
-            result = Map(course, acceptedCount);
+            result = await MapWithTeacherAsync(course, acceptedCount, transactionCancellationToken);
         }
 
         if (_transactionManager is null)
@@ -256,7 +256,7 @@ public sealed class CourseService : ICourseService
         await SynchronizeChatRoomAsync(course, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         var acceptedCount = await _enrollments.CountAcceptedByCourseAsync(course.Id, cancellationToken);
-        return Map(course, acceptedCount);
+        return await MapWithTeacherAsync(course, acceptedCount, cancellationToken);
     }
 
     private async Task<Course> GetManagedCourseAsync(Guid courseId, CancellationToken cancellationToken)
@@ -349,16 +349,37 @@ public sealed class CourseService : ICourseService
         var acceptedCounts = await _enrollments.CountAcceptedByCoursesAsync(
             courses.Select(course => course.Id).ToArray(),
             cancellationToken);
-        return courses
-            .Select(course => Map(course, acceptedCounts.GetValueOrDefault(course.Id)))
-            .ToArray();
+        var teachers = await _users.ListByIdsAsync(
+            courses.Select(course => course.TeacherId).Distinct().ToArray(),
+            cancellationToken);
+        var teachersById = teachers.ToDictionary(teacher => teacher.Id);
+        return courses.Select(course =>
+        {
+            if (!teachersById.TryGetValue(course.TeacherId, out var teacher))
+            {
+                throw new NotFoundException("Course teacher was not found.");
+            }
+
+            return Map(course, teacher.FullName, acceptedCounts.GetValueOrDefault(course.Id));
+        }).ToArray();
     }
 
-    private static CourseDto Map(Course course, int acceptedStudentCount = 0) => new(
+    private async Task<CourseDto> MapWithTeacherAsync(
+        Course course,
+        int acceptedStudentCount,
+        CancellationToken cancellationToken)
+    {
+        var teacher = await _users.GetByIdAsync(course.TeacherId, cancellationToken)
+            ?? throw new NotFoundException("Course teacher was not found.");
+        return Map(course, teacher.FullName, acceptedStudentCount);
+    }
+
+    private static CourseDto Map(Course course, string teacherFullName, int acceptedStudentCount = 0) => new(
         course.Id,
         course.Name,
         course.Description,
         course.TeacherId,
+        teacherFullName,
         course.MaxStudents,
         acceptedStudentCount,
         course.Status,

@@ -38,6 +38,7 @@ public class CourseApplicationTests
         Assert.Equal("Domain Driven Design", result.Name);
         Assert.Equal("Course description", result.Description);
         Assert.Equal(teacher.Id, result.TeacherId);
+        Assert.Equal(teacher.FullName, result.TeacherFullName);
         Assert.Single(courses.Items);
         var chatRoom = await chatRooms.GetByCourseIdAsync(result.Id, CancellationToken.None);
         Assert.NotNull(chatRoom);
@@ -102,6 +103,7 @@ public class CourseApplicationTests
         var course = Assert.Single(result.Items);
         Assert.Equal(openCourse.Id, course.Id);
         Assert.Equal(CourseStatus.Open, course.Status);
+        Assert.Equal(teacher.FullName, course.TeacherFullName);
     }
 
     [Fact]

@@ -43,6 +43,7 @@ flowchart TD
   "name": "C# Basics",
   "description": "Introduction",
   "teacherId": "00000000-0000-0000-0000-000000000002",
+  "teacherFullName": "Nguyen Van A",
   "maxStudents": 30,
   "acceptedStudentCount": 0,
   "status": "Open",
@@ -108,6 +109,7 @@ flowchart TD
       "name": "C# Basics",
       "description": "Introduction",
       "teacherId": "00000000-0000-0000-0000-000000000002",
+      "teacherFullName": "Nguyen Van A",
       "maxStudents": 30,
       "acceptedStudentCount": 12,
       "status": "Open",
@@ -123,7 +125,7 @@ flowchart TD
 }
 ```
 
-`acceptedStudentCount` là số enrollment đang ở trạng thái `Accepted`; các enrollment `Waiting`, `Rejected` hoặc `Cancelled` không được tính.
+`teacherFullName` là tên hiển thị của giảng viên phụ trách. `acceptedStudentCount` là số enrollment đang ở trạng thái `Accepted`; các enrollment `Waiting`, `Rejected` hoặc `Cancelled` không được tính.
 
 ## `GET /api/courses/mine`
 
