@@ -33,6 +33,19 @@ Token pair dùng chung (response của `login`, `refresh`, `login-code`):
 
 ## `POST /api/auth/register`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["AuthController → RegistrationService: normalize và hash"]
+    N1["PostgreSQL: tạo Student Inactive hoặc kiểm account đăng ký lại"]
+    N2["Redis cooldown và hash mã → SMTP"]
+    N3["201; SMTP lỗi dọn cache, user vẫn Inactive"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 **Chức năng:** Tạo tài khoản local, luôn có role `Student`, status `Inactive`, rồi gửi mã xác thực 6 ký tự qua email.
 
 **Request:**
@@ -73,6 +86,19 @@ Nếu SMTP lỗi: mã và cooldown bị xóa; có thể gọi lại `register` c
 
 ## `POST /api/auth/verify-email`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["RegistrationService → PostgreSQL: user local Inactive"]
+    N1["Redis entry → INCR attempts → verify hash → consume"]
+    N2["PostgreSQL: Active; save lỗi thì phục hồi mã/trạng thái"]
+    N3["200; dọn attempts/cooldown"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 **Chức năng:** Xác thực email bằng mã, chuyển account `Inactive` → `Active`.
 
 **Request:**
@@ -109,6 +135,19 @@ Nếu SMTP lỗi: mã và cooldown bị xóa; có thể gọi lại `register` c
 
 ## `POST /api/auth/resend-verification`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["RegistrationService: đọc user local Inactive ở PostgreSQL"]
+    N1["Redis SET NX cooldown → mã verify mới"]
+    N2["SMTP gửi mã; lỗi dọn code/cooldown"]
+    N3["204"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 **Chức năng:** Gửi lại mã xác thực cho account local đang `Inactive`.
 
 **Request:**
@@ -128,6 +167,19 @@ Nếu SMTP lỗi: mã và cooldown bị xóa; có thể gọi lại `register` c
 ---
 
 ## `POST /api/auth/login`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["AuthenticationService → PostgreSQL user"]
+    N1["Verify password hash và Active"]
+    N2["JWT + Redis refresh session 30 ngày"]
+    N3["200 token pair"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 **Chức năng:** Đăng nhập local; chỉ tài khoản `Active`.
 
@@ -149,6 +201,19 @@ Nếu SMTP lỗi: mã và cooldown bị xóa; có thể gọi lại `register` c
 ---
 
 ## `POST /api/auth/refresh`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["AuthenticationService → Redis consume refresh atomic"]
+    N1["PostgreSQL: Active và AuthVersion khớp"]
+    N2["Redis refresh mới + JWT mới"]
+    N3["200 token pair; lỗi hạ tầng sau consume phục hồi token cũ best-effort 1 phút"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 **Chức năng:** Xoay vòng token.
 
@@ -183,6 +248,18 @@ Nếu SMTP lỗi: mã và cooldown bị xóa; có thể gọi lại `register` c
 
 ## `POST /api/auth/forgot-password`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["AuthController → PasswordResetService → users PostgreSQL"] --> B{"Local Active và lấy được cooldown?"}
+    B -->|Không| R["200 accepted; không gửi mail"]
+    B -->|Có| C["Redis lưu hash mã và cooldown"]
+    C --> M["SMTP gửi mã"]
+    M -->|Thành công| R
+    M -->|Lỗi| E["Dọn code/cooldown; response lỗi"]
+```
+
 **Chức năng:** Gửi mã đặt lại mật khẩu cho tài khoản local. Không tiết lộ email có tồn tại hay không.
 
 **Request:**
@@ -209,6 +286,19 @@ Nếu SMTP lỗi: mã và cooldown bị xóa; có thể gọi lại `register` c
 ---
 
 ## `POST /api/auth/reset-password`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["PasswordResetService → Redis entry, counter, verify, consume"]
+    N1["Hash password mới + tăng AuthVersion"]
+    N2["PostgreSQL commit cả hai; lỗi thì hoàn tác memory và phục hồi mã"]
+    N3["200; dọn attempts/cooldown best-effort"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 **Chức năng:** Đặt mật khẩu mới bằng mã. Chỉ tài khoản local.
 
@@ -259,6 +349,17 @@ Frontend → POST /api/auth/login-code → token pair
 
 ### `GET /api/auth/oauth/Google/authorize`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["OAuthFlowService tạo state, verifier/challenge và browser binding"]
+    N1["Redis lưu state 10 phút"]
+    N2["Cookie binding + authorizationUrl trả browser"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Quyền:** Public. **Không có body.**
 
 **Response `200 OK`:**
@@ -273,11 +374,35 @@ Gọi bằng trình duyệt có cookie (`credentials`) rồi điều hướng t�
 
 ### `GET /api/auth/oauth/Google/link/authorize`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["JWT → user hiện tại → OAuthFlowService"]
+    N1["Redis state purpose Link gắn userId; PKCE và cookie binding"]
+    N2["authorizationUrl → Google consent"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Quyền:** Đã đăng nhập. Liên kết Google với **chính tài khoản trong JWT** (client không truyền userId). State có mục đích `Link` và không dùng lẫn với state `Login`.
 
 **Response `200 OK`:** cùng dạng `{ "authorizationUrl": "..." }`.
 
 ### `GET /api/auth/oauth/Google/callback?code={code}&state={state}`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["OAuthFlowService: cookie binding + Redis state consume"]
+    N1["Google token/userinfo hoặc identity cache đã verify"]
+    N2["AuthenticationService → PostgreSQL users/external_users"]
+    N3["Login: Redis loginCode rồi response/redirect; Link: JSON kết quả"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 **Quyền:** Public nhưng yêu cầu state hợp lệ, PKCE verifier và cookie binding.
 
@@ -314,6 +439,17 @@ Với state `Link`: Google đã thuộc user khác → `409`; user đã có Goog
 
 ### `POST /api/auth/login-code`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["AuthenticationService → Redis consume loginCode"]
+    N1["PostgreSQL user Active → ký JWT"]
+    N2["Redis refresh mới → 200 token pair"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Chức năng:** Đổi login code lấy token pair.
 
 **Request:**
@@ -334,6 +470,19 @@ Với state `Link`: Google đã thuộc user khác → `409`; user đã có Goog
 
 ## Contract nội bộ `IOAuthProvider`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["OAuthResolver chọn GoogleOAuthProvider"]
+    N1["BuildAuthorizationUrl → ExchangeCodeAsync → GetUserInfoAsync"]
+    N2["External user info đã verify → AuthenticationService"]
+    N3["PostgreSQL liên kết account; token Google không làm session LMS"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Frontend không gọi trực tiếp. Interface chuẩn hóa provider: `BuildAuthorizationUrl(OAuthAuthorizationRequest)` (redirectUri, state, codeChallenge), `ExchangeCodeAsync(code, redirectUri, codeVerifier, cancellationToken)` trả token provider, `GetUserInfoAsync(token, cancellationToken)` trả:
 
 ```json
@@ -349,5 +498,16 @@ Frontend không gọi trực tiếp. Interface chuẩn hóa provider: `BuildAuth
 Hiện chỉ có `GoogleOAuthProvider`.
 
 ## Phân biệt backend và BFF
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart LR
+    A["Backend AuthController"] -->|"Token pair"| B["Next BFF phía server"]
+    B -->|"Set-Cookie HttpOnly"| C["Browser"]
+    C -->|"Cookie tự gửi"| B
+    B -->|"Bearer JWT cho API"| A
+    L["Frontend logout"] -->|"Chỉ xóa cookie"| C
+```
 
 Backend trả cặp token, còn các route cùng tên trên Next.js chỉ đặt cookie HttpOnly và trả thời hạn. Backend không có endpoint logout/revoke một refresh token; `POST /api/auth/logout` của frontend chỉ xóa cookie trình duyệt. Với giao diện BFF hiện tại, callback Google phải về cùng host frontend: `http://localhost:3000/api/backend/auth/oauth/Google/callback` ở local, HTTPS tương ứng ở production. Không dùng callback khác host với nơi nhận cookie binding. Xem [../setup.md](../setup.md) và [../tools-and-integrations.md](../tools-and-integrations.md).

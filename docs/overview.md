@@ -4,6 +4,19 @@
 
 ## 1. Mục tiêu
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Student, Teacher, Admin, System"]
+    N1["Quản lý học tập: course, nội dung, bài tập, kỳ thi, chat"]
+    N2["Backend thực thi quyền và nghiệp vụ"]
+    N3["PostgreSQL giữ dữ liệu; Local/S3 giữ bytes"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Backend cung cấp REST API và SignalR cho hệ thống LMS với bốn vai trò `Student`, `Teacher`, `Admin`, `System`:
 
 - Tài khoản: đăng ký + xác thực email, đăng nhập JWT, refresh token, quên/đặt lại mật khẩu, đăng nhập/liên kết Google.
@@ -13,6 +26,18 @@ Backend cung cấp REST API và SignalR cho hệ thống LMS với bốn vai tr�
 - Chat theo khóa học, chat trực tiếp, realtime qua SignalR, đính kèm file.
 
 ## 2. Công nghệ
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart LR
+    N[".NET 10 / ASP.NET Core"] --> E["EF Core / Npgsql → PostgreSQL"]
+    N --> R["StackExchange.Redis → auth cache"]
+    N --> S["SignalR → browser"]
+    N --> F["IFileStorage → Local / AWS SDK S3"]
+    N --> H["HttpClient → Google; System.Net.Mail → SMTP"]
+    D["Docker / nginx"] --> N
+```
 
 | Hạng mục | Công nghệ |
 | --- | --- |
@@ -29,6 +54,17 @@ Backend cung cấp REST API và SignalR cho hệ thống LMS với bốn vai tr�
 | Hạ tầng dev | Docker Compose (PostgreSQL + Redis) |
 
 ## 3. Kiến trúc
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    P["Presentation: controller, hub, middleware"] --> A["Application: use case và abstraction"]
+    A --> D["Domain: entities, rules, repository interfaces"]
+    I["Infrastructure: EF, Redis, storage, SMTP, Google"] -.->|Implement interface| A
+    I -.->|Implement repository| D
+    C["Program và DI"] -->|Resolve implementation lúc chạy| I
+```
 
 Dự án một assembly `LMS.Api` chia theo lớp (thư mục viết thường):
 
@@ -82,6 +118,19 @@ Rate limit vượt ngưỡng trả `429`.
 
 ## 4. Xác thực và phân quyền
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Client → AuthController"] --> B["AuthenticationService: đọc users PostgreSQL"]
+    B --> C["PasswordHasher verify; tài khoản Active"]
+    C --> D["JwtTokenProvider ký JWT kèm auth_version"]
+    D --> E["Redis: hash refresh token → userId, authVersion; TTL 30 ngày"]
+    E --> F["Trả access và refresh token"]
+    F --> G["Request tiếp theo: JwtBearer → đối chiếu users PostgreSQL"]
+    G -->|Role, status hoặc version không còn khớp| H["401; cần xác thực lại"]
+```
+
 - **Access token**: JWT chứa `NameIdentifier` (userId), `Email`, `Role`, `auth_version`, `jti`. Thời sống mặc định 60 phút (`Jwt:ExpirationMinutes`).
 - **Đối chiếu mỗi request xác thực HTTP**: `OnTokenValidated` đọc user từ PostgreSQL, từ chối nếu user không tồn tại, không `Active`, role khác token hoặc `auth_version` khác `users.auth_version`. Khóa tài khoản, đổi role, đổi/đặt lại mật khẩu khiến token cũ bị từ chối ở lần xác thực tiếp theo; không đồng nghĩa ngắt ngay WebSocket đang mở (xem [giới hạn chat](api/chat.md)).
 - **Refresh token**: chuỗi opaque, chỉ lưu hash SHA-256 trong Redis (`auth:refresh:*`), TTL 30 ngày, dùng một lần (rotation).
@@ -92,6 +141,19 @@ Rate limit vượt ngưỡng trả `429`.
 - **Rate limit** (fixed window 1 phút, partition theo IP): `/api/auth/*` 10 request/phút, các path còn lại 240 request/phút.
 
 ## 5. Mô hình dữ liệu chính (PostgreSQL)
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["EF Core repository và AppDbContext"]
+    N1["PostgreSQL: users → courses/enrollments → nội dung/thi/chat"]
+    N2["FK, UNIQUE, CHECK và concurrency bảo vệ dữ liệu"]
+    N3["DTO chỉ trả trường phù hợp quyền"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 | Nhóm | Entity | Ghi chú |
 | --- | --- | --- |
@@ -107,6 +169,19 @@ Rate limit vượt ngưỡng trả `429`.
 Migration nằm ở `infrastructure/persistence/migrations`, tự động chạy (`db.Database.Migrate()`) khi API khởi động, trừ môi trường `Testing`. Sau migrate, `SystemAccountSeeder` seed/nâng cấp tài khoản System từ `SYSTEMACCOUNT__EMAIL`/`SYSTEMACCOUNT__PASSWORD`.
 
 ## 6. Redis
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Auth / Registration / PasswordReset service"]
+    N1["ICache → RedisCache → Redis"]
+    N2["JSON có TTL; SET NX, Lua consume và counter"]
+    N3["Refresh, mã email/reset, OAuth state/identity/loginCode"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Redis dùng cho state ngắn hạn của xác thực, truy cập qua `ICache` (`GetAsync`, `SetAsync`, `SetIfNotExistsAsync`, `ConsumeAsync` = GET+DEL atomic bằng Lua, `IncrementAsync` = INCR + PEXPIRE atomic, `RemoveAsync`). Giá trị là JSON camelCase. Chuỗi cấu hình: `ConnectionStrings:Redis` (kết nối lazy).
 
@@ -129,6 +204,24 @@ Nếu Redis không khả dụng, các endpoint xác thực dùng Redis (login, r
 
 ## 7. Lưu trữ file
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Request multipart → Controller → service kiểm quyền và file"] --> B["IFileStorage: ghi bytes vào Local hoặc S3"]
+    B --> C["EF Core: metadata và task xóa file cũ nếu thay thế"]
+    C -->|Commit thành công| D["Trả DTO; bytes không nằm trong PostgreSQL"]
+    C -->|DB lỗi| E["EnqueueImmediately: context riêng, ghi task cho file mới"]
+    E -->|Queue cũng lỗi| F["Thử DeleteIfExists trực tiếp; log nếu vẫn lỗi"]
+    E --> G["Ném lại lỗi ban đầu"]
+    F --> G
+    D -.-> W["FileCleanupWorker đọc task PostgreSQL"]
+    E -.-> W
+    W --> X["Xóa object qua provider hiện được cấu hình"]
+    X -->|Thành công| Y["Xóa task; save batch"]
+    X -->|Lỗi| Z["Lưu LastError, tăng AttemptCount, hẹn retry"]
+```
+
 `IFileStorage` có hai cài đặt, chọn bằng `S3Storage:Enabled`:
 
 - **Local** (mặc định): lưu dưới `FileStorage:RootPath` (mặc định `storage`, tương đối so với content root của API). Object key dạng `{thư mục}/{guid}{đuôi file}`.
@@ -142,6 +235,17 @@ Metadata (tên file, content type, size, `objectKey`) nằm trong PostgreSQL. Cl
 
 ## 8. Background worker
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart LR
+    A["API process"] --> E["ExaminationAutoSubmitWorker: 30 giây"]
+    A --> F["FileCleanupWorker: ngay startup, rồi 10 giây"]
+    E --> D["PostgreSQL: expired attempts và điểm"]
+    F --> Q["PostgreSQL: file_cleanup_tasks"]
+    Q --> S["Local hoặc S3: xóa file"]
+```
+
 | Worker | Chu kỳ | Công việc |
 | --- | --- | --- |
 | `ExaminationAutoSubmitWorker` | 30 giây, batch 100 | Tìm attempt hết giờ làm bài / quá thời gian disconnect / kỳ thi đã quá hạn, chấm và tự nộp với `submitReason` tương ứng |
@@ -149,17 +253,69 @@ Metadata (tên file, content type, size, `objectKey`) nằm trong PostgreSQL. Cl
 
 ## 9. Email
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Register/resend, forgot-password hoặc share bank"]
+    N1["IMailSender → GmailService → SMTP"]
+    N2["Email gửi trong request; không mail worker"]
+    N3["Lỗi: dọn mã auth hoặc giữ bản sao bank đã commit"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 `IMailSender` → `GmailService` dùng `System.Net.Mail.SmtpClient`, gửi trực tiếp trong request: mã xác thực email, mã đặt lại mật khẩu và thông báo chia sẻ ngân hàng câu hỏi. Hai luồng mã xác thực/reset dọn mã/cooldown nếu gửi lỗi. Chia sẻ bank commit bản sao trước rồi gửi mail; lỗi mail thông thường không làm thất bại việc chia sẻ. Không có mail queue/worker hoặc retry mail tự động. Xem [tools-and-integrations.md](tools-and-integrations.md) để tra API, TTL và tình huống lỗi.
 
 ## 10. Google OAuth
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Browser nhận authorization URL và cookie binding"]
+    N1["Google consent → callback cùng host cookie"]
+    N2["Redis state + PKCE → HTTP Google token/userinfo"]
+    N3["PostgreSQL users/external_users → loginCode → token pair"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Authorization Code + PKCE, `state` lưu Redis, gắn với cookie `__Host-LMS.OAuth.{state}` của trình duyệt khởi tạo. Hai mục đích: đăng nhập (`Login`) và liên kết tài khoản (`Link`). Callback đăng nhập trả/redirect một `loginCode` dùng một lần; frontend đổi lấy token qua `POST /api/auth/login-code`. Đăng nhập Google tự tạo tài khoản `Student` nếu email chưa có, và tự liên kết nếu email trùng tài khoản local `Active` chưa có Google. Microsoft OAuth chưa hỗ trợ. Chi tiết: [architecture/data-flow.md](architecture/data-flow.md#5-google-oauth-authorization-code--pkce) và [api/auth.md](api/auth.md).
 
 ## 11. Cấu trúc test
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["xUnit: domain / application / presentation / integration / storage"]
+    N1["Fixture hoặc mock thay dependency theo từng test"]
+    N2["Assertion kiểm trạng thái, contract và nhánh lỗi"]
+    N3["Kết quả chạy và provider phải ghi riêng trong báo cáo"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 `backend/LMS.Domain.Tests` (xUnit) gồm test domain (`Chats`, `Courses`, `Examinations`), test application service (`Application`), test persistence/storage, test controller và test tích hợp (`Integration`: xác thực API, SignalR, JSON contract, hàng đợi cleanup).
 
 ## 12. Hạn chế hiện tại
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Đối chiếu source và cấu hình"]
+    N1["Ghi giới hạn: realtime, proxy, provider, vận hành"]
+    N2["review-findings.md: đề xuất chưa triển khai"]
+    N3["Bằng chứng runtime cần kiểm tra riêng"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 - Chưa có `GET /api/users/me`; client đọc `userId` từ JWT rồi gọi `GET /api/users/{userId}/profile`.
 - Mỗi student có tối đa một lượt hiện hữu cho mỗi kỳ thi; Teacher sở hữu/Admin/System có thể xóa lượt qua API reset để cho bắt đầu lại, vẫn phải còn trong thời gian thi.

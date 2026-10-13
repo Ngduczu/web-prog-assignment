@@ -23,6 +23,17 @@ Vòng đời: `Draft → Published → Closed`. Làm bài xem [examination-attem
 
 ## Examination object
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["PostgreSQL entity và quan hệ liên quan"]
+    N1["Examination DTO: service chọn trường theo contract"]
+    N2["Controller JSON camelCase; xem ví dụ và quy tắc nullable bên dưới"]
+    N0 --> N1
+    N1 --> N2
+```
+
 ```json
 {
   "id": "00000000-0000-0000-0000-000000000017",
@@ -66,6 +77,19 @@ Vòng đời: `Draft → Published → Closed`. Làm bài xem [examination-attem
 **Student examination object** giống trên nhưng không có `questionSelectionRules`, `selectionMode`, `selectedQuestionIds`; vẫn có `questionCount` và `security`.
 
 ## `POST /api/courses/{courseId}/examinations`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationsController → ExaminationService kiểm chủ/Admin"]
+    N1["Serializable: validate → Random/Manual → snapshot từ bank teacher course"]
+    N2["PostgreSQL lưu exam/rules/questions/options rồi correct option"]
+    N3["201 ExaminationDto"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 **Request – chọn ngẫu nhiên theo rule:**
 
@@ -125,25 +149,91 @@ Vòng đời: `Draft → Published → Closed`. Làm bài xem [examination-attem
 
 ## `GET /api/courses/{courseId}/examinations`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationService kiểm quyền quản lý"]
+    N1["PostgreSQL danh sách kỳ thi của course"]
+    N2["200 mảng ExaminationDto"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Response `200 OK`:** Mảng Examination object (cả `Draft`, `Published`, `Closed`).
 
 ## `GET /api/courses/{courseId}/examinations/available`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationService kiểm quyền đọc nội dung course"]
+    N1["PostgreSQL kỳ thi trong course; người không quản lý chỉ thấy khác Draft"]
+    N2["200 StudentExaminationDto; danh sách không lọc theo giờ bắt đầu"]
+    N0 --> N1
+    N1 --> N2
+```
 
 **Response `200 OK`:** Mảng Student examination object. Với student chỉ loại `Draft`; kỳ thi chưa tới giờ, quá hạn hoặc `Closed` vẫn xuất hiện để hiển thị lịch/lịch sử. Frontend dùng `status`, `startAt`, `dueAt` để hiển thị nhãn; backend kiểm tra lại khi bắt đầu.
 
 ## `GET /api/examinations/{examinationId}`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationService kiểm quyền quản lý"]
+    N1["PostgreSQL exam, rules và snapshots"]
+    N2["200 ExaminationDto"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Response `200 OK`:** Examination object.
 
 ## `GET /api/examinations/{examinationId}/student`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationService kiểm quyền student và không Draft"]
+    N1["PostgreSQL exam → DTO dành student"]
+    N2["200; không lộ snapshot đáp án quản trị"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Không trả kỳ thi `Draft` cho student. **Response `200 OK`:** Student examination object.
 
 ## `GET /api/examinations/{examinationId}/my-attempt`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttemptService kiểm student và quyền course"]
+    N1["PostgreSQL attempt duy nhất của student trong kỳ thi"]
+    N2["Ẩn điểm theo trạng thái/chính sách → 200; chưa có → 404"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Ưu tiên attempt `InProgress`/`Disconnected`; vì mỗi student chỉ có tối đa một attempt cho mỗi kỳ thi nên đây chính là attempt duy nhất của họ. Frontend gọi khi reload để lấy lại `attempt.id`; nếu `Disconnected` thì gọi tiếp `reconnect`. `404` nếu chưa từng bắt đầu. **Response `200 OK`:** Examination attempt object (xem [examination-attempts.md](examination-attempts.md)).
 
 ## `GET /api/examinations/{examinationId}/attempts?page=1&pageSize=20`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttemptService kiểm chủ course/Admin"]
+    N1["PostgreSQL attempts theo trang và thông tin student"]
+    N2["Ẩn score/correctAnswers khi active → 200 PagedResult"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Attempt còn active không lộ `correctAnswers`/`score`. **Response `200 OK`:**
 
@@ -175,9 +265,33 @@ Attempt còn active không lộ `correctAnswers`/`score`. **Response `200 OK`:**
 
 ## `PUT /api/examinations/{examinationId}`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationService: quyền quản lý; Serializable; khóa dòng exam Draft"]
+    N1["PostgreSQL cập nhật cấu hình, không thay snapshot"]
+    N2["Commit → 200 ExaminationDto"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Chỉ `Draft`. **Request:** giống request tạo nhưng **không** có `selectionMode`, `questionSelectionRules`, `questionIds`; snapshot câu hỏi không đổi. **Response `200 OK`:** Examination object.
 
 ## `PUT /api/examinations/{examinationId}/question-set`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationService: quyền quản lý; Serializable; khóa dòng exam Draft"]
+    N1["Chọn lại Random/Manual từ bank teacher course"]
+    N2["PostgreSQL thay rules/snapshot/options và correct option → commit"]
+    N3["200 ExaminationDto; bộ câu chọn một lần"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Chỉ `Draft`. Thay toàn bộ snapshot + selection rules trong một transaction; dùng `selectionMode`, `questionSelectionRules`, `questionIds` như request tạo. `Random` chọn và lưu bộ mới ngay lúc cập nhật (không chọn lại cho từng attempt).
 
@@ -197,8 +311,32 @@ Chỉ `Draft`. Thay toàn bộ snapshot + selection rules trong một transactio
 
 ## `POST /api/examinations/{examinationId}/publish`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationService: Serializable; khóa dòng và kiểm quyền"]
+    N1["Draft, có ít nhất 1 câu, dueAt tương lai"]
+    N2["PostgreSQL Published → commit → 200"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Không có body.** Chỉ `Draft`, có ít nhất một câu hỏi và `dueAt` ở tương lai. **Response `200 OK`:** Examination `Published`.
 
 ## `POST /api/examinations/{examinationId}/close`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationService: Serializable; khóa exam Published và kiểm quyền"]
+    N1["AttemptGrader hoàn tất mọi attempt active với ExaminationClosed"]
+    N2["PostgreSQL: điểm/attempts và exam Closed cùng commit"]
+    N3["200 ExaminationDto"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 **Không có body.** Chỉ `Published`. Trong cùng transaction, mọi attempt `InProgress`/`Disconnected` được chấm và auto-submit với `submitReason=ExaminationClosed`. **Response `200 OK`:** Examination `Closed`.

@@ -4,12 +4,36 @@
 
 ## 1. Yêu cầu
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["SDK .NET 10 + Docker Compose"]
+    N1["PostgreSQL và Redis local"]
+    N2["Cấu hình API, JWT; tích hợp tùy tính năng"]
+    N0 --> N1
+    N1 --> N2
+```
+
 - .NET SDK 10
 - Docker (để chạy PostgreSQL và Redis)
 - Tài khoản SMTP (khuyến nghị Gmail + App Password) để gửi mail xác thực/đặt lại mật khẩu
 - (Tùy chọn) Google OAuth client, bucket S3
 
 ## 2. Chạy local
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["example.env → .env tại máy phát triển"]
+    N1["docker compose up: PostgreSQL và Redis"]
+    N2["dotnet run: nạp env → DI → migration → seed"]
+    N3["Middleware, controllers, hub và hai workers"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 ```bash
 cd backend
@@ -41,6 +65,18 @@ Log câu lệnh SQL (`Microsoft.EntityFrameworkCore.Database.Command`) ở mức
 
 ## 3. Biến môi trường
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    E["Biến môi trường host; .env không ghi đè biến host"] --> C["ASP.NET configuration và options"]
+    J["appsettings và appsettings.Development"] --> C
+    C --> D["ConnectionStrings → PostgreSQL / Redis"]
+    C --> A["Jwt / OAuth / Mail → adapters xác thực"]
+    C --> F["FileStorage / S3Storage → chọn một provider"]
+    C --> P["Cors / SystemAccount → presentation và seeder"]
+```
+
 | Biến | Ý nghĩa | Bắt buộc |
 | --- | --- | --- |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_PORT` | Dùng bởi `docker-compose.yml` để tạo container PostgreSQL | Có (khi dùng Docker) |
@@ -63,6 +99,18 @@ Log câu lệnh SQL (`Microsoft.EntityFrameworkCore.Database.Command`) ở mức
 `.env` chứa bí mật, đã nằm trong `.gitignore`; chỉ commit `example.env`.
 
 ## 4. Thiết lập từng chức năng
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    C["Cấu hình chức năng"] --> DB["DB connection → EF migration"]
+    C --> R["Redis connection → auth cache khi dùng"]
+    C --> M["Mail credential → SMTP"]
+    C --> G["Google credential và callback → OAuth cookie/PKCE"]
+    C --> S["Local root hoặc bucket S3 → upload/download"]
+    C --> H["AllowedOrigins và hub URL → SignalR"]
+```
 
 ### PostgreSQL + Redis
 
@@ -111,6 +159,19 @@ CORS__ALLOWEDORIGINS__0=http://localhost:3000
 
 ## 5. Chạy test
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["dotnet test LMS.sln"]
+    N1["Test host / fake dependencies / local filesystem theo fixture"]
+    N2["DB integration chỉ chạy nhánh DB khi có connection env"]
+    N3["Ghi TRX và môi trường; đối chiếu testing.md"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 ```bash
 cd backend
 dotnet test LMS.sln
@@ -119,6 +180,19 @@ dotnet test LMS.sln
 Test tích hợp dùng `ApiWebApplicationFactory` với môi trường `Testing` (không tự động migrate/seed, không redirect HTTPS). Factory thay cache/auth bằng fake, test SignalR có chế độ JWT thật nhưng repository/service giả. Test xanh không xác nhận SMTP, Google, Redis, S3 hay PostgreSQL production hoạt động. Xem [operations.md](operations.md).
 
 ## 6. Triển khai – lưu ý
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Build và cấu hình production"]
+    N1["Chuẩn bị DB, Redis, volumes, DNS và TLS"]
+    N2["API startup tự migrate; một instance theo stack hiện có"]
+    N3["Kiểm login, file, chat và worker sau rollout"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 - Đặt `ASPNETCORE_ENVIRONMENT=Production` (tắt Swagger), dùng HTTPS (`UseHttpsRedirection` bật ngoài `Testing`).
 - `JWT__SIGNINGKEY`, mật khẩu DB, SMTP, S3 phải truyền qua secret của môi trường, không đưa vào `appsettings.json`.

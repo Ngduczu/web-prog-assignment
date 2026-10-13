@@ -21,6 +21,17 @@ Cần JWT. Teacher sở hữu course hoặc Admin/System được tạo/sửa; s
 
 ## Lesson object
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["PostgreSQL entity và quan hệ liên quan"]
+    N1["Lesson DTO: service chọn trường theo contract"]
+    N2["Controller JSON camelCase; xem ví dụ và quy tắc nullable bên dưới"]
+    N0 --> N1
+    N1 --> N2
+```
+
 ```json
 {
   "id": "00000000-0000-0000-0000-000000000011",
@@ -35,6 +46,17 @@ Cần JWT. Teacher sở hữu course hoặc Admin/System được tạo/sửa; s
 ```
 
 ## `POST /api/courses/{courseId}/lessons`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["CourseContentController → LessonService kiểm quyền quản lý"]
+    N1["Validate name/order → PostgreSQL lessons; unique order theo course"]
+    N2["201 LessonDto"]
+    N0 --> N1
+    N1 --> N2
+```
 
 **Request:**
 
@@ -51,13 +73,46 @@ Cần JWT. Teacher sở hữu course hoặc Admin/System được tạo/sửa; s
 
 ## `GET /api/courses/{courseId}/lessons`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["LessonService → CourseAuthorization"]
+    N1["PostgreSQL lessons; student Accepted chỉ đọc Published"]
+    N2["200 mảng LessonDto"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Response `200 OK`:** Mảng Lesson sắp theo `order`. Teacher/Admin thấy `Draft` và `Published`; student chỉ thấy `Published`.
 
 ## `GET /api/lessons/{lessonId}`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["LessonService load lesson/course → kiểm quyền và visibility"]
+    N1["PostgreSQL lesson/material metadata"]
+    N2["200 LessonDto"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Response `200 OK`:** Lesson object. Student truy cập lesson `Draft` nhận `404`.
 
 ## `PUT /api/lessons/{lessonId}`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["LessonService kiểm quyền quản lý và validation"]
+    N1["PostgreSQL cập nhật lesson; unique order"]
+    N2["200 LessonDto"]
+    N0 --> N1
+    N1 --> N2
+```
 
 **Request:**
 
@@ -73,6 +128,17 @@ Cần JWT. Teacher sở hữu course hoặc Admin/System được tạo/sửa; s
 **Response `200 OK`:** Lesson object. `order` không trùng trong course.
 
 ## `PUT /api/courses/{courseId}/lessons/reorder`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["LessonService kiểm quyền; danh sách phải đủ lesson của course"]
+    N1["Transaction cập nhật lesson_order từ 1 trong PostgreSQL"]
+    N2["Trả kết quả theo contract endpoint"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Body phải chứa **đầy đủ** ID lesson hiện có của course theo thứ tự mới.
 
@@ -91,9 +157,31 @@ Body phải chứa **đầy đủ** ID lesson hiện có của course theo thứ
 
 ## `DELETE /api/lessons/{lessonId}`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["LessonService kiểm quyền quản lý"]
+    N1["PostgreSQL: xóa lesson/material và enqueue object keys cùng transaction"]
+    N2["204; FileCleanupWorker xóa bytes Local/S3 sau đó"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Xóa lesson và metadata material; file vật lý được đưa vào Cleanup queue. **Response `204 No Content`.**
 
 ## Material object
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["PostgreSQL entity và quan hệ liên quan"]
+    N1["Material DTO: service chọn trường theo contract"]
+    N2["Controller JSON camelCase; xem ví dụ và quy tắc nullable bên dưới"]
+    N0 --> N1
+    N1 --> N2
+```
 
 ```json
 {
@@ -112,9 +200,31 @@ Xóa lesson và metadata material; file vật lý được đưa vào Cleanup qu
 
 ## `GET /api/lessons/{lessonId}/materials`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["CourseContentController → LessonService kiểm quyền và lesson visibility"]
+    N1["PostgreSQL materials theo lesson"]
+    N2["200 mảng MaterialDto; bytes chỉ tải khi gọi endpoint content"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Student chỉ đọc material của lesson `Published`. **Response `200 OK`:** Mảng Material object.
 
 ## `POST /api/lessons/{lessonId}/materials`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["LessonService kiểm quyền và FileUploadPolicy"]
+    N1["IFileStorage → Local/S3 bytes → PostgreSQL metadata"]
+    N2["200 MaterialDto; lưu DB lỗi thì enqueue file mới để dọn"]
+    N0 --> N1
+    N1 --> N2
+```
 
 **Request:** `multipart/form-data`, field `file` (bắt buộc, không rỗng, < 20 MB).
 
@@ -126,8 +236,30 @@ file=@lesson.pdf
 
 ## `GET /api/materials/{materialId}/content?download=false`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["LessonService: load metadata, kiểm quyền course/lesson"]
+    N1["IFileStorage đọc object key từ Local/S3"]
+    N2["Controller File stream với filename và range processing"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Response `200 OK`:** Binary stream với `Content-Type` của file và tên gốc trong `Content-Disposition`. Hiện `download` không thay đổi hành vi; cả hai giá trị đều trả attachment. Xem [conventions.md](conventions.md).
 
 ## `DELETE /api/materials/{materialId}`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["LessonService kiểm quyền quản lý"]
+    N1["PostgreSQL xóa metadata + enqueue object key cùng commit"]
+    N2["204 → FileCleanupWorker xóa Local/S3"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Xóa metadata, file vào Cleanup queue. **Response `204 No Content`.**

@@ -6,6 +6,20 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 
 ## 1. Ma trận quyền
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    J["JWT hợp lệ → ICurrentUser"] --> R{"Role và tài nguyên"}
+    R --> S["Student: Accepted và trạng thái cho phép"]
+    R --> T["Teacher: kiểm sở hữu course hoặc bank"]
+    R --> A["Admin/System: quyền quản trị theo module"]
+    A --> X["Bank: chỉ đọc; quản lý Admin: chỉ System"]
+    S --> V["Service thực thi; UI không quyết định quyền"]
+    T --> V
+    X --> V
+```
+
 `S` = Student, `T` = Teacher, `A` = Admin hoặc System đối với chức năng học tập. Riêng quản lý tài khoản: chỉ System tạo/cấp Admin; Admin chỉ quản lý Student/Teacher; System không sửa tài khoản System qua API quản trị. "Chủ" = Teacher sở hữu course/question bank. "Accepted" = student có enrollment `Accepted` của course.
 
 | Chức năng | S | T | A |
@@ -36,6 +50,19 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 
 ## 2. Tài khoản
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Public register → Student Inactive trong PostgreSQL"]
+    N1["Mã Redis + SMTP → verify → Active"]
+    N2["Đổi password, role hoặc status → tăng AuthVersion"]
+    N3["JWT/refresh cũ không qua lần xác thực tiếp theo"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 | Quy tắc | Giá trị |
 | --- | --- |
 | Email | Chuẩn hóa chữ thường, ≤ 255 ký tự, hợp lệ theo `MailAddress` |
@@ -52,6 +79,20 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 
 ## 3. Khóa học và đăng ký
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Waiting: Student đăng ký course Open
+    [*] --> Accepted: Teacher hoặc Admin thêm bằng email
+    Waiting --> Accepted: Duyệt, Open và còn chỗ
+    Waiting --> Rejected: Từ chối
+    Waiting --> Cancelled: Student hủy
+    Accepted --> Cancelled: Student rời hoặc quản lý revoke
+    Rejected --> Waiting: Đăng ký lại, dùng cùng row
+    Cancelled --> Waiting: Đăng ký lại, dùng cùng row
+```
+
 - `name` 1–200 ký tự, `description` ≤ 2000, `maxStudents > 0`.
 - `maxStudents` không được thấp hơn số `Accepted` hiện tại.
 - `Closed` = ngừng tuyển; student đã `Accepted` vẫn xem nội dung (`/courses/mine`, `/enrollments/mine`).
@@ -60,6 +101,22 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 - Xóa course là xóa mềm; chat room bị archive. Khôi phục: archive được gỡ nếu course quay lại `Open`.
 
 ## 4. Nội dung học
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft: Upload file
+    Draft --> Draft: Thay file, enqueue file cũ
+    Draft --> Submitted: Có file, Published, chưa quá hạn
+    Submitted --> Draft: Unsubmit, Published, chưa quá hạn
+    Submitted --> Graded: Teacher chủ hoặc Admin chấm 0 đến 10
+    Graded --> Graded: Chấm lại
+    note right of Graded
+        Không unsubmit hoặc thay file.
+        PostgreSQL lưu điểm và feedback.
+    end note
+```
 
 **Lesson**: `name` 1–200, `order ≥ 0` và duy nhất trong course; `Draft`/`Published`. Reorder phải gửi đủ mọi lesson của course; hệ thống đánh lại `order` từ `1` trong một transaction.
 
@@ -79,6 +136,19 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 
 ## 5. Ngân hàng câu hỏi
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Teacher chủ bank → QuestionService"]
+    N1["Validate trắc nghiệm đúng một option hoặc key điền khuyết"]
+    N2["EF Core → bank, question và đáp án trong PostgreSQL"]
+    N3["Share tạo bản sao; exam tạo snapshot độc lập"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 - Bank: `name` 1–200, `description` ≤ 2000; chủ phải là teacher `Active`.
 - Trắc nghiệm: ≥ 2 option, **đúng một** option đúng, nội dung option không rỗng.
 - Điền khuyết: ≥ 1 đáp án; mỗi đáp án `blankOrder ≥ 0`, ≤ 1000 ký tự; không trùng `(blankOrder, expectedAnswer)`.
@@ -87,6 +157,17 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 - Không xóa được bank đang được selection rule của examination tham chiếu.
 
 ## 6. Kỳ thi
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft: Tạo cấu hình và snapshot
+    Draft --> Draft: Sửa cấu hình hoặc thay question set
+    Draft --> Published: Có câu hỏi, dueAt tương lai
+    Published --> Closed: Close và auto-submit attempt active
+    Closed --> [*]
+```
 
 | Quy tắc | Giá trị |
 | --- | --- |
@@ -103,6 +184,22 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 
 ## 7. Làm bài thi
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+stateDiagram-v2
+    [*] --> InProgress: Start, Accepted, exam Published trong thời gian mở
+    InProgress --> InProgress: Lưu đáp án / vi phạm dưới ngưỡng
+    InProgress --> Disconnected: Báo disconnect
+    Disconnected --> InProgress: Reconnect khi còn hạn
+    InProgress --> Submitted: Student submit khi còn hạn
+    Disconnected --> Submitted: Student submit khi còn hạn
+    InProgress --> AutoSubmitted: Hết hạn / đủ vi phạm / exam đóng
+    Disconnected --> AutoSubmitted: Hết hạn / disconnect timeout / exam đóng
+    Submitted --> [*]
+    AutoSubmitted --> [*]
+```
+
 | Quy tắc | Giá trị |
 | --- | --- |
 | Số lượt | **Một** lượt hiện hữu cho mỗi student/kỳ thi (409 nếu bắt đầu lại); Teacher chủ course/Admin/System được reset bằng cách xóa lượt và dữ liệu con |
@@ -116,6 +213,19 @@ Tổng hợp quy tắc đang được code thực thi. Chi tiết endpoint xem [
 | Hoàn thành | `Submitted` (student, còn giờ) hoặc `AutoSubmitted` (hệ thống) |
 
 ## 8. Chat
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["ChatService nhận thao tác"] --> B{"Room type"}
+    B -->|Course| C["Teacher chủ / Admin / student Accepted hiện tại"]
+    B -->|DirectMessage| D["Participant; áp dụng mốc cleared riêng"]
+    C --> E["Kiểm archive, sender, reply và message visibility"]
+    D --> E
+    E --> P["PostgreSQL: persist / soft delete / read receipt"]
+    P --> H["Controller hoặc hub phát event khi có thay đổi message"]
+```
 
 - Course room: một room/course; truy cập tính lại theo course/enrollment mỗi lần.
 - Direct room: một room/cặp user, hai bên phải `Active`, không chat với chính mình.

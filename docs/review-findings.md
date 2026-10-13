@@ -4,6 +4,19 @@ Rà soát tĩnh ngày **2026-10-13**, chưa phải pentest hoặc tái hiện pr
 
 ## Backend Change Proposal
 
+Luồng hiện tại và điểm cần xem xét; bước đề xuất chưa được triển khai:
+
+```mermaid
+flowchart TD
+    N0["Browser → nginx → Next BFF hoặc API"]
+    N1["API thấy peer IP của proxy; chưa UseForwardedHeaders"]
+    N2["Quota có thể gom nhiều user; scheme chưa xử lý proxy rõ ràng"]
+    N3["Đề xuất chưa triển khai: trust chain và limiter phù hợp"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 ### Module
 BE-01 — Reverse proxy, HTTPS và rate limiter.
 
@@ -38,6 +51,19 @@ Tin forwarded headers quá rộng cho phép giả IP; cấu hình sai có thể 
 REQUIRED trước khi dựa vào rate limit theo IP ở production nhiều người dùng.
 
 ## Backend Change Proposal
+
+Luồng hiện tại và điểm cần xem xét; bước đề xuất chưa được triển khai:
+
+```mermaid
+flowchart TD
+    N0["Connection đã JoinRoom khi có quyền"]
+    N1["Enrollment/user đổi quyền trong PostgreSQL"]
+    N2["REST kiểm lại quyền; broadcast vẫn gửi group cũ"]
+    N3["Đề xuất chưa triển khai: thu hồi connection/group hoặc lọc người nhận"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 ### Module
 BE-02 — Thu hồi quyền nhận chat realtime.
@@ -74,6 +100,19 @@ REQUIRED nếu yêu cầu thu hồi quyền chat có hiệu lực tức thời.
 
 ## Backend Change Proposal
 
+Luồng hiện tại và điểm cần xem xét; bước đề xuất chưa được triển khai:
+
+```mermaid
+flowchart TD
+    N0["Hai request cùng vượt kiểm tra trùng ở service"]
+    N1["PostgreSQL unique constraint chặn request thua"]
+    N2["Nếu constraint chưa trong policy → có thể 500"]
+    N3["Đề xuất chưa triển khai: mapping chọn lọc và test race"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 ### Module
 BE-03 — Phân loại lỗi unique constraint.
 
@@ -109,6 +148,19 @@ RECOMMENDED
 
 ## Backend Change Proposal
 
+Luồng hiện tại và điểm cần xem xét; bước đề xuất chưa được triển khai:
+
+```mermaid
+flowchart TD
+    N0["Verify/reset consume mã Redis"]
+    N1["SaveChanges PostgreSQL lỗi"]
+    N2["SET phục hồi Redis cũng lỗi, không catch bảo vệ"]
+    N3["Exception phục hồi có thể che lỗi gốc; đề xuất giữ lỗi gốc"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 ### Module
 BE-04 — Phục hồi mã xác thực/reset khi DB và Redis cùng lỗi.
 
@@ -143,5 +195,18 @@ Không được ghi mã, hash, token hoặc secret vào log recovery.
 RECOMMENDED
 
 ## Giới hạn đã ghi nhận, chưa đề xuất thay đổi nghiệp vụ
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Cấu hình hiện tại: một API process và các dependency"]
+    N1["Scale nhiều instance → cần backplane, shared storage, limiter và worker coordination"]
+    N2["Mail/log/file/search còn giới hạn đã nêu"]
+    N3["Chốt phạm vi và duyệt thay đổi riêng trước triển khai"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Chạy nhiều API instance cần giải quyết SignalR backplane, rate limiter phân tán, startup migrations, shared storage và claim task worker. Mail share chưa có outbox/retry/log thất bại; logger chưa có sink tập trung/audit log. API file hiện bỏ qua download flag, không whitelist file type. Question-bank listing chưa phân trang, ownerSearch lọc trong memory. Các điều này là hành vi/giới hạn hiện tại; muốn mở rộng cần chốt phạm vi và đề xuất riêng, không tự triển khai trong tác vụ docs.

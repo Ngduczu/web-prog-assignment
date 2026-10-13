@@ -6,6 +6,21 @@ ASP.NET Core (.NET 10) + PostgreSQL + Redis + SignalR. Mã nguồn tại [../LMS
 
 ## Dùng để viết báo cáo
 
+Bản đồ sử dụng tài liệu:
+
+```mermaid
+flowchart TD
+    N0["project-report: tác nhân và use cases"]
+    N1["overview + tools: kiến trúc và hạ tầng"]
+    N2["data-flow + API: đường đi dữ liệu từng thao tác"]
+    N3["data-model + dictionary + contracts: quan hệ và shape dữ liệu"]
+    N4["testing + operations + findings: bằng chứng và giới hạn"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+    N3 --> N4
+```
+
 - [project-report.md](project-report.md) — Bài toán, phạm vi, tác nhân, 26 use case, kiến trúc, bảo mật, đánh đổi, kiểm thử và bố cục báo cáo.
 - [tools-and-integrations.md](tools-and-integrations.md) — JWT, Redis, Mail, OAuth, EF/PostgreSQL, SignalR, Local/S3, Docker/CI: dùng ở đâu, khi nào, API nào, dữ liệu/TTL/cấu hình và lỗi.
 - [architecture/supporting-components.md](architecture/supporting-components.md) — Worker, logger, DI, middleware, seeder, clock, auth/upload/pagination helpers, persistence/test/deployment files.
@@ -19,6 +34,19 @@ ASP.NET Core (.NET 10) + PostgreSQL + Redis + SignalR. Mã nguồn tại [../LMS
 - [Frontend docs](../../frontend/docs/README.md) — Routes/BFF, UI modules, Excel, theme/i18n, guard thi và findings.
 
 ## Đọc theo thứ tự
+
+Lộ trình đọc và truy vết:
+
+```mermaid
+flowchart TD
+    N0["overview → setup → deploy-vps"]
+    N1["architecture: luồng, quyền, dữ liệu, lỗi, thành phần hỗ trợ"]
+    N2["api: endpoint → contract → service → bảng hoặc adapter"]
+    N3["source-map → file triển khai; testing → tình huống kiểm chứng"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 1. [overview.md](overview.md) – Dự án làm gì, công nghệ, kiến trúc phân lớp, Redis, storage, worker.
 2. [setup.md](setup.md) – Cài đặt, biến môi trường, chạy, migration, test.
@@ -36,3 +64,19 @@ ASP.NET Core (.NET 10) + PostgreSQL + Redis + SignalR. Mã nguồn tại [../LMS
    - [api/chat.md](api/chat.md)
 
 Khi đổi controller, DTO, service, cấu hình, worker hoặc migration, cập nhật tài liệu module và chỉ mục/phụ lục tương ứng. Không ghi test/benchmark hoặc tính năng dự kiến thành đã hoàn thành nếu chưa có bằng chứng. Link frontend giả định hai repo đặt cạnh nhau.
+
+## Quy ước đọc sơ đồ Mermaid
+
+Các sơ đồ được bổ sung vào cả 28 tài liệu, giữ nguyên nội dung và ví dụ cũ. `flowchart` mô tả đường đi hoặc dependency theo chú thích; `sequenceDiagram` mô tả thứ tự tương tác; `stateDiagram-v2` mô tả trạng thái; ERD và sơ đồ FK mô tả quan hệ dữ liệu. Mũi tên có nhãn phân biệt gọi dịch vụ, ghi/đọc, sự kiện hoặc nhánh lỗi. Sơ đồ nguồn/test là bản đồ truy vết, không phải bằng chứng runtime.
+
+Đọc bằng trình xem Markdown hỗ trợ Mermaid để hiện hình; mã sơ đồ vẫn chỉnh sửa trực tiếp trong từng file. Đường đi endpoint đã lược middleware chung; xem [pipeline](architecture/data-flow.md#1-pipeline-chung-của-mọi-request). Các tích hợp chỉ xuất hiện khi use case sử dụng; Redis không phải kho dữ liệu nghiệp vụ hoặc SignalR backplane.
+
+Ví dụ cách đọc mũi tên; đường thực tế và nhánh lỗi nằm ở tài liệu chức năng:
+
+```mermaid
+flowchart LR
+    C["Controller / Hub"] -->|"Gọi use case"| S["Application service"]
+    S -->|"Repository / EF Core"| D[("PostgreSQL")]
+    S -->|"Chỉ khi cần file"| F["IFileStorage → Local hoặc S3"]
+    S -.->|"Exception HTTP"| E["ProblemDetails"]
+```

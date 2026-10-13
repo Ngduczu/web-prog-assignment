@@ -4,6 +4,19 @@
 
 ## IFileStorage.cs — contract nội bộ của storage
 
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["IFormFile ở controller → FileUpload có Stream"]
+    N1["IFileStorage → Local/S3 → StoredFile metadata"]
+    N2["Service lưu ObjectKey trong PostgreSQL"]
+    N3["Download: FileContent → controller trả stream"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Nguồn: [IFileStorage.cs](../../LMS.Api/application/abstractions/storage/IFileStorage.cs). `Stream` là đối tượng trong tiến trình, không phải trường JSON trên wire; controller nhận `IFormFile` và trả file content qua HTTP.
 
 ```csharp
@@ -27,6 +40,17 @@ public sealed record FileContent(
 
 ## PagedResult.cs
 
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["Query page/pageSize và filter"]
+    N1["Repository trả items và totalCount"]
+    N2["PagedResult tính totalPages → JSON response"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [PagedResult.cs](<../../LMS.Api/application/common/PagedResult.cs>).
 
 ```csharp
@@ -43,6 +67,19 @@ public sealed record PagedResult<T>(
 ```
 
 ## AuthenticationContracts.cs
+
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["AuthController hoặc OAuthFlowService"]
+    N1["Login / Refresh / OAuth / LoginCode / Link request theo use case"]
+    N2["AuthenticationService → PostgreSQL, Redis, Google khi cần"]
+    N3["LoginResponse / OAuthLoginCodeResponse / OAuthLinkResponse"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Nguồn: [AuthenticationContracts.cs](<../../LMS.Api/application/features/auth/AuthenticationContracts.cs>).
 
@@ -66,6 +103,19 @@ public sealed record OAuthLinkResponse(Guid UserId, string Provider, string Exte
 
 ## OAuthFlowContracts.cs
 
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["Controller → OAuthFlowService: authorize/callback"]
+    N1["OAuthAuthorizationResult → URL và cookie HTTP"]
+    N2["OAuthCallbackRequest → validate state/binding"]
+    N3["OAuthCallbackResult → JSON hoặc redirect; không JWT trực tiếp"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Nguồn: [OAuthFlowContracts.cs](<../../LMS.Api/application/features/auth/OAuthFlowContracts.cs>).
 
 ```csharp
@@ -85,6 +135,19 @@ public sealed record OAuthCallbackResult(object Payload);
 ```
 
 ## ChatContracts.cs
+
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["Chat request / ChatPageQuery → ChatService"]
+    N1["PostgreSQL + storage nếu file; token provider nếu realtime token"]
+    N2["Room / message / attachment / realtime-token DTO"]
+    N3["Controller trả REST; message DTO còn đi qua SignalR"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Nguồn: [ChatContracts.cs](<../../LMS.Api/application/features/chats/ChatContracts.cs>).
 
@@ -118,6 +181,17 @@ public sealed record ChatRealtimeTokenDto(string AccessToken, DateTime ExpiresAt
 ```
 
 ## ExerciseContracts.cs
+
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["Create/UpdateExerciseRequest hoặc GradeSubmissionRequest"]
+    N1["ExerciseService / SubmissionService → PostgreSQL và storage theo action"]
+    N2["ExerciseDto / SubmissionDto / attachment/student DTO"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [ExerciseContracts.cs](<../../LMS.Api/application/features/coursecontents/ExerciseContracts.cs>).
 
@@ -171,6 +245,17 @@ public sealed record GradeSubmissionRequest(decimal Grade, string? Feedback);
 
 ## LessonContracts.cs
 
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["Create/Update/ReorderLessonsRequest → LessonService"]
+    N1["PostgreSQL lesson/material metadata; bytes qua IFileStorage"]
+    N2["LessonDto / MaterialDto → controller"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [LessonContracts.cs](<../../LMS.Api/application/features/coursecontents/LessonContracts.cs>).
 
 ```csharp
@@ -212,6 +297,17 @@ public sealed record MaterialDto(
 
 ## CourseContracts.cs
 
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["Create/UpdateCourseRequest hoặc CourseQuery"]
+    N1["CourseService → PostgreSQL course/enrollment"]
+    N2["CourseDto hoặc PagedResult → controller"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [CourseContracts.cs](<../../LMS.Api/application/features/courses/CourseContracts.cs>).
 
 ```csharp
@@ -251,6 +347,17 @@ public sealed record CourseDto(
 
 ## EnrollmentContracts.cs
 
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["EnrollmentQuery / AddStudentsByEmailRequest hoặc route ID"]
+    N1["EnrollmentService → PostgreSQL enrollment/course/user"]
+    N2["EnrollmentDto / AddStudentResultDto → controller"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [EnrollmentContracts.cs](<../../LMS.Api/application/features/enrollments/EnrollmentContracts.cs>).
 
 ```csharp
@@ -276,6 +383,19 @@ public sealed record AddStudentResultDto(string Email, AddStudentResultStatus St
 ```
 
 ## ExaminationAttemptContracts.cs
+
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["Route/query hoặc StudentFillInBlankAnswerInput[]"]
+    N1["ExaminationAttemptService → PostgreSQL snapshots/answers/attempts"]
+    N2["StudentExamQuestionDto / StudentAnswerDto / attempt/result DTO"]
+    N3["Che đáp án đúng và điểm theo quyền/trạng thái"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Nguồn: [ExaminationAttemptContracts.cs](<../../LMS.Api/application/features/examinationattempts/ExaminationAttemptContracts.cs>).
 
@@ -329,6 +449,17 @@ public sealed record StudentExamQuestionDto(Guid Id, string Content, QuestionTyp
 ```
 
 ## ExaminationContracts.cs
+
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["Create/UpdateExam và question set input theo contract"]
+    N1["ExaminationService → PostgreSQL exam/rules/snapshot"]
+    N2["ExaminationDto quản lý hoặc StudentExaminationDto đã lọc trường"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [ExaminationContracts.cs](<../../LMS.Api/application/features/examinations/ExaminationContracts.cs>).
 
@@ -420,6 +551,17 @@ public sealed record StudentExaminationDto(
 
 ## PasswordResetContracts.cs
 
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["ForgotPasswordRequest / ResetPasswordRequest"]
+    N1["PasswordResetService → PostgreSQL, Redis; SMTP khi phát mã"]
+    N2["Response theo action; không lộ password hash hoặc mã đã cache"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [PasswordResetContracts.cs](<../../LMS.Api/application/features/passwordreset/PasswordResetContracts.cs>).
 
 ```csharp
@@ -433,6 +575,17 @@ public sealed record PasswordResetResultDto(Guid UserId, string Email, AccountSt
 ```
 
 ## QuestionContracts.cs
+
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["Bank / question / share request"]
+    N1["QuestionService → PostgreSQL; share gửi SMTP sau commit"]
+    N2["QuestionBankDto / QuestionDto / option hoặc blank key DTO"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [QuestionContracts.cs](<../../LMS.Api/application/features/questions/QuestionContracts.cs>).
 
@@ -494,6 +647,17 @@ public sealed record QuestionDto(
 
 ## RegistrationContracts.cs
 
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["Register / VerifyEmail / ResendVerification request"]
+    N1["RegistrationService → PostgreSQL và Redis; SMTP khi phát mã"]
+    N2["Register/verification response hoặc 204 resend"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [RegistrationContracts.cs](<../../LMS.Api/application/features/registration/RegistrationContracts.cs>).
 
 ```csharp
@@ -518,6 +682,17 @@ public sealed record EmailVerificationResultDto(Guid UserId, string Email, Accou
 ```
 
 ## UserContracts.cs
+
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["UpdateProfile / ChangePassword / management request hoặc query"]
+    N1["UserService → PostgreSQL users/external_users"]
+    N2["UserProfileDto / ChatUser DTO / PagedResult theo action"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [UserContracts.cs](<../../LMS.Api/application/features/users/UserContracts.cs>).
 
@@ -545,6 +720,19 @@ public sealed record ChatUserSearchDto(Guid Id, string Email, string FullName, s
 ```
 
 ## Enum
+
+Vai trò của nhóm contract trong luồng dữ liệu (tên và trường đầy đủ giữ ở khai báo bên dưới):
+
+```mermaid
+flowchart TD
+    N0["JSON chuỗi → JsonStringEnumConverter"]
+    N1["Enum domain: role, status, question, exam, chat"]
+    N2["Service kiểm giá trị/trạng thái → entity"]
+    N3["DTO → JSON chuỗi"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Nguồn: [ChatRoomType.cs](<../../LMS.Api/domain/enums/chats/ChatRoomType.cs>).
 

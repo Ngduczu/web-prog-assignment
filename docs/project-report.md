@@ -4,11 +4,36 @@
 
 ## 1. Bài toán, mục tiêu và phạm vi
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Nhu cầu học tập tập trung"]
+    N1["Course → nội dung → bài tập / kỳ thi → trao đổi"]
+    N2["Backend quản lý trạng thái, quyền và dữ liệu bền vững"]
+    N0 --> N1
+    N1 --> N2
+```
+
 SFIT Study là hệ thống quản lý học tập dành cho môi trường CLB Tin học SFIT–UTC theo metadata ứng dụng. Hệ thống gom quản lý khóa học, đăng ký lớp, bài giảng/tài liệu, bài tập/nộp bài/chấm điểm, ngân hàng câu hỏi, thi trực tuyến và trao đổi qua chat trong một ứng dụng web. Backend bảo vệ dữ liệu theo tài khoản, vai trò, quyền sở hữu và trạng thái nghiệp vụ; frontend cung cấp giao diện tiếng Việt/Anh, sáng/tối và truy cập trên nhiều kích thước màn hình.
 
 Phạm vi hiện có không bao gồm thanh toán, chứng chỉ, video streaming chuyên dụng, SCORM, chấm bài lập trình bằng sandbox, AI grading, push notification tổng quát hoặc chống gian lận cấp hệ điều hành. Không mô tả các mục này là tính năng đã hoàn thành chỉ vì thuộc một LMS thông thường.
 
 ## 2. Tác nhân và ranh giới trách nhiệm
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart LR
+    S["Student"] --> L["Đăng ký học, đọc nội dung, nộp bài, thi, chat"]
+    T["Teacher"] --> M["Quản lý course, bank, đề, chấm bài"]
+    A["Admin"] --> Q["Quản trị Student/Teacher và tài nguyên theo quyền"]
+    Y["System"] --> X["Thêm quyền quản lý Admin; seed qua startup"]
+    L --> B["Backend xác thực và kiểm quyền"]
+    M --> B
+    Q --> B
+    X --> B
+```
 
 | Tác nhân | Mục tiêu và quyền thực tế |
 | --- | --- |
@@ -23,6 +48,19 @@ Phạm vi hiện có không bao gồm thanh toán, chứng chỉ, video streamin
 Teacher không được quản lý mọi khóa học chỉ vì có role Teacher. Student Active chưa chắc có quyền nội dung: phải có enrollment Accepted. Admin/System có quyền rộng nhưng không phải “bỏ qua mọi rule”; ví dụ ngân hàng câu hỏi chỉ đọc và thao tác auto-submit vẫn kiểm tra điều kiện reason.
 
 ## 3. Danh mục chức năng và use case
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    U["Tài khoản: register / verify / login / reset / Google / profile"] --> C["Course: tạo / quản lý / enroll / duyệt / revoke"]
+    C --> L["Nội dung: lesson / material / bài tập"]
+    L --> S["Upload submission → submit / unsubmit → grade"]
+    C --> Q["Bank / questions → share hoặc exam snapshot"]
+    Q --> E["Publish → start / save / reconnect / violation → submit / reset"]
+    C --> H["Course / direct chat → text / file / read / edit / delete"]
+    A["Admin/System quản lý tài khoản"] -.-> U
+```
 
 | ID | Use case / tác nhân | Điều kiện, luồng chính, kết quả | API / tài liệu |
 | --- | --- | --- | --- |
@@ -57,6 +95,25 @@ Teacher không được quản lý mọi khóa học chỉ vì có role Teacher.
 
 ## 4. Kiến trúc và lựa chọn thiết kế
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    B["Browser HTTPS"] --> N["nginx: public 80 / 443; TLS certificates"]
+    N -->|Frontend domain| F["Next.js:3000 / BFF"]
+    F -->|HTTP nội bộ /api| A["ASP.NET API:8080"]
+    N -->|API domain; REST hoặc WebSocket /hubs/chat| A
+    A --> P["PostgreSQL:5432 → postgres_data"]
+    A --> R["Redis:6379 → redis_data AOF"]
+    A --> L["Local /app/storage → uploads volume"]
+    A -->|Nếu bật S3| S["S3 bucket ngoài stack"]
+    A --> M["SMTP và Google HTTPS ngoài stack"]
+    H["Host loopback 15432 / 16379"] --> P
+    H --> R
+    N -->|Default HTTP host qua network tino_tino-network| T["tino-web-prod:80"]
+    C["letsencrypt và certbot-www chuẩn bị ngoài Compose"] -.-> N
+```
+
 Backend là **một ứng dụng/assembly phân lớp**, không phải microservices: presentation, application, domain, infrastructure nằm trong LMS.Api. Interface repository/storage/cache/mail/token giúp thay implementation và mock test. Phân lớp chưa hoàn toàn độc lập compile-time; ví dụ AuthenticationService dùng OAuthResolver thuộc infrastructure. Vì vậy nên gọi là “layered monolith”, không khẳng định Clean Architecture thuần túy hoặc mọi dependency đều hướng vào domain.
 
 Frontend dùng Next App Router với Server Components cho tải trang và Client Components cho tương tác. BFF giúp access/refresh token nằm trong HttpOnly cookie, Next thêm Bearer khi gọi REST. Hub là ngoại lệ kết nối trực tiếp từ browser bằng token giới hạn chat. DTO TypeScript hiện viết tay; chưa có pipeline codegen client từ OpenAPI.
@@ -76,6 +133,19 @@ Các đánh đổi có thể phân tích trong báo cáo (nhận xét dựa trê
 
 ## 5. Dữ liệu và tính toàn vẹn
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Service/domain kiểm invariant"]
+    N1["Repository → EF Core AppDbContext"]
+    N2["PostgreSQL UNIQUE / FK / CHECK / concurrency"]
+    N3["File bytes Local/S3; metadata và cleanup task PostgreSQL"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Model snapshot có **28 bảng nghiệp vụ**, **229 property mapping** (bao gồm shadow row-version), cộng bảng EF migration history ngoài số đếm. [ERD](architecture/data-model.md) giải thích quan hệ; [từ điển dữ liệu](architecture/data-dictionary.md) cung cấp tên cột, kiểu PostgreSQL, nullable, index/FK/CHECK. DB triển khai phải kiểm tra riêng `__EFMigrationsHistory`.
 
 Ba loại dữ liệu cần phân biệt: dữ liệu nghiệp vụ bền vững ở PostgreSQL; trạng thái xác thực tạm ở Redis; bytes file ở local/S3. Cookie/localStorage/sessionStorage frontend chứa phiên/preference/control state, không phải nơi lưu kết quả học tập. FileCleanupTask là queue PostgreSQL, không phải Redis job.
@@ -83,6 +153,22 @@ Ba loại dữ liệu cần phân biệt: dữ liệu nghiệp vụ bền vững
 Soft delete course ẩn dữ liệu con qua query filters và có restore. Soft delete message không xóa file vật lý. Clear direct conversation là mốc visibility per-user. Reset attempt là xóa thực lượt và answers/violations theo cascade. Không gom bốn hành vi này thành cùng một khái niệm “xóa dữ liệu”.
 
 ## 6. Luồng và trạng thái nên đưa vào báo cáo
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+stateDiagram-v2
+    [*] --> InProgress: Start, Accepted, exam Published trong thời gian mở
+    InProgress --> InProgress: Lưu đáp án / vi phạm dưới ngưỡng
+    InProgress --> Disconnected: Báo disconnect
+    Disconnected --> InProgress: Reconnect khi còn hạn
+    InProgress --> Submitted: Student submit khi còn hạn
+    Disconnected --> Submitted: Student submit khi còn hạn
+    InProgress --> AutoSubmitted: Hết hạn / đủ vi phạm / exam đóng
+    Disconnected --> AutoSubmitted: Hết hạn / disconnect timeout / exam đóng
+    Submitted --> [*]
+    AutoSubmitted --> [*]
+```
 
 Các sequence/state diagrams sẵn có ở [data-flow](architecture/data-flow.md). Nên dùng ít nhất các luồng register/verify, refresh, Google OAuth, upload+cleanup, start/save/submit exam và chat persistence+broadcast.
 
@@ -100,6 +186,26 @@ Các sequence/state diagrams sẵn có ở [data-flow](architecture/data-flow.md
 
 ## 7. Bảo mật và xử lý lỗi
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    C["HTTP request"] --> E["UseExceptionHandler bao quanh pipeline"]
+    E --> R["Rate limiter trong memory: IP và nhóm path"]
+    R -->|Vượt quota| Q["429"]
+    R -->|Được phép| O["CORS nếu cấu hình; HTTPS redirect ngoài Testing"]
+    O --> J["JwtBearer: kiểm token nếu được gửi"]
+    J -->|"Token qua chữ ký, issuer, audience, hạn, token_use"| U["PostgreSQL users: Active, role, auth_version"]
+    J -->|"Không có token: chỉ action Public được đi tiếp"| A
+    U --> A["Authorization và model binding"]
+    A --> S["Controller hoặc ChatHub → Application service"]
+    S --> G["Quyền tài nguyên, validation, domain rules"]
+    G --> I["Repository / adapter cần cho chức năng"]
+    I --> D["DTO JSON hoặc file stream trả client"]
+    U -->|Token không hợp lệ| X["401"]
+    G -->|Exception| H["GlobalExceptionHandler → ProblemDetails"]
+```
+
 | Cơ chế đã có | Rủi ro hướng tới | Giới hạn phải ghi đúng |
 | --- | --- | --- |
 | PasswordHasher + RNG code | Không lưu plaintext password/mã | Mail nhận mã thô theo mục đích; không gọi hash là mã hóa hai chiều |
@@ -115,11 +221,38 @@ Các sequence/state diagrams sẵn có ở [data-flow](architecture/data-flow.md
 
 ## 8. Chức năng nền, hỗ trợ và vận hành
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    B["Backend repository"] --> BC["Actions: restore, build Release, test, Docker build"]
+    F["Frontend repository"] --> FC["Actions: npm ci, lint, typecheck, build, Docker build"]
+    BC -->|Main push / manual main; checks pass| G["GHCR: image theo full commit SHA"]
+    FC -->|Main push / manual main; checks pass| G
+    G --> S["SSH VPS: deploy.sh; flock tối đa 300 giây"]
+    S --> E["Đổi tag trong .env → pull → compose up → ps"]
+    E --> A["API: migration / seed; frontend và nginx"]
+    A --> V["Kiểm chức năng thủ công; chưa có health gate / rollback tự động"]
+```
+
 Worker thi quét 30 giây/batch100; cleanup chạy ngay rồi 10 giây/batch100, backoff tối đa 60 phút. ILogger xuất qua host/container, chưa sink file/log tập trung. Seeder sau migration tạo/promote System, không phải worker định kỳ. Helper validation/auth/clock/upload/pagination, EF configurations/factory/migrations, fixtures/tests, CI/Docker/nginx có giải thích từng file ở [supporting-components](architecture/supporting-components.md). Frontend có [bảng thành phần hỗ trợ](../../frontend/docs/supporting-features.md) cho guard, theme/i18n, Excel, metadata và file cũ không mount.
 
 Deployment gồm hai repository CI độc lập, build images GHCR rồi dùng SSH/deploy.sh cùng Compose stack; flock tuần tự hóa deployment. PostgreSQL/Redis/uploads dùng volumes; TLS/nginx và external TiNo network cần chuẩn bị riêng. Cấu hình hiện tại một API instance, không tự đảm bảo HA/scale ngang. Đọc [setup](setup.md), [deploy](deploy-vps.md), [operations](operations.md).
 
 ## 9. Kiểm thử và đánh giá kết quả
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Test inventory từ source"]
+    N1["Chạy trên môi trường ghi rõ fake/provider"]
+    N2["Thu TRX, logs, ảnh UI hoặc số đo thực tế"]
+    N3["Đánh giá trong đúng phạm vi bằng chứng; proposal vẫn chưa triển khai"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Có **246 phương thức Fact/Theory trong 26 file test**, được đếm từ source (Theory có thể nhiều case, không phải số test pass). Danh sách từng tình huống: [testing.md](testing.md). Một PostgreSQL integration test return sớm nếu thiếu connection env; cần nêu rõ khi báo cáo kết quả. Frontend CI có lint/typecheck/build, chưa bộ E2E được khai báo.
 
@@ -135,6 +268,19 @@ Có **246 phương thức Fact/Theory trong 26 file test**, được đếm từ
 | Bảo mật | Test quyền chéo role/resource, revoke, OAuth cookie, file access | Có tests/guards và findings; chưa pentest đầy đủ |
 
 ## 10. Gợi ý bố cục báo cáo hoàn chỉnh
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Bài toán / tác nhân / use cases"]
+    N1["Kiến trúc / dữ liệu / luồng / trạng thái"]
+    N2["Hiện thực / triển khai / kiểm thử"]
+    N3["Đánh giá giới hạn và phụ lục truy vết"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 1. Giới thiệu bài toán, mục tiêu và phạm vi (mục 1–2).
 2. Khảo sát/yêu cầu chức năng, tác nhân, use cases (mục 3 và business-rules).

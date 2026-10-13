@@ -31,6 +31,22 @@ InProgress|Disconnected → AutoSubmitted  (submit khi đã hết giờ, hoặc 
 
 ## Examination attempt object
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+stateDiagram-v2
+    [*] --> InProgress: Start, Accepted, exam Published trong thời gian mở
+    InProgress --> InProgress: Lưu đáp án / vi phạm dưới ngưỡng
+    InProgress --> Disconnected: Báo disconnect
+    Disconnected --> InProgress: Reconnect khi còn hạn
+    InProgress --> Submitted: Student submit khi còn hạn
+    Disconnected --> Submitted: Student submit khi còn hạn
+    InProgress --> AutoSubmitted: Hết hạn / đủ vi phạm / exam đóng
+    Disconnected --> AutoSubmitted: Hết hạn / disconnect timeout / exam đóng
+    Submitted --> [*]
+    AutoSubmitted --> [*]
+```
+
 ```json
 {
   "id": "00000000-0000-0000-0000-000000000019",
@@ -54,9 +70,31 @@ InProgress|Disconnected → AutoSubmitted  (submit khi đã hết giờ, hoặc 
 
 ## `POST /api/examination-attempts/{examinationId}/start`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttemptService: Student Accepted; Published; trong thời gian mở"]
+    N1["Serializable: PostgreSQL kiểm chưa có attempt và đề có câu hỏi"]
+    N2["Tạo InProgress → SaveChanges → 200 AttemptDto"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Không có body.** Điều kiện: examination `Published`, `startAt <= now < dueAt`, enrollment còn `Accepted`, kỳ thi có ít nhất một câu hỏi. Mỗi student chỉ được làm **một lần**: đã có attempt (bất kể trạng thái) thì `409 A student can attempt an examination only once.` (còn ràng buộc unique `(examination_id, student_id)` ở DB). **Response `200 OK`:** Attempt object. Frontend lưu `attempt.id` cho các lời gọi sau.
 
 ## `GET /api/examination-attempts/{attemptId}/questions`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttemptService kiểm student chủ và quyền hiện tại"]
+    N1["PostgreSQL snapshot; shuffle ổn định theo attemptId"]
+    N2["200 câu hỏi/options không có đáp án đúng"]
+    N0 --> N1
+    N1 --> N2
+```
 
 **Response `200 OK`:** Mảng câu hỏi snapshot, **không** có đáp án đúng:
 
@@ -82,6 +120,19 @@ Thứ tự shuffle ổn định theo `attemptId` (gọi lại vẫn cùng thứ 
 
 ## `PUT /api/examination-attempts/{attemptId}/questions/{questionId}/multiple-choice?selectedOptionId={optionId}`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttemptService: kiểm chủ, Accepted, InProgress và deadline"]
+    N1["Validate selectedOptionId thuộc snapshot đúng câu"]
+    N2["SaveChangesAsync: PostgreSQL student_answers + activity; kiểm xmin"]
+    N3["200 answer DTO nếu còn được lưu"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 **Không có body**; chọn option qua query. **Response `200 OK`:**
 
 ```json
@@ -96,6 +147,19 @@ Thứ tự shuffle ổn định theo `attemptId` (gọi lại vẫn cùng thứ 
 ```
 
 ## `PUT /api/examination-attempts/{attemptId}/questions/{questionId}/fill-in-blank`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttemptService: kiểm chủ, Accepted, InProgress và deadline"]
+    N1["Validate mảng blankOrder/answerText theo snapshot"]
+    N2["SaveChangesAsync: PostgreSQL student_answers và blank answers; kiểm xmin"]
+    N3["200 answer DTO nếu còn được lưu"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 **Request** (mảng thuần, không bọc object):
 
@@ -128,17 +192,63 @@ Thứ tự shuffle ổn định theo `attemptId` (gọi lại vẫn cùng thứ 
 
 ## `POST /api/examination-attempts/{attemptId}/disconnect`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttemptService kiểm chủ; InProgress"]
+    N1["AttemptDeadline: hết hạn thì chấm auto-submit; còn hạn → Disconnected"]
+    N2["PostgreSQL lưu trong Serializable và kiểm xmin → 200"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Không có body.** Chỉ khi `InProgress`. Hết thời gian thì auto-submit; chưa hết thì chuyển `Disconnected` và giữ `remainingSeconds`. **Response `200 OK`:** Attempt object.
 
 ## `POST /api/examination-attempts/{attemptId}/reconnect`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttemptService kiểm chủ; Disconnected"]
+    N1["AttemptDeadline: quá disconnect/hạn thi thì auto-submit; còn hạn → InProgress"]
+    N2["PostgreSQL Serializable + xmin → 200"]
+    N0 --> N1
+    N1 --> N2
+```
 
 **Không có body.** Chỉ khi `Disconnected`. Quá `maxDisconnectMinutes` hoặc hết giờ thì auto-submit; hợp lệ thì về `InProgress`. **Response `200 OK`:** Attempt object.
 
 ## `POST /api/examination-attempts/{attemptId}/violations?violationType=TabChanged&durationSeconds=`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttemptService kiểm chủ, loại bật và fullscreen grace"]
+    N1["PostgreSQL violation/count; đạt maxViolations &gt; 0 → AttemptGrader"]
+    N2["Serializable + xmin → commit → 200 AttemptDto"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Không có body.** `violationType` là giá trị của `ExaminationViolationType`. Chỉ ghi nhận loại vi phạm đã bật trong `security` của kỳ thi. Với `ExitFullscreen`, `durationSeconds` bắt buộc; thời gian ≤ `fullscreenGraceSeconds` không tính vi phạm. Khi `violationCount` đạt `maxViolations` (> 0) thì auto-submit (`MaxViolationsExceeded`). **Response `200 OK`:** Attempt object.
 
 ## `POST /api/examination-attempts/{attemptId}/submit`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttemptService: chủ attempt active; kiểm deadline"]
+    N1["AttemptGrader: snapshot so student_answers; Submitted hoặc AutoSubmitted"]
+    N2["PostgreSQL Serializable + xmin → commit"]
+    N3["200 AttemptDto che điểm theo chính sách"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 **Không có body.** Attempt phải active. Đã hết giờ → `submitReason=DurationExpired`, ngược lại `StudentSubmitted`. Server chấm điểm. **Response `200 OK`:** Attempt object; nếu `showScoreImmediately=false` thì `correctAnswers`, `totalQuestions`, `score` là `null`.
 
@@ -146,4 +256,34 @@ Thứ tự shuffle ổn định theo `attemptId` (gọi lại vẫn cùng thứ 
 
 ## `POST /api/examination-attempts/{attemptId}/auto-submit?reason=DurationExpired`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Authorize Admin/System → ExaminationAttemptService"]
+    N1["Kiểm reason thực sự áp dụng; sai điều kiện → 409"]
+    N2["AttemptGrader → PostgreSQL AutoSubmitted trong transaction"]
+    N3["200 AttemptDto"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 **Quyền:** Admin/System (`[Authorize(Roles = "Admin,System")]`); frontend student không gọi. **Không có body.** `reason` không được là `StudentSubmitted`; backend kiểm tra điều kiện thực tế (deadline, disconnect timeout, ngưỡng vi phạm, kỳ thi đã đóng), không đúng điều kiện trả `409`. **Response `200 OK`:** Attempt object.
+
+## `DELETE /api/examinations/{examinationId}/attempts/{attemptId}`
+
+Bổ sung sơ đồ cho action reset đã liệt kê ở đầu trang. [ExaminationsController](../../LMS.Api/presentation/controllers/ExaminationsController.cs) gọi `ExaminationAttemptService.ResetAsync`; teacher chủ course hoặc Admin/System được thực hiện.
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["ExaminationsController → ExaminationAttemptService kiểm quyền quản lý"]
+    N1["Serializable: load attempt và kiểm thuộc đúng examination"]
+    N2["PostgreSQL xóa attempt; answers và violations theo cascade"]
+    N3["204; lượt bắt đầu mới vẫn phải thỏa điều kiện thời gian/enrollment"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```

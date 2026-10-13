@@ -46,6 +46,19 @@ Nguồn phiên bản: [csproj](../LMS.Api/LMS.Api.csproj), [test csproj](../LMS.
 
 ## 2. JWT, refresh token và cookie
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Client → AuthController"] --> B["AuthenticationService: đọc users PostgreSQL"]
+    B --> C["PasswordHasher verify; tài khoản Active"]
+    C --> D["JwtTokenProvider ký JWT kèm auth_version"]
+    D --> E["Redis: hash refresh token → userId, authVersion; TTL 30 ngày"]
+    E --> F["Trả access và refresh token"]
+    F --> G["Request tiếp theo: JwtBearer → đối chiếu users PostgreSQL"]
+    G -->|Role, status hoặc version không còn khớp| H["401; cần xác thực lại"]
+```
+
 Nguồn: [JwtTokenProvider](../LMS.Api/infrastructure/authentication/JWT/JwtTokenProvider.cs), [đăng ký JwtBearer](../LMS.Api/infrastructure/DependencyInjection.cs), [AuthenticationService](../LMS.Api/application/features/auth/AuthenticationService.cs).
 
 | Trường hợp | API / điểm kích hoạt | Hành vi |
@@ -64,6 +77,19 @@ Access JWT sống mặc định 60 phút, clock skew validate 30 giây. Claims �
 JWT signing key tối thiểu 32 byte; `SET_VIA_ENVIRONMENT` hoặc key ngắn làm startup lỗi. Frontend giữ access/refresh trong cookie HttpOnly (`SameSite=Lax`, `/`, Secure ở production); chỉ realtime JWT được trả cho JS và giữ trong closure. `decodeJwt` không verify chữ ký; `/users/{id}/profile` của backend xác thực lại. Chi tiết hạn chế refresh: [frontend integration](../../frontend/docs/api-integration.md).
 
 ## 3. Redis: đủ các key, API, TTL và cơ chế
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    S["Auth services → ICache"] --> R["RedisCache: lazy connection"]
+    R --> A["SET NX: cooldown và unique code"]
+    R --> B["Lua GET + DEL: consume một lần"]
+    R --> C["Lua INCR + PEXPIRE lần đầu: attempts"]
+    R --> D["SET JSON + TTL: refresh, verification, reset, OAuth"]
+    B --> E["Lỗi hạ tầng: phục hồi theo AuthFailurePolicy nếu áp dụng"]
+    D --> F["Hết TTL: key tự hết hiệu lực"]
+```
 
 Nguồn: [AuthCacheKeys](../LMS.Api/application/features/auth/utils/AuthCacheKeys.cs), [entries](../LMS.Api/application/features/auth/utils/AuthCacheEntries.cs), [RedisCache](../LMS.Api/infrastructure/caching/Redis/RedisCache.cs). `{id:N}` là GUID 32 ký tự không gạch.
 
@@ -90,6 +116,20 @@ Dev/prod bật AOF trong Compose; prod có requirepass và volume. Không coi AO
 
 ## 4. Mail: ba loại thư, không có mail worker
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Register / resend"] --> R["Commit user nếu mới; Redis hash mã verify"]
+    B["Forgot-password hợp lệ"] --> P["Redis hash mã reset"]
+    C["Share bank"] --> D["Commit bản sao PostgreSQL"]
+    R --> M["IMailSender → GmailService → SMTP"]
+    P --> M
+    D --> M
+    M -->|Auth mail lỗi| X["Dọn code/cooldown; response lỗi"]
+    M -->|Share mail lỗi thường| Y["Giữ bản sao; bỏ qua lỗi mail"]
+```
+
 Nguồn: [IMailSender](../LMS.Api/application/abstractions/mail/IMailSender.cs), [GmailService](../LMS.Api/infrastructure/mail/Gmail/GmailService.cs), [MailOptions](../LMS.Api/infrastructure/mail/Gmail/MailOptions.cs).
 
 | Mail | Khi nào và API | Người nhận / thứ tự | Nếu gửi lỗi |
@@ -104,6 +144,32 @@ Mã 6 ký tự dùng RNG bảo mật, bảng chữ cái bỏ I/O/0/1, hash bằn
 
 ## 5. Google OAuth và PKCE
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+sequenceDiagram
+    participant B as Browser qua BFF
+    participant A as OAuthFlowService
+    participant R as Redis
+    participant G as Google HTTP
+    participant D as PostgreSQL
+    B->>A: Authorize hoặc Link authorize
+    A->>R: State, verifier, binding hash, purpose, TTL 10 phút
+    A-->>B: URL chứa challenge S256, cookie binding
+    B->>G: Consent
+    G-->>B: Redirect code và state
+    B->>A: Callback kèm cookie đúng host
+    A->>R: Verify binding và consume state
+    A->>G: Code + verifier → token → userinfo
+    A->>D: Xác định / tạo / liên kết user Active
+    alt Login
+        A->>R: Login code TTL 2 phút
+        A-->>B: Login code để redeem
+    else Link
+        A-->>B: JSON link result
+    end
+```
+
 Nguồn: [GoogleOAuthProvider](../LMS.Api/infrastructure/authentication/OAuth/GoogleOAuthProvider.cs), [OAuthFlowService](../LMS.Api/application/features/auth/OAuthFlowService.cs), [OAuth cookie helper](../LMS.Api/presentation/OAuthHttpResponseExtensions.cs).
 
 Authorize tạo verifier/challenge S256, state, browser-binding; lưu state Redis và đặt cookie `__Host-LMS.OAuth.{state}` HttpOnly/Secure/SameSite=Lax/Path=/ trong 10 phút. Callback so hash cookie với state rồi consume. Provider gọi Google token endpoint và userinfo bằng HTTP timeout 10 giây, yêu cầu email verified. User mới thành Student Active; email trùng user Active có thể tự liên kết. Callback Login phát loginCode (không JWT); callback Link trả JSON link result. Microsoft chưa được hỗ trợ.
@@ -111,6 +177,24 @@ Authorize tạo verifier/challenge S256, state, browser-binding; lưu state Redi
 Với frontend BFF, cả authorize và callback phải qua host frontend để cookie host-only quay lại đúng nơi. Backend `RedirectUri` đặt thành URL proxy công khai, không phải URL nội bộ Docker. `ClientCallbackUri` là `/oauth/callback` của frontend nhận loginCode. Kết nối/timeout Google được map 503; lỗi HTTP provider có thể ra 500. Không lưu Google access token như phiên LMS lâu dài.
 
 ## 6. File local / S3 / cleanup
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Request multipart → Controller → service kiểm quyền và file"] --> B["IFileStorage: ghi bytes vào Local hoặc S3"]
+    B --> C["EF Core: metadata và task xóa file cũ nếu thay thế"]
+    C -->|Commit thành công| D["Trả DTO; bytes không nằm trong PostgreSQL"]
+    C -->|DB lỗi| E["EnqueueImmediately: context riêng, ghi task cho file mới"]
+    E -->|Queue cũng lỗi| F["Thử DeleteIfExists trực tiếp; log nếu vẫn lỗi"]
+    E --> G["Ném lại lỗi ban đầu"]
+    F --> G
+    D -.-> W["FileCleanupWorker đọc task PostgreSQL"]
+    E -.-> W
+    W --> X["Xóa object qua provider hiện được cấu hình"]
+    X -->|Thành công| Y["Xóa task; save batch"]
+    X -->|Lỗi| Z["Lưu LastError, tăng AttemptCount, hẹn retry"]
+```
 
 Nguồn: [LocalFileStorage](../LMS.Api/infrastructure/storage/Local/LocalFileStorage.cs), [S3FileStorage](../LMS.Api/infrastructure/storage/S3/S3FileStorage.cs), [upload policy](../LMS.Api/application/abstractions/storage/FileUploadPolicy.cs).
 
@@ -127,6 +211,28 @@ Metadata nằm PostgreSQL, nội dung nằm storage. Ghi file trước DB; DB l�
 
 ## 7. SignalR: sự kiện và giới hạn
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant P as ChatsController hoặc ChatHub
+    participant S as ChatService
+    participant DB as PostgreSQL
+    participant H as SignalR group
+    C->>P: Gửi text / attachment qua REST, hoặc hub SendMessage
+    P->>S: Kiểm quyền room, archive, reply, nội dung
+    opt Có file qua REST
+        S->>S: IFileStorage ghi bytes Local hoặc S3
+    end
+    S->>DB: Lưu message và attachment metadata
+    DB-->>S: SaveChanges thành công
+    S-->>P: ChatMessageDto
+    P->>H: MessageReceived
+    P-->>C: REST 201 hoặc hub hoàn tất
+    Note over DB,H: Broadcast lỗi không rollback message, tải lại lịch sử bằng REST
+```
+
 REST tải room/history và gửi file; UI hiện gửi text bằng REST, hub cũng cung cấp `SendMessage`. Controller/hub lưu DB trước broadcast `MessageReceived`, sửa phát `MessageUpdated`, xóa message phát `MessageDeleted`. Group chính xác `chat-room:{roomId:N}`. Join/Leave là theo connection, POST REST join chỉ kiểm tra room, không thêm WebSocket vào group.
 
 Frontend reconnect vô hạn theo backoff 1/2/4/8/16/30 giây, lấy token mới khi còn ≤15 giây, join lại và tải history. Backend đóng kết nối khi hết hạn auth; không có replay event/outbox hoặc đảm bảo exactly-once. Broadcast lỗi không rollback DB, cần tải REST trước khi gửi lại để tránh trùng message.
@@ -134,5 +240,18 @@ Frontend reconnect vô hạn theo backoff 1/2/4/8/16/30 giây, lấy token mới
 `AddSignalR()` chưa cấu hình Redis backplane. JWT/AuthVersion kiểm tra lúc HTTP authentication; group membership không tự thu hồi khi enrollment đổi. Xem [findings](review-findings.md) trước khi dựa vào realtime cho thu hồi quyền tức thời hoặc chạy nhiều replica.
 
 ## 8. Những công cụ không trực tiếp phục vụ một API
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Program / DI nối các abstraction với implementation"]
+    N1["Clock, logger, EF mapping, migrations, seeder và workers"]
+    N2["Build/test/CI và deployment hỗ trợ vòng đời ứng dụng"]
+    N3["Xem supporting-components và operations để truy vết từng thành phần"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 `IClock/SystemClock` cho deadline/TTL tính ở service, `ILogger` cho chẩn đoán, DI cho wiring/lifetime, EF configurations/migrations cho schema, hosted workers cho tác vụ sau request. Frontend còn có i18n, theme, Excel, guard thi, metadata/robots/sitemap, error boundary và skeleton. Mô tả từng file, thời điểm gọi và giới hạn tại [supporting-components](architecture/supporting-components.md), [frontend supporting-features](../../frontend/docs/supporting-features.md), [operations](operations.md).

@@ -6,6 +6,15 @@ Cột Nullable dựa trên CLR nullable/IsRequired trong snapshot; kiểu enum �
 
 ## chat_attachments
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["chat_attachments: PostgreSQL"]
+    P0["chat_messages"]
+    T -->|"FK ChatMessageId; Cascade"| P0
+```
+
 Entity: `ChatAttachment`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -29,6 +38,18 @@ b.HasOne("LMS.Api.domain.Entities.Chats.ChatMessage", "ChatMessage") .WithMany("
 ```
 
 ## chat_messages
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["chat_messages: PostgreSQL"]
+    P0["chat_rooms"]
+    T -->|"FK ChatRoomId; Cascade"| P0
+    T -->|"FK ReplyToMessageId; SetNull"| T
+    P2["users"]
+    T -->|"FK SenderId; Restrict"| P2
+```
 
 Entity: `ChatMessage`.
 
@@ -57,6 +78,19 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", null) .WithMany() .HasForeignKey(
 
 ## chat_participants
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["chat_participants: PostgreSQL"]
+    P0["chat_rooms"]
+    T -->|"FK ChatRoomId; Cascade"| P0
+    P1["chat_messages"]
+    T -->|"FK LastReadMessageId; SetNull"| P1
+    P2["users"]
+    T -->|"FK UserId; Restrict"| P2
+```
+
 Entity: `ChatParticipant`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -82,6 +116,17 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", null) .WithMany() .HasForeignKey(
 ```
 
 ## chat_rooms
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["chat_rooms: PostgreSQL"]
+    P0["courses"]
+    T -->|"FK LMS.Api.domain.Entities.Chats.ChatRoom + CourseId; Restrict"| P0
+    P1["users"]
+    T -->|"FK CreatedById; Restrict"| P1
+```
 
 Entity: `ChatRoom`.
 
@@ -109,6 +154,21 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", null) .WithMany() .HasForeignKey(
 ```
 
 ## courses
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["courses: PostgreSQL"]
+    P0["users"]
+    T -->|"FK CreatedById; Restrict"| P0
+    P1["users"]
+    T -->|"FK DeletedById; Restrict"| P1
+    P2["users"]
+    T -->|"FK ModifiedById; Restrict"| P2
+    P3["users"]
+    T -->|"FK TeacherId; Restrict"| P3
+```
 
 Entity: `Course`.
 
@@ -146,6 +206,17 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", "Teacher") .WithMany() .HasForeig
 
 ## enrollments
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["enrollments: PostgreSQL"]
+    P0["courses"]
+    T -->|"FK CourseId; Cascade"| P0
+    P1["users"]
+    T -->|"FK StudentId; Restrict"| P1
+```
+
 Entity: `Enrollment`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -168,6 +239,19 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", "Student") .WithMany() .HasForeig
 ```
 
 ## exercises
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["exercises: PostgreSQL"]
+    P0["courses"]
+    T -->|"FK CourseId; Cascade"| P0
+    P1["users"]
+    T -->|"FK CreatedById; Restrict"| P1
+    P2["users"]
+    T -->|"FK ModifiedById; Restrict"| P2
+```
 
 Entity: `Exercise`.
 
@@ -199,6 +283,17 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", "ModifiedBy") .WithMany() .HasFor
 
 ## exercise_attachments
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["exercise_attachments: PostgreSQL"]
+    P0["users"]
+    T -->|"FK CreatedById; Restrict"| P0
+    P1["exercises"]
+    T -->|"FK LMS.Api.domain.Entities.Courses.ExerciseAttachment + ExerciseId; Cascade"| P1
+```
+
 Entity: `ExerciseAttachment`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -226,6 +321,19 @@ b.HasOne("LMS.Api.domain.Entities.Courses.Exercise", "Exercise") .WithOne("Attac
 ```
 
 ## lessons
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["lessons: PostgreSQL"]
+    P0["courses"]
+    T -->|"FK CourseId; Cascade"| P0
+    P1["users"]
+    T -->|"FK CreatedById; Restrict"| P1
+    P2["users"]
+    T -->|"FK ModifiedById; Restrict"| P2
+```
 
 Entity: `Lesson`.
 
@@ -256,6 +364,19 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", "ModifiedBy") .WithMany() .HasFor
 ```
 
 ## materials
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["materials: PostgreSQL"]
+    P0["users"]
+    T -->|"FK CreatedById; Restrict"| P0
+    P1["lessons"]
+    T -->|"FK LessonId; Cascade"| P1
+    P2["users"]
+    T -->|"FK ModifiedById; Restrict"| P2
+```
 
 Entity: `Material`.
 
@@ -288,6 +409,19 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", "ModifiedBy") .WithMany() .HasFor
 
 ## submissions
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["submissions: PostgreSQL"]
+    P0["exercises"]
+    T -->|"FK ExerciseId; Cascade"| P0
+    P1["users"]
+    T -->|"FK GradedById; Restrict"| P1
+    P2["users"]
+    T -->|"FK StudentId; Restrict"| P2
+```
+
 Entity: `Submission`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -319,6 +453,15 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", "Student") .WithMany() .HasForeig
 
 ## submission_attachments
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["submission_attachments: PostgreSQL"]
+    P0["submissions"]
+    T -->|"FK LMS.Api.domain.Entities.Courses.SubmissionAttachment + SubmissionId; Cascade"| P0
+```
+
 Entity: `SubmissionAttachment`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -343,6 +486,19 @@ b.HasOne("LMS.Api.domain.Entities.Courses.Submission", "Submission") .WithOne("A
 ```
 
 ## examinations
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["examinations: PostgreSQL"]
+    P0["courses"]
+    T -->|"FK CourseId; Cascade"| P0
+    P1["users"]
+    T -->|"FK CreatedById; Restrict"| P1
+    P2["users"]
+    T -->|"FK ModifiedById; Restrict"| P2
+```
 
 Entity: `Examination`.
 
@@ -389,6 +545,17 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", "ModifiedBy") .WithMany() .HasFor
 
 ## examination_attempts
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["examination_attempts: PostgreSQL"]
+    P0["examinations"]
+    T -->|"FK ExaminationId; Cascade"| P0
+    P1["users"]
+    T -->|"FK StudentId; Restrict"| P1
+```
+
 Entity: `ExaminationAttempt`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -424,6 +591,15 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", "Student") .WithMany() .HasForeig
 
 ## examination_fill_in_blank_answer_keys
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["examination_fill_in_blank_answer_keys: PostgreSQL"]
+    P0["examination_questions"]
+    T -->|"FK ExaminationQuestionId; Cascade"| P0
+```
+
 Entity: `ExaminationFillInBlankAnswerKey`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -444,6 +620,15 @@ b.HasOne("LMS.Api.domain.Entities.Examinations.ExaminationQuestion", "Examinatio
 
 ## examination_multiple_choice_options
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["examination_multiple_choice_options: PostgreSQL"]
+    P0["examination_questions"]
+    T -->|"FK ExaminationQuestionId; Cascade"| P0
+```
+
 Entity: `ExaminationMultipleChoiceOption`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -463,6 +648,17 @@ b.HasOne("LMS.Api.domain.Entities.Examinations.ExaminationQuestion", "Examinatio
 ```
 
 ## examination_questions
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["examination_questions: PostgreSQL"]
+    P0["examination_multiple_choice_options"]
+    T -->|"FK CorrectOptionId; SetNull"| P0
+    P1["examinations"]
+    T -->|"FK ExaminationId; Cascade"| P1
+```
 
 Entity: `ExaminationQuestion`.
 
@@ -492,6 +688,17 @@ b.HasOne("LMS.Api.domain.Entities.Examinations.Examination", "Examination") .Wit
 
 ## examination_question_selection_rules
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["examination_question_selection_rules: PostgreSQL"]
+    P0["examinations"]
+    T -->|"FK ExaminationId; Cascade"| P0
+    P1["question_banks"]
+    T -->|"FK QuestionBankId; Restrict"| P1
+```
+
 Entity: `ExaminationQuestionSelectionRule`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -515,6 +722,15 @@ b.HasOne("LMS.Api.domain.Entities.Questions.QuestionBank", "QuestionBank") .With
 
 ## examination_violations
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["examination_violations: PostgreSQL"]
+    P0["examination_attempts"]
+    T -->|"FK ExaminationAttemptId; Cascade"| P0
+```
+
 Entity: `ExaminationViolation`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -533,6 +749,19 @@ b.HasOne("LMS.Api.domain.Entities.Examinations.ExaminationAttempt", "Examination
 ```
 
 ## student_answers
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["student_answers: PostgreSQL"]
+    P0["examination_attempts"]
+    T -->|"FK ExaminationAttemptId; Cascade"| P0
+    P1["examination_questions"]
+    T -->|"FK ExaminationQuestionId; Restrict"| P1
+    P2["examination_multiple_choice_options"]
+    T -->|"FK SelectedOptionId; SetNull"| P2
+```
 
 Entity: `StudentAnswer`.
 
@@ -559,6 +788,15 @@ b.HasOne("LMS.Api.domain.Entities.Examinations.ExaminationMultipleChoiceOption",
 
 ## student_fill_in_blank_answers
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["student_fill_in_blank_answers: PostgreSQL"]
+    P0["student_answers"]
+    T -->|"FK StudentAnswerId; Cascade"| P0
+```
+
 Entity: `StudentFillInBlankAnswer`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -578,6 +816,15 @@ b.HasOne("LMS.Api.domain.Entities.Examinations.StudentAnswer", "StudentAnswer") 
 ```
 
 ## fill_in_blank_answer_keys
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["fill_in_blank_answer_keys: PostgreSQL"]
+    P0["questions"]
+    T -->|"FK QuestionId; Cascade"| P0
+```
 
 Entity: `FillInBlankAnswerKey`.
 
@@ -599,6 +846,15 @@ b.HasOne("LMS.Api.domain.Entities.Questions.Question", "Question") .WithMany("Fi
 
 ## multiple_choice_options
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["multiple_choice_options: PostgreSQL"]
+    P0["questions"]
+    T -->|"FK QuestionId; Cascade"| P0
+```
+
 Entity: `MultipleChoiceOption`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -618,6 +874,21 @@ b.HasOne("LMS.Api.domain.Entities.Questions.Question", "Question") .WithMany("Mu
 ```
 
 ## questions
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["questions: PostgreSQL"]
+    P0["multiple_choice_options"]
+    T -->|"FK CorrectOptionId; SetNull"| P0
+    P1["users"]
+    T -->|"FK CreatedById; Restrict"| P1
+    P2["users"]
+    T -->|"FK ModifiedById; Restrict"| P2
+    P3["question_banks"]
+    T -->|"FK QuestionBankId; Cascade"| P3
+```
 
 Entity: `Question`.
 
@@ -651,6 +922,19 @@ b.HasOne("LMS.Api.domain.Entities.Questions.QuestionBank", "QuestionBank") .With
 
 ## question_banks
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["question_banks: PostgreSQL"]
+    P0["users"]
+    T -->|"FK CreatedById; Restrict"| P0
+    P1["users"]
+    T -->|"FK ModifiedById; Restrict"| P1
+    P2["users"]
+    T -->|"FK TeacherId; Restrict"| P2
+```
+
 Entity: `QuestionBank`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -678,6 +962,16 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", "Teacher") .WithMany() .HasForeig
 
 ## file_cleanup_tasks
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["file_cleanup_tasks: PostgreSQL"]
+    S["Service / FileCleanupQueue"] -->|"enqueue object key"| T
+    W["FileCleanupWorker"] -->|"đọc task đến hạn; cập nhật retry hoặc xóa task"| T
+    W -->|"DeleteIfExists"| F["Local hoặc S3"]
+```
+
 Entity: `FileCleanupTask`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -699,6 +993,15 @@ b.HasIndex("ObjectKey") .IsUnique();
 
 ## external_users
 
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["external_users: PostgreSQL"]
+    P0["users"]
+    T -->|"FK UserId; Cascade"| P0
+```
+
 Entity: `ExternalUser`.
 
 | Property | Cột SQL | Kiểu PostgreSQL | Nullable | Ràng buộc thuộc tính |
@@ -718,6 +1021,17 @@ b.HasOne("LMS.Api.domain.Entities.Users.User", "User") .WithMany() .HasForeignKe
 ```
 
 ## users
+
+Quan hệ cục bộ: mũi tên đi từ bảng giữ FK sang bảng được tham chiếu; nhãn cuối là delete behavior khi xóa bản ghi cha, không mô tả xóa mềm:
+
+```mermaid
+flowchart LR
+    T["users: PostgreSQL"]
+    T -->|"FK CreatedById; Restrict"| T
+    T -->|"FK ModifiedById; Restrict"| T
+    A["Auth và UserService"] -->|"đọc/ghi account, hash, AuthVersion"| T
+    J["JwtBearer"] -->|"đối chiếu Active, role, version"| T
+```
 
 Entity: `User`.
 

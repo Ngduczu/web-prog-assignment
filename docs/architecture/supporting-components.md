@@ -4,6 +4,19 @@
 
 ## 1. Startup và dependency injection
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Program nạp env → đăng ký application/infrastructure/presentation"]
+    N1["Validate JWT config; Redis multiplexer lazy"]
+    N2["Ngoài Testing: PostgreSQL migrate → SystemAccountSeeder"]
+    N3["Map controllers và hub; host chạy hai workers"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 | File | Làm gì | Khi nào / nơi sử dụng |
 | --- | --- | --- |
 | `presentation/Program.cs` | Nạp env; JSON enum converter; SignalR/CORS; DI; migrate + seed; middleware; map route/hub | Entry point mỗi lần API khởi động; migrate/seed/HTTPS redirect bỏ qua ở Testing; Swagger/OpenAPI chỉ Development |
@@ -17,6 +30,20 @@ Repository, DbContext, transaction manager, current user và application service
 
 ## 2. ExaminationAutoSubmitWorker
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    T["Tick 30 giây trong tiến trình API"] --> S["Tạo DI scope riêng"]
+    S --> R["Repository → PostgreSQL: tối đa 100 attempt hết hạn"]
+    R --> D["AttemptDeadline chọn reason"]
+    D --> G["AttemptGrader đọc snapshot và student_answers"]
+    G --> A["AutoSubmitted, score, submitReason"]
+    A --> P["SaveChanges cả batch; kiểm xmin"]
+    P -->|Lỗi| L["LogError; thử lại ở tick sau"]
+    P -->|Thành công| C["Client đọc kết quả qua REST"]
+```
+
 Nguồn: [worker](../../LMS.Api/infrastructure/workers/ExaminationAutoSubmitWorker.cs), [repository](../../LMS.Api/infrastructure/persistence/repositories/ExaminationAttemptRepository.cs), [deadline](../../LMS.Api/application/features/examinationattempts/AttemptDeadline.cs), [grader](../../LMS.Api/application/features/examinationattempts/AttemptGrader.cs).
 
 - Đăng ký `AddHostedService` trong infrastructure DI, chạy cùng tiến trình API, không có endpoint khởi động worker.
@@ -28,6 +55,24 @@ Nguồn: [worker](../../LMS.Api/infrastructure/workers/ExaminationAutoSubmitWork
 - `POST /api/examinations/{id}/close` tự hoàn tất attempt trong transaction request với `ExaminationClosed`; không đợi worker. `POST .../auto-submit` là action Admin/System có kiểm tra lý do, khác lịch tự quét.
 
 ## 3. FileCleanupQueue và FileCleanupWorker
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Request multipart → Controller → service kiểm quyền và file"] --> B["IFileStorage: ghi bytes vào Local hoặc S3"]
+    B --> C["EF Core: metadata và task xóa file cũ nếu thay thế"]
+    C -->|Commit thành công| D["Trả DTO; bytes không nằm trong PostgreSQL"]
+    C -->|DB lỗi| E["EnqueueImmediately: context riêng, ghi task cho file mới"]
+    E -->|Queue cũng lỗi| F["Thử DeleteIfExists trực tiếp; log nếu vẫn lỗi"]
+    E --> G["Ném lại lỗi ban đầu"]
+    F --> G
+    D -.-> W["FileCleanupWorker đọc task PostgreSQL"]
+    E -.-> W
+    W --> X["Xóa object qua provider hiện được cấu hình"]
+    X -->|Thành công| Y["Xóa task; save batch"]
+    X -->|Lỗi| Z["Lưu LastError, tăng AttemptCount, hẹn retry"]
+```
 
 Nguồn: [queue](../../LMS.Api/infrastructure/storage/FileCleanupQueue.cs), [worker](../../LMS.Api/infrastructure/storage/FileCleanupWorker.cs), [entity](../../LMS.Api/domain/entities/storage/FileCleanupTask.cs), [DbContext](../../LMS.Api/infrastructure/persistence/AppDbContext.cs).
 
@@ -43,6 +88,18 @@ Nguồn: [queue](../../LMS.Api/infrastructure/storage/FileCleanupQueue.cs), [wor
 Task bền vững qua restart, không có max-attempt/dead-letter queue hoặc API quản trị task. Task chỉ lưu object key, không lưu provider; đổi Local/S3 mà chưa chuyển file có thể làm cleanup chạy sai nơi. Unique object_key chống enqueue trùng, không phải distributed claim/lock cho nhiều worker. Xóa message mềm và ẩn direct conversation không enqueue attachment; đây không phải garbage collector xóa mọi file cũ.
 
 ## 4. Logger: ai ghi, ghi gì, đọc ở đâu
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    H["HTTP exception"] --> G["GlobalExceptionHandler: Warning hoặc Error"]
+    W["Worker / storage cleanup lỗi"] --> L["ILogger theo category"]
+    S["Seeder / framework"] --> L
+    G --> L
+    L --> O["Host console → stdout/stderr → docker compose logs"]
+    O --> D["Người vận hành đối chiếu request, DB và task"]
+```
 
 Project dùng `Microsoft.Extensions.Logging.ILogger<T>` do ASP.NET host cung cấp; chưa cấu hình Serilog, NLog, sink file, OpenTelemetry hay dịch vụ log tập trung. Khi chạy terminal xem stdout/stderr; container xem `docker compose ... logs`. Không có thư mục log nghiệp vụ được code tự tạo.
 
@@ -63,6 +120,19 @@ Không có audit trail tập trung ghi ai gọi từng endpoint. CreatedBy/Modif
 
 ## 5. Auth và HTTP helper
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["HTTP principal → HttpContextCurrentUser"]
+    N1["CurrentUserExtensions và RoleExtensions → danh tính/quyền"]
+    N2["AuthValidation / AuthSecurity / AuthCacheKeys → validate và credential"]
+    N3["OAuth helper đặt cookie; exception handler trả lỗi HTTP"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 | File | Công dụng | Nơi gọi / tình huống |
 | --- | --- | --- |
 | `presentation/security/HttpContextCurrentUser.cs` | Đọc principal thành authenticated/userId/Role | Service không tự parse HTTP header |
@@ -78,6 +148,18 @@ Không có audit trail tập trung ghi ai gọi từng endpoint. CreatedBy/Modif
 | `presentation/middleware/GlobalExceptionHandler.cs` | Map exception thành HTTP/ProblemDetails và log | Exception request; không phải handler mọi lỗi hub/worker hoặc lỗi binding |
 
 ## 6. Helper nghiệp vụ và persistence
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    S["Service"] --> A["CourseAuthorization / FileUploadPolicy / IClock"]
+    S --> R["Repository: query, Include, filter, pagination"]
+    R --> C["AppDbContext: UnitOfWork và TransactionManager"]
+    M["EF configurations và migrations"] -.->|Định nghĩa schema| C
+    C --> D["PostgreSQL: FK, UNIQUE, xmin và cleanup upsert"]
+    C --> E["Concurrency hoặc constraint nghiệp vụ → ConflictException"]
+```
 
 | File / thư mục | Làm gì | Khi nào cần đọc |
 | --- | --- | --- |
@@ -96,6 +178,19 @@ Không có audit trail tập trung ghi ai gọi từng endpoint. CreatedBy/Modif
 
 ## 7. File hỗ trợ build, test và deploy
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["LMS.sln và csproj → restore / build / test"]
+    N1["Dockerfile → image API"]
+    N2["Actions → GHCR → SSH deploy.sh"]
+    N3["Compose + nginx + volumes → runtime; kiểm chức năng sau deploy"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 | File (từ backend root) | Vai trò / khi dùng |
 | --- | --- |
 | `LMS.sln`, `LMS.Api/LMS.Api.csproj`, `LMS.Domain.Tests/LMS.Domain.Tests.csproj` | Tập project và dependency; restore/build/test |
@@ -111,3 +206,7 @@ Không có audit trail tập trung ghi ai gọi từng endpoint. CreatedBy/Modif
 | `LMS.sln.DotSettings.user` / IDE metadata nếu có | Cấu hình cá nhân IDE, không phải contract/runtime |
 
 `deploy.sh` cập nhật tag trong `.env` trước pull/up, không tự rollback hoặc chờ readiness API. Compose có healthcheck DB/Redis nhưng API chưa map `/health`. Không dùng container “running” thay kiểm tra đăng nhập/upload/chat. Xem [deploy-vps](../deploy-vps.md) và [operations](../operations.md).
+
+### Đối chiếu service và worker thi
+
+Hai action lưu đáp án gọi `SaveChangesAsync` trực tiếp và kiểm `xmin`; không bọc transaction Serializable tường minh như start/disconnect/reconnect/violation/submit/auto-submit/reset. Worker cũng save batch trực tiếp. Xem [ExaminationAttemptService](../../LMS.Api/application/features/examinationattempts/ExaminationAttemptService.cs).

@@ -4,6 +4,21 @@
 
 ## 1. Phụ thuộc và thứ tự khởi động
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["PostgreSQL reachable + JWT key hợp lệ + Redis connection string"]
+    N1["Startup migration và seeder ngoài Testing"]
+    N2["Controllers / hub / workers chạy trong API"]
+    N3["Next BFF gọi API; browser nối hub công khai"]
+    N4["SMTP, Google, S3 chỉ được kiểm chứng khi dùng chức năng đó"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+    N3 --> N4
+```
+
 1. PostgreSQL phải truy cập được để migrate/seed khi API startup ngoài Testing. JWT signing key phải hợp lệ; Redis connection string phải tồn tại, kết nối Redis được mở lazy khi dùng.
 2. API khởi động middleware/controllers/hub và hai hosted workers. Worker cleanup có thể truy cập storage ngay lúc bắt đầu.
 3. Next dùng BACKEND_API_URL phía server; browser dùng BACKEND_HUB_URL công khai. Production không để browser nhận hostname nội bộ `api`.
@@ -20,6 +35,19 @@
 | API process/worker | Không quét cleanup/expired attempts khi process dừng | Task/attempt vẫn DB, xử lý lại khi chạy |
 
 ## 2. Chẩn đoán chỉ đọc
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Triệu chứng được ghi nhận"]
+    N1["Compose config --quiet → ps → logs"]
+    N2["SQL chỉ đọc: migrations, cleanup backlog, attempt status"]
+    N3["Khoanh dependency; đối chiếu cấu hình và source"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Chạy tại backend repository cho dev:
 
@@ -55,6 +83,17 @@ LastError/object_key có thể chứa thông tin nội bộ; đọc có kiểm s
 
 ## 3. Tra triệu chứng → file cần kiểm tra
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    S["Triệu chứng"] --> A["401 / login / OAuth → auth service, JWT, Redis, Google"]
+    S --> C["Chat REST được, event lỗi → hub, CORS, proxy Upgrade"]
+    S --> F["File lỗi → quyền, metadata, provider, volume, cleanup"]
+    S --> E["Attempt quá hạn → worker tick, backlog, save conflict"]
+    S --> R["429 theo cụm user → peer IP và BFF/proxy"]
+```
+
 | Triệu chứng | Kiểm tra | Nguồn |
 | --- | --- | --- |
 | Login 500 | Redis reachable; DB user lookup; log exception; không phải SMTP nếu login local | AuthenticationService, RedisCache |
@@ -74,6 +113,19 @@ LastError/object_key có thể chứa thông tin nội bộ; đọc có kiểm s
 
 ## 4. Kiểm tra chức năng khi bàn giao môi trường
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Môi trường và tài khoản test được phép"]
+    N1["Auth → course/enrollment → file/submission → exam → chat"]
+    N2["Quan sát HTTP, DB, mailbox/storage/event tương ứng"]
+    N3["Ghi bằng chứng cùng thời điểm và cấu hình"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Chỉ chạy các luồng tạo/sửa dữ liệu dưới đây trên môi trường test và tài khoản test được cho phép; đây không phải kết quả đã chạy trong lần cập nhật docs.
 
 | Luồng | Kỳ vọng / tín hiệu |
@@ -91,11 +143,36 @@ Chỉ chạy các luồng tạo/sửa dữ liệu dưới đây trên môi trư�
 
 ## 5. Kiểm thử tự động và phạm vi bằng chứng
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Backend dotnet test; frontend lint / typecheck / build"]
+    N1["Phân biệt fake và provider thật từ fixture"]
+    N2["DB queue test cần connection env để thực sự chạy DB"]
+    N3["TRX / build artifact + smoke test môi trường → bằng chứng"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Backend: `dotnet test LMS.sln`; CI còn restore/build Release và Docker build. xUnit/Moq/fake repos/cache/OAuth/SMTP giúp kiểm tra nghiệp vụ và contract. Tests dùng WebApplicationFactory không đồng nghĩa kiểm tra toàn bộ deployment với dịch vụ thật. `FileCleanupQueueIntegrationTests` chỉ dùng PostgreSQL thật khi có `CONNECTIONSTRINGS__DEFAULTCONNECTION`; thiếu biến này test return sớm, không chứng minh queue chạy với DB. Khi bật, test ghi và dọn dữ liệu nên chỉ dùng DB test riêng. Xem [testing.md](testing.md) để phân biệt fixture/fake, coverage khai báo và kết quả chạy thực tế.
 
 Frontend: `npm run lint`, `npx tsc --noEmit`, `npm run build`; hiện không có npm test/E2E script. Kiểm tra browser riêng cho 320/375/768/1024/1440px, vi/en, sáng/tối, upload và fullscreen/WebSocket. Build xanh không chứng minh API permissions, SMTP hay browser guard hoạt động.
 
 ## 6. Backup, rollout và giới hạn
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    D["PostgreSQL backup"] --> B["Bộ phục hồi cùng thời điểm và schema"]
+    F["Local uploads hoặc S3 backup"] --> B
+    I["Image SHA và cấu hình tương thích"] --> B
+    B --> R["Khôi phục trên môi trường kiểm tra"]
+    R --> V["Kiểm metadata khớp bytes; auth, file, exam, chat"]
+    A["Redis AOF"] -.-> N["Giữ auth state qua restart; không thay backup"]
+```
 
 Backup cả PostgreSQL và file storage; Redis AOF giúp giữ refresh/mã qua restart nhưng không thay backup. Khôi phục DB phải khớp snapshot file và phiên bản schema; rollback image không tự rollback migration. Startup tự migrate nên nên chạy một API instance theo cấu hình hiện có.
 

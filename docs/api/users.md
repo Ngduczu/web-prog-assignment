@@ -22,6 +22,17 @@ Tất cả chỉ dùng PostgreSQL (`users`, `external_users`); không dùng Redi
 
 ## User profile object
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["PostgreSQL entity và quan hệ liên quan"]
+    N1["User profile DTO: service chọn trường theo contract"]
+    N2["Controller JSON camelCase; xem ví dụ và quy tắc nullable bên dưới"]
+    N0 --> N1
+    N1 --> N2
+```
+
 ```json
 {
   "id": "00000000-0000-0000-0000-000000000002",
@@ -41,9 +52,31 @@ Tất cả chỉ dùng PostgreSQL (`users`, `external_users`); không dùng Redi
 
 ## `GET /api/users/{userId}/profile`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["UsersController → UserService kiểm chính chủ hoặc Admin/System"]
+    N1["UserRepository → PostgreSQL users và external_users"]
+    N2["UserProfileDto có isGoogleLinked → 200"]
+    N0 --> N1
+    N1 --> N2
+```
+
 User xem chính mình; Admin và System xem mọi user. **Response `200 OK`:** User profile object.
 
 ## `GET /api/users/search-for-chat?email=student@example.com`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["UserService chuẩn hóa email"]
+    N1["PostgreSQL: tìm chính xác user Active khác mình"]
+    N2["DTO tối thiểu để mở direct room"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Tìm **chính xác** theo email chuẩn hóa, chỉ trả tài khoản `Active`, không trả chính mình. Chỉ trả dữ liệu tối thiểu.
 
@@ -60,6 +93,17 @@ Tìm **chính xác** theo email chuẩn hóa, chỉ trả tài khoản `Active`,
 ```
 
 ## `GET /api/users/search-for-chat/by-name?name=nguyen`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["UserService validate name 2–100 ký tự"]
+    N1["PostgreSQL: Active, bỏ chính mình, tìm tên không phân biệt hoa thường"]
+    N2["Tối đa 10 user; ưu tiên tên bắt đầu bằng từ khóa"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Tìm không phân biệt hoa thường theo một phần họ tên. Từ khóa phải có 2–100 ký tự. Chỉ trả tối đa 10 tài khoản `Active`, ưu tiên tên bắt đầu bằng từ khóa và không trả chính người đang tìm.
 
@@ -79,6 +123,17 @@ Tìm không phân biệt hoa thường theo một phần họ tên. Từ khóa p
 
 ## `PUT /api/users/me`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["UserService lấy user hiện tại từ claim"]
+    N1["Validate họ tên/phone → PostgreSQL SaveChanges"]
+    N2["200 profile; email/role/status không cập nhật ở action này"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Email, role, status, avatar không đổi được ở đây.
 
 **Request:**
@@ -93,6 +148,17 @@ Email, role, status, avatar không đổi được ở đây.
 **Response `200 OK`:** User profile object.
 
 ## `PUT /api/users/me/password`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["UserService: kiểm currentPassword hoặc account chưa có password"]
+    N1["PasswordHasher hash mật khẩu mới; tăng AuthVersion"]
+    N2["PostgreSQL commit → 204; token cũ bị thu hồi ở lần kiểm tiếp"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Tài khoản local phải gửi đúng `currentPassword`. Tài khoản OAuth chưa có mật khẩu gửi `currentPassword: null` để tạo mật khẩu lần đầu.
 
@@ -111,6 +177,17 @@ Mật khẩu mới dài 8–128 ký tự, khớp xác nhận và khác mật kh�
 **Response `204 No Content`.** Client phải xóa token/cookie và yêu cầu đăng nhập lại.
 
 ## `GET /api/users?search=&role=&status=&page=1&pageSize=20`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["UserService kiểm Admin/System"]
+    N1["PostgreSQL lọc search/role/status trước phân trang"]
+    N2["PagedResult UserProfileDto → 200"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Tham số truy vấn đều tùy chọn:
 
@@ -152,6 +229,17 @@ Có thể kết hợp `search`, `role` và `status`; bộ lọc được áp d�
 
 ## `POST /api/users`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["UserService kiểm role được phép cấp; hash password"]
+    N1["PostgreSQL users: account Active; unique email"]
+    N2["201 profile; không gửi mail xác thực"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Admin tạo user role `Student`/`Teacher`; System có thể tạo thêm user role `Admin`. Không thể tạo role `System` qua API. Tài khoản mới có status `Active`.
 
 **Request:**
@@ -169,6 +257,17 @@ Admin tạo user role `Student`/`Teacher`; System có thể tạo thêm user rol
 **Response `201 Created`:** User profile object.
 
 ## `PUT /api/users/{userId}`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["UserService kiểm người quản trị, Admin cuối, tài nguyên teacher"]
+    N1["Đổi profile/role; role thay đổi thì tăng AuthVersion"]
+    N2["PostgreSQL SaveChanges → 200"]
+    N0 --> N1
+    N1 --> N2
+```
 
 **Request:**
 
@@ -192,6 +291,17 @@ Quy tắc:
 - Đổi role tăng `AuthVersion` → thu hồi token cũ.
 
 ## `PATCH /api/users/{userId}/status`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["UserService kiểm quyền và status; Serializable"]
+    N1["Kiểm Admin Active cuối và teacher còn sở hữu tài nguyên"]
+    N2["PostgreSQL: status + AuthVersion cùng commit → 200"]
+    N0 --> N1
+    N1 --> N2
+```
 
 **Request:**
 

@@ -39,6 +39,19 @@ erDiagram
 
 ## 2. Bảng, ràng buộc và index
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Service kiểm nghiệp vụ trước ghi"]
+    N1["EF Core SaveChanges → PostgreSQL"]
+    N2["UNIQUE, FK, CHECK và NOT NULL chặn dữ liệu sai"]
+    N3["Constraint nghiệp vụ đã map → 409; lỗi khác theo error-handling"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Index `UNIQUE` là chốt chặn cuối cùng cho các quy tắc nghiệp vụ; service thường kiểm tra trước để trả lỗi `409` rõ ràng.
 
 | Bảng | Vai trò | Ràng buộc / index đáng chú ý |
@@ -74,11 +87,34 @@ Index `UNIQUE` là chốt chặn cuối cùng cho các quy tắc nghiệp vụ; 
 
 ## 3. Xóa mềm và query filter
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    D["Course DeletedAt khác null"] --> Q["Global query filter"]
+    Q --> H["Ẩn course, enrollments, lessons, exercises, examinations"]
+    R["Restore: bỏ DeletedAt"] --> V["Dữ liệu con hiện trở lại"]
+    C["ChatMessage DeletedAt khác null"] --> S["Repository/service loại message và chặn tải file"]
+    P["Participant ConversationClearedAt"] --> U["Chỉ ẩn lịch sử với user đó; không xóa bytes"]
+```
+
 `Course` bị xóa mềm (`deleted_at`). Query filter toàn cục ẩn course đã xóa **và** các bảng con phụ thuộc course (`enrollments`, `lessons`, `exercises`, `examinations`): khi course bị xóa, mọi truy vấn qua EF tự động không thấy dữ liệu con đó. `restore` đưa course (và dữ liệu con) hiện trở lại. Repository có tham số `includeDeleted` để Admin/restore bỏ qua filter.
 
 `ChatMessage` cũng xóa mềm nhưng không có query filter; repository/service loại message đã xóa khỏi danh sách và từ chối tải attachment của message đã xóa (`404`).
 
 ## 4. Đồng thời (concurrency)
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Transaction action"] --> P["PostgreSQL ReadCommitted hoặc Serializable theo use case"]
+    P -->|40001 hoặc 40P01| R["Clear tracker; chờ 25ms rồi 50ms; tối đa 3 lần"]
+    R --> P
+    R -->|Hết lần thử| C["409 Conflict"]
+    P -->|xmin / AuthVersion không còn khớp| C
+    P -->|Commit| S["Dữ liệu được lưu"]
+```
 
 | Cơ chế | Dùng cho |
 | --- | --- |
@@ -92,6 +128,21 @@ Xem cách lỗi được dịch ra HTTP ở [error-handling.md](error-handling.m
 
 ## 5. Snapshot câu hỏi
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Teacher chủ course hoặc Admin/System → ExaminationService"] --> B["Serializable; validate cấu hình và quyền"]
+    B --> C{"Chọn câu"}
+    C -->|Random| R["Bank của teacher course → lọc difficulty → đủ số lượng → shuffle"]
+    C -->|Manual| M["Question IDs theo thứ tự; kiểm bank của teacher course"]
+    R --> S["Tạo examination_questions và snapshot đáp án"]
+    M --> S
+    S --> P["PostgreSQL: lưu exam, rules, snapshot và options"]
+    P --> K["Ghi correct_option_id sau khi lưu options; commit"]
+    K --> Q["Attempt dùng snapshot độc lập với câu hỏi nguồn"]
+```
+
 Câu hỏi trong kỳ thi **không tham chiếu** trực tiếp `questions`; chúng được sao chép vào `examination_questions` (+ option/answer key) khi tạo hoặc thay question set. Hệ quả:
 
 - Sửa hoặc xóa câu hỏi nguồn không đổi đề thi đã tạo hay điểm đã chấm.
@@ -100,6 +151,19 @@ Câu hỏi trong kỳ thi **không tham chiếu** trực tiếp `questions`; ch�
 - Với trắc nghiệm, `examination_questions.correct_option_id` được ghi ở lần `SaveChanges` thứ hai sau khi các option có Id.
 
 ## 6. Migration
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Entity + EF configuration → migration và model snapshot"]
+    N1["API startup ngoài Testing hoặc dotnet ef database update"]
+    N2["PostgreSQL cập nhật schema và __EFMigrationsHistory"]
+    N3["Đối chiếu lịch sử DB thực tế với migration trong repository"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Thư mục `infrastructure/persistence/migrations`. Thứ tự migration hiện có:
 
@@ -118,3 +182,7 @@ Thư mục `infrastructure/persistence/migrations`. Thứ tự migration hiện 
 | `20261012040018_AddDirectConversationVisibility` | Hai mốc ẩn/xóa lịch sử theo participant |
 
 API tự `Migrate()` khi khởi động ngoài `Testing`. Danh sách trên phản ánh mã nguồn, không chứng minh DB triển khai đã áp dụng đủ; kiểm tra `__EFMigrationsHistory` trong môi trường tương ứng. Không chạy downgrade hoặc drop DB để đồng bộ tài liệu.
+
+### Phạm vi transaction khi lưu đáp án
+
+Bổ sung cho bảng đồng thời: hai method lưu đáp án trắc nghiệm/điền khuyết dùng `SaveChangesAsync` và optimistic concurrency, không gọi `ExecuteSerializableAsync`. Xem [đối chiếu trong data-flow](data-flow.md#bổ-sung-đối-chiếu-transaction-của-thao-tác-lưu-đáp-án).

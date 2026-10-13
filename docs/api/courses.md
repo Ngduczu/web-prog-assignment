@@ -26,6 +26,17 @@ Cần JWT. Dữ liệu qua PostgreSQL (`courses`, `enrollments`, `users`, `chat_
 
 ## Course object
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["PostgreSQL entity và quan hệ liên quan"]
+    N1["Course DTO: service chọn trường theo contract"]
+    N2["Controller JSON camelCase; xem ví dụ và quy tắc nullable bên dưới"]
+    N0 --> N1
+    N1 --> N2
+```
+
 ```json
 {
   "id": "00000000-0000-0000-0000-000000000003",
@@ -42,6 +53,17 @@ Cần JWT. Dữ liệu qua PostgreSQL (`courses`, `enrollments`, `users`, `chat_
 ```
 
 ## `POST /api/courses`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["CoursesController → CourseService kiểm teacher Active / quyền tạo"]
+    N1["PostgreSQL courses: tạo course và chủ sở hữu"]
+    N2["201 CourseDto"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Teacher tự tạo; Admin tạo cho một teacher đang `Active`.
 
@@ -60,6 +82,17 @@ Teacher tự tạo; Admin tạo cho một teacher đang `Active`.
 **Response `201 Created`:** Course object. Course room tương ứng được tạo trong cùng lần lưu, gồm người tạo và teacher được chỉ định; endpoint chat lấy/tạo room vẫn giữ tính idempotent cho dữ liệu cũ.
 
 ## `GET /api/courses?search=&status=&teacherId=&includeDeleted=false&page=1&pageSize=20`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["CourseService áp quyền và includeDeleted"]
+    N1["Repository → PostgreSQL lọc search/status/teacher và phân trang"]
+    N2["PagedResult; Student chỉ thấy Open"]
+    N0 --> N1
+    N1 --> N2
+```
 
 - Student luôn chỉ nhận course `Open`, kể cả khi gửi `status=Closed`.
 - Teacher/Admin dùng được `status`, `teacherId`.
@@ -94,13 +127,46 @@ Teacher tự tạo; Admin tạo cho một teacher đang `Active`.
 
 ## `GET /api/courses/mine`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["CourseService lấy user hiện tại"]
+    N1["PostgreSQL: course đang sở hữu hoặc enrollment Accepted theo role"]
+    N2["Mảng CourseDto; student Accepted vẫn thấy course Closed"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Student. Trả mảng Course object có enrollment `Accepted` của chính student, gồm cả course `Closed`; bỏ course đã xóa mềm.
 
 ## `GET /api/courses/{courseId}?includeDeleted=false`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["CourseService kiểm quyền xem và includeDeleted"]
+    N1["PostgreSQL course + số enrollment Accepted"]
+    N2["200 CourseDto"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Student xem được course `Open`; course `Closed` chỉ khi enrollment `Accepted`. `includeDeleted=true` chỉ dành Admin. **Response `200 OK`:** Course object.
 
 ## `PUT /api/courses/{courseId}`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["CourseService kiểm chủ hoặc Admin/System; Serializable"]
+    N1["PostgreSQL đếm Accepted; maxStudents không thấp hơn sĩ số"]
+    N2["Cập nhật course và đồng bộ archive chat room → commit → 200"]
+    N0 --> N1
+    N1 --> N2
+```
 
 `maxStudents` không được nhỏ hơn số enrollment `Accepted`.
 
@@ -119,13 +185,49 @@ Student xem được course `Open`; course `Closed` chỉ khi enrollment `Accept
 
 ## `DELETE /api/courses/{courseId}`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["CourseService kiểm quyền quản lý"]
+    N1["PostgreSQL: DeletedAt và archive chat room cùng save"]
+    N2["204; query filter ẩn course và dữ liệu con"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Xóa mềm (`deletedAt`). **Response `204 No Content`.** Chat room của course bị archive.
 
 ## `POST /api/courses/{courseId}/restore`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["CourseService đọc course bỏ query filter; kiểm quyền"]
+    N1["Bỏ DeletedAt; bỏ archive chat nếu Open"]
+    N2["PostgreSQL SaveChanges → 200"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Không có body.** **Response `200 OK`:** Course object. Room chỉ mở lại nếu course khôi phục ở trạng thái `Open`.
 
 ## Enrollment object
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Waiting: Student đăng ký course Open
+    [*] --> Accepted: Teacher hoặc Admin thêm bằng email
+    Waiting --> Accepted: Duyệt, Open và còn chỗ
+    Waiting --> Rejected: Từ chối
+    Waiting --> Cancelled: Student hủy
+    Accepted --> Cancelled: Student rời hoặc quản lý revoke
+    Rejected --> Waiting: Đăng ký lại, dùng cùng row
+    Cancelled --> Waiting: Đăng ký lại, dùng cùng row
+```
 
 ```json
 {
@@ -151,13 +253,46 @@ Máy trạng thái: `Waiting → Accepted | Rejected | Cancelled`; `Accepted →
 
 ## `POST /api/courses/{courseId}/enrollments`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["EnrollmentsController → EnrollmentService: Student Active, course Open"]
+    N1["PostgreSQL tạo Waiting hoặc tái dùng Rejected/Cancelled"]
+    N2["201 EnrollmentDto"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Không có body.** Student `Active` đăng ký. Nếu record cũ `Rejected`/`Cancelled` thì chuyển lại `Waiting`, không tạo bản sao. **Response `201 Created`:** Enrollment object `status: "Waiting"`.
 
 ## `GET /api/enrollments/mine`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["EnrollmentService lấy student hiện tại"]
+    N1["PostgreSQL query enrollments rồi courses theo courseIds"]
+    N2["Mảng EnrollmentDto kèm course; loại course đã xóa"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Trả mảng Enrollment object (mọi trạng thái, kèm `course` tóm tắt) của student để khôi phục trạng thái sau reload. Course đã xóa mềm không nằm trong kết quả (global query filter). Dữ liệu lấy bằng hai truy vấn: enrollments của student, rồi courses theo danh sách `courseId`.
 
 ## `GET /api/courses/{courseId}/enrollments?page=1&pageSize=20`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["EnrollmentService kiểm quyền quản lý course"]
+    N1["Repository → PostgreSQL page enrollment và thông tin student"]
+    N2["PagedResult EnrollmentDto"]
+    N0 --> N1
+    N1 --> N2
+```
 
 **Response `200 OK`:** PagedResult, trường `student` được điền để teacher nhận diện người đăng ký, `course` là tóm tắt của course đang xem:
 
@@ -192,21 +327,78 @@ Trả mảng Enrollment object (mọi trạng thái, kèm `course` tóm tắt) c
 
 ## `POST /api/enrollments/{enrollmentId}/accept`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["EnrollmentService: Serializable; kiểm chủ/Admin và Waiting"]
+    N1["PostgreSQL kiểm course Open và sĩ số Accepted"]
+    N2["Chuyển Accepted → commit → 200"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Không có body.** Chỉ chấp nhận khi enrollment `Waiting`, course `Open` và chưa đủ `maxStudents`. **Response `200 OK`:** Enrollment `Accepted` (có `course`).
 
 ## `POST /api/enrollments/{enrollmentId}/reject`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["EnrollmentService: kiểm quyền quản lý và Waiting trong transaction"]
+    N1["PostgreSQL: Rejected → commit"]
+    N2["200 EnrollmentDto"]
+    N0 --> N1
+    N1 --> N2
+```
 
 **Không có body.** **Response `200 OK`:** Enrollment `Rejected` (có `course`).
 
 ## `POST /api/enrollments/{enrollmentId}/cancel`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["EnrollmentService: student chính chủ; Waiting hoặc Accepted"]
+    N1["PostgreSQL: Cancelled → SaveChanges"]
+    N2["200 EnrollmentDto với course null"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Không có body.** Student hủy khi `Waiting` hoặc rời khóa khi `Accepted`. **Response `200 OK`:** Enrollment `Cancelled`, `course: null`.
 
 ## `POST /api/enrollments/{enrollmentId}/revoke`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["EnrollmentService: chủ course/Admin; enrollment Accepted"]
+    N1["PostgreSQL: Cancelled → SaveChanges"]
+    N2["Request nội dung/chat/thi sau đó kiểm lại quyền; 200"]
+    N0 --> N1
+    N1 --> N2
+```
+
 **Không có body.** Chỉ cho enrollment `Accepted`. **Response `200 OK`:** Enrollment `Cancelled` (có `course`). Student mất quyền đọc nội dung, chat khóa học và làm bài thi.
 
 ## `POST /api/courses/{courseId}/enrollments/by-email`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["EnrollmentService: chủ/Admin; 1–100 email, normalize, bỏ trùng"]
+    N1["Serializable: course Open; kiểm student Active và chỗ trống từng email"]
+    N2["PostgreSQL tạo/tái dùng enrollment Accepted cho email hợp lệ"]
+    N3["200 mảng Added / AlreadyAccepted / lỗi từng email"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Teacher sở hữu hoặc Admin thêm trực tiếp học viên vào khóa học. Chỉ dùng cho course `Open`, chưa xóa mềm (nếu không: `409`).
 

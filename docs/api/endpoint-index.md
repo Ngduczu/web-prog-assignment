@@ -4,6 +4,19 @@
 
 ## AuthController
 
+Bản đồ điều phối của controller; middleware JWT/rate limit nằm trước action:
+
+```mermaid
+flowchart TD
+    N0["HTTP route và auth attribute trong bảng → AuthController"]
+    N1["Registration / Authentication / PasswordReset / OAuthFlow service"]
+    N2["PostgreSQL + Redis; SMTP/Google theo action"]
+    N3["Token/code/cookie/redirect hoặc JSON"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Nguồn: [AuthController.cs](<../../LMS.Api/presentation/controllers/AuthController.cs>).
 
 | Method | Route | Action | Auth attribute |
@@ -21,6 +34,19 @@ Nguồn: [AuthController.cs](<../../LMS.Api/presentation/controllers/AuthControl
 | GET | `/api/auth/oauth/{provider}/callback` | `OAuthCallback` | Public |
 
 ## ChatsController
+
+Bản đồ điều phối của controller; middleware JWT/rate limit nằm trước action:
+
+```mermaid
+flowchart TD
+    N0["HTTP route và auth attribute trong bảng → ChatsController"]
+    N1["ChatService"]
+    N2["PostgreSQL; Local/S3 nếu file; JwtTokenProvider nếu realtime token"]
+    N3["SignalR broadcast sau lưu message; JSON hoặc stream"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Nguồn: [ChatsController.cs](<../../LMS.Api/presentation/controllers/ChatsController.cs>).
 
@@ -41,6 +67,19 @@ Nguồn: [ChatsController.cs](<../../LMS.Api/presentation/controllers/ChatsContr
 | POST | `/api/chat/rooms/{roomId:guid}/read/{messageId:guid}` | `MarkAsRead` | JWT |
 
 ## CourseContentController
+
+Bản đồ điều phối của controller; middleware JWT/rate limit nằm trước action:
+
+```mermaid
+flowchart TD
+    N0["HTTP route và auth attribute trong bảng → CourseContentController"]
+    N1["Lesson / Exercise / Submission service"]
+    N2["PostgreSQL + Local/S3 + cleanup queue khi thay/xóa file"]
+    N3["JSON hoặc binary stream"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Nguồn: [CourseContentController.cs](<../../LMS.Api/presentation/controllers/CourseContentController.cs>).
 
@@ -75,6 +114,19 @@ Nguồn: [CourseContentController.cs](<../../LMS.Api/presentation/controllers/Co
 
 ## CoursesController
 
+Bản đồ điều phối của controller; middleware JWT/rate limit nằm trước action:
+
+```mermaid
+flowchart TD
+    N0["HTTP route và auth attribute trong bảng → CoursesController"]
+    N1["CourseService"]
+    N2["PostgreSQL courses/enrollments và đồng bộ archive chat room"]
+    N3["CourseDto / PagedResult / 204"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Nguồn: [CoursesController.cs](<../../LMS.Api/presentation/controllers/CoursesController.cs>).
 
 | Method | Route | Action | Auth attribute |
@@ -88,6 +140,19 @@ Nguồn: [CoursesController.cs](<../../LMS.Api/presentation/controllers/CoursesC
 | POST | `/api/courses/{courseId:guid}/restore` | `Restore` | JWT |
 
 ## EnrollmentsController
+
+Bản đồ điều phối của controller; middleware JWT/rate limit nằm trước action:
+
+```mermaid
+flowchart TD
+    N0["HTTP route và auth attribute trong bảng → EnrollmentsController"]
+    N1["EnrollmentService"]
+    N2["PostgreSQL enrollments/courses/users; Serializable khi duyệt/thêm bằng email"]
+    N3["EnrollmentDto / PagedResult / kết quả từng email"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Nguồn: [EnrollmentsController.cs](<../../LMS.Api/presentation/controllers/EnrollmentsController.cs>).
 
@@ -104,6 +169,19 @@ Nguồn: [EnrollmentsController.cs](<../../LMS.Api/presentation/controllers/Enro
 
 ## ExaminationAttemptsController
 
+Bản đồ điều phối của controller; middleware JWT/rate limit nằm trước action:
+
+```mermaid
+flowchart TD
+    N0["HTTP route và auth attribute trong bảng → ExaminationAttemptsController"]
+    N1["ExaminationAttemptService"]
+    N2["PostgreSQL attempt, answers, snapshot, violations"]
+    N3["DTO theo trạng thái; deadline/grader xử lý trên server"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Nguồn: [ExaminationAttemptsController.cs](<../../LMS.Api/presentation/controllers/ExaminationAttemptsController.cs>).
 
 | Method | Route | Action | Auth attribute |
@@ -119,6 +197,19 @@ Nguồn: [ExaminationAttemptsController.cs](<../../LMS.Api/presentation/controll
 | POST | `/api/examination-attempts/{attemptId:guid}/auto-submit` | `AutoSubmit` | JWT + Admin/System |
 
 ## ExaminationsController
+
+Bản đồ điều phối của controller; middleware JWT/rate limit nằm trước action:
+
+```mermaid
+flowchart TD
+    N0["HTTP route và auth attribute trong bảng → ExaminationsController"]
+    N1["ExaminationService hoặc ExaminationAttemptService"]
+    N2["PostgreSQL kỳ thi/snapshot/attempts; transaction theo action"]
+    N3["Management/student/result DTO hoặc 204 reset"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Nguồn: [ExaminationsController.cs](<../../LMS.Api/presentation/controllers/ExaminationsController.cs>).
 
@@ -139,6 +230,19 @@ Nguồn: [ExaminationsController.cs](<../../LMS.Api/presentation/controllers/Exa
 
 ## QuestionsController
 
+Bản đồ điều phối của controller; middleware JWT/rate limit nằm trước action:
+
+```mermaid
+flowchart TD
+    N0["HTTP route và auth attribute trong bảng → QuestionsController"]
+    N1["QuestionService"]
+    N2["PostgreSQL ngân hàng/câu hỏi; SMTP sau share commit"]
+    N3["QuestionBankDto / QuestionDto / 204"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Nguồn: [QuestionsController.cs](<../../LMS.Api/presentation/controllers/QuestionsController.cs>).
 
 | Method | Route | Action | Auth attribute |
@@ -155,6 +259,19 @@ Nguồn: [QuestionsController.cs](<../../LMS.Api/presentation/controllers/Questi
 | DELETE | `/api/questions/{id:guid}` | `DeleteQuestion` | JWT |
 
 ## UsersController
+
+Bản đồ điều phối của controller; middleware JWT/rate limit nằm trước action:
+
+```mermaid
+flowchart TD
+    N0["HTTP route và auth attribute trong bảng → UsersController"]
+    N1["UserService"]
+    N2["PostgreSQL users/external_users; PasswordHasher khi đổi/tạo password"]
+    N3["UserProfileDto / search DTO / PagedResult / 204"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Nguồn: [UsersController.cs](<../../LMS.Api/presentation/controllers/UsersController.cs>).
 

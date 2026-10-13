@@ -4,6 +4,19 @@
 
 ## 1. Mô hình
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Service / repository ném exception"]
+    N1["GlobalExceptionHandler phân loại và ghi log"]
+    N2["ProblemDetails: status, title, detail"]
+    N3["Client xử lý HTTP; 500 chỉ trả thông báo chung"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 Nghiệp vụ ném exception tùy chỉnh (thư mục `domain/exceptions`); `GlobalExceptionHandler` (đăng ký qua `AddExceptionHandler` + `UseExceptionHandler`) biến chúng thành `ProblemDetails`.
 
 | Exception | HTTP | `title` | `detail` |
@@ -32,6 +45,19 @@ Response mẫu:
 > `type` có thể không xuất hiện vì handler tự dựng `ProblemDetails` chỉ với `status`, `title`, `detail`. Client chỉ nên dựa vào `status` và `detail`.
 
 ## 2. Các lỗi không đi qua `GlobalExceptionHandler`
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    R["HTTP request"] --> F["Framework: limiter, routing, auth, binding, body limit"]
+    F --> A["401 / 403: auth; 429: quota"]
+    F --> B["400: binding; 404 / 405: route; 415: media type"]
+    F --> C["413 hoặc ngắt kết nối: body quá lớn"]
+    A --> D["Client chấp nhận body rỗng hoặc framework ProblemDetails"]
+    B --> D
+    C --> D
+```
 
 Những lỗi này do framework sinh ra nên có hình dạng khác (hành vi mặc định của ASP.NET Core, chưa bật `UseStatusCodePages`). Client cần chịu được body rỗng.
 
@@ -63,6 +89,18 @@ Ví dụ `400` do binding:
 
 ## 3. Chuyển đổi lỗi tầng thấp thành `409`
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    D["PostgreSQL / EF exception"] --> K{"Loại lỗi"}
+    K -->|Concurrency| C["ConflictException → 409"]
+    K -->|Unique nằm trong policy| C
+    K -->|Serialization / deadlock| R["Retry transaction tối đa 3 lần"]
+    R -->|Cạn retry| C
+    K -->|Constraint khác chưa được xử lý| E["500; log exception nội bộ"]
+```
+
 `AppDbContext.SaveChangesAsync` bắt:
 
 | Lỗi gốc | Kết quả |
@@ -82,6 +120,24 @@ Các unique index **không** nằm trong danh sách (ví dụ `(examination_id, 
 
 ## 4. Chiến lược chịu lỗi theo thành phần
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Request multipart → Controller → service kiểm quyền và file"] --> B["IFileStorage: ghi bytes vào Local hoặc S3"]
+    B --> C["EF Core: metadata và task xóa file cũ nếu thay thế"]
+    C -->|Commit thành công| D["Trả DTO; bytes không nằm trong PostgreSQL"]
+    C -->|DB lỗi| E["EnqueueImmediately: context riêng, ghi task cho file mới"]
+    E -->|Queue cũng lỗi| F["Thử DeleteIfExists trực tiếp; log nếu vẫn lỗi"]
+    E --> G["Ném lại lỗi ban đầu"]
+    F --> G
+    D -.-> W["FileCleanupWorker đọc task PostgreSQL"]
+    E -.-> W
+    W --> X["Xóa object qua provider hiện được cấu hình"]
+    X -->|Thành công| Y["Xóa task; save batch"]
+    X -->|Lỗi| Z["Lưu LastError, tăng AttemptCount, hẹn retry"]
+```
+
 | Thành phần | Khi lỗi | Cách xử lý |
 | --- | --- | --- |
 | Redis (nhóm auth) | Mất kết nối / timeout | Exception không thuộc nhóm nghiệp vụ → `500`. Không có fallback |
@@ -96,6 +152,18 @@ Các unique index **không** nằm trong danh sách (ví dụ `(examination_id, 
 | Google OAuth | Đổi code lỗi / userinfo trả HTTP lỗi | Lỗi lan ra → `500` (hoặc `401` nếu Google trả dữ liệu không hợp lệ như email chưa verify); state được phục hồi 1 phút để thử callback lại |
 
 ## 5. Mẫu "consume rồi phục hồi" cho mã dùng một lần
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    C["Redis Lua consume: chỉ một request lấy được mã"] --> A["Thực hiện bước còn lại"]
+    A -->|Thành công| S["Credential vẫn đã consume"]
+    A -->|Refresh / login-code / state: lỗi nghiệp vụ| N["Không phục hồi"]
+    A -->|Refresh / login-code / state: lỗi hạ tầng| R["SET NX lại 1 phút; best-effort"]
+    A -->|Verify / reset: DB save lỗi| V["Hoàn tác memory; SET entry 15 phút"]
+    V -->|Redis cũng lỗi| E["Lỗi phục hồi có thể che lỗi DB; BE-04"]
+```
 
 Áp dụng cho refresh token, login code OAuth, OAuth state, mã xác thực email, mã đặt lại mật khẩu:
 
@@ -112,6 +180,19 @@ Riêng email verification / password reset phục hồi bằng `SET` lại entry
 
 ## 6. Giới hạn thử mã (brute-force)
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Request auth → limiter 10 mỗi phút theo IP"]
+    N1["Code entry tồn tại → Redis INCR attempts"]
+    N2["Lần 1 đến 5 → verify hash; lần 6 → xóa mã và 409"]
+    N3["Cooldown 1 phút kiểm riêng khi phát mã"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 | Mã | Giới hạn | Khi vượt |
 | --- | --- | --- |
 | Xác thực email | 5 lần kiểm tra entry, kể cả mã đúng; TTL 15 phút từ lần INCR đầu tiên; gửi mã mới xóa counter | Lần 6 xóa mã, `409 Too many verification attempts. Request a new code.` |
@@ -122,6 +203,18 @@ Riêng email verification / password reset phục hồi bằng `SET` lại entry
 `forgot-password` trong cooldown trả `200 accepted=true`, không trả `409` như resend verification. Ghi chú bảo mật: `verify-email` và `resend-verification` trả `404 Account was not found.` khi email không tồn tại; `forgot-password` cố ý trả cùng response cho trường hợp không gửi mail.
 
 ## 7. Danh mục lỗi nghiệp vụ theo module
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Auth / users"] --> V["Input, quyền, trạng thái, token"]
+    B["Course / content / questions"] --> V
+    C["Exams / attempts / chat"] --> V
+    V --> E["Exception nghiệp vụ → 400 / 401 / 403 / 404 / 409"]
+    D["DB / Redis / storage / SMTP / Google"] --> I["Policy của adapter và service"]
+    I --> P["409 được map; 503 Google network; lỗi bất ngờ 500"]
+```
 
 Các thông báo tiêu biểu bên dưới bằng tiếng Anh; danh sách không thay thế mọi nhánh trong service. Cột HTTP là status mapping. Admin/System thao tác ghi question bank nhận `403 Administrator accounts can only view question banks.`; xóa course conversation nhận `400 Only direct conversations can be deleted.` (xem service cho message chính xác).
 
@@ -223,6 +316,19 @@ Các thông báo tiêu biểu bên dưới bằng tiếng Anh; danh sách không
 | 500 | `An unexpected error occurred.` |
 
 ## 8. Khuyến nghị cho client
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Nhận HTTP status; parse body nếu có"]
+    N1["401: xác thực lại; 403/404: cập nhật quyền hoặc tài nguyên"]
+    N2["409: tải trạng thái mới trước khi thử lại"]
+    N3["Lỗi sau commit hoặc mất event: đối chiếu dữ liệu trước gửi lại"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 - Luôn đọc `status` và `detail`; dùng `status` để phân nhánh, không so khớp chuỗi `detail` (tiếng Anh, có thể đổi).
 - `401` ngoài `login`: thử `refresh` một lần rồi gửi lại; nếu vẫn `401` → đăng xuất. `401` từ `login` nghĩa là sai thông tin hoặc tài khoản không `Active`.

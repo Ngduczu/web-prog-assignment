@@ -4,11 +4,35 @@
 
 ## Kết nối
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Client HTTP hoặc Next BFF"]
+    N1["REST /api với Bearer JWT; realtime /hubs/chat"]
+    N2["ASP.NET routing → controller hoặc hub"]
+    N0 --> N1
+    N1 --> N2
+```
+
 - Base URL REST: `{API_ORIGIN}/api`. SignalR hub: `{API_ORIGIN}/hubs/chat`.
 - Local: `http://localhost:5258` hoặc `https://localhost:7086`. Swagger tại `/swagger` (chỉ `Development`).
 - Trừ các endpoint ghi `Public`, mọi endpoint cần header `Authorization: Bearer <accessToken>`.
 
 ## Định dạng dữ liệu
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["JSON camelCase / multipart / route / query"]
+    N1["ASP.NET model binding → request C#"]
+    N2["Service validate enum, UUID, UTC và nghiệp vụ"]
+    N3["DTO → JSON camelCase; file → binary stream"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 - JSON `camelCase`.
 - UUID là chuỗi, ví dụ `"00000000-0000-0000-0000-000000000001"`.
@@ -19,6 +43,19 @@
 - Binary (`.../content`, `.../attachment`): trả stream với `Content-Type` gốc và tên file trong `Content-Disposition`. Controller hiện bỏ qua giá trị `download`: cả `true` và `false` đều truyền tên file vào `File(...)` (attachment). Frontend xem trước bằng Blob URL. Backend bật range processing; BFF hiện chưa chuyển tiếp `Range`/`Content-Range`.
 
 ## Phân trang
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["page / pageSize / bộ lọc"]
+    N1["Service → repository lọc và phân trang"]
+    N2["PagedResult: items, totalCount, totalPages"]
+    N3["Ngoại lệ chat history: mảng theo trang, mới nhất trước"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Query `page` (mặc định `1`) và `pageSize` (mặc định `20`, tối đa `100`). Response:
 
@@ -35,6 +72,17 @@ Query `page` (mặc định `1`) và `pageSize` (mặc định `20`, tối đa `
 Ngoại lệ: `GET /api/chat/rooms/{roomId}/messages` trả **mảng** (mới nhất trước), không phải `PagedResult`.
 
 ## Lỗi
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Service exception hoặc framework rejection"]
+    N1["ProblemDetails / ValidationProblemDetails / body rỗng"]
+    N2["Client phân nhánh theo HTTP status trước khi đọc detail"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Chi tiết cơ chế xử lý, danh mục thông báo theo module và các lỗi do framework sinh ra: [../architecture/error-handling.md](../architecture/error-handling.md).
 
@@ -62,6 +110,19 @@ Lỗi nghiệp vụ có cấu trúc `ProblemDetails` như dưới. Handler hiệ
 
 ## Enum
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Client gửi tên enum"]
+    N1["JsonStringEnumConverter → enum C#"]
+    N2["Service kiểm giá trị và trạng thái theo nghiệp vụ"]
+    N3["Response serialize enum thành chuỗi"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 | Enum | Giá trị |
 | --- | --- |
 | `Role` | `Student`, `Teacher`, `Admin`, `System` |
@@ -83,12 +144,37 @@ Lỗi nghiệp vụ có cấu trúc `ProblemDetails` như dưới. Handler hiệ
 
 ## Luồng khởi tạo phía client
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Client → AuthController"] --> B["AuthenticationService: đọc users PostgreSQL"]
+    B --> C["PasswordHasher verify; tài khoản Active"]
+    C --> D["JwtTokenProvider ký JWT kèm auth_version"]
+    D --> E["Redis: hash refresh token → userId, authVersion; TTL 30 ngày"]
+    E --> F["Trả access và refresh token"]
+    F --> G["Request tiếp theo: JwtBearer → đối chiếu users PostgreSQL"]
+    G -->|Role, status hoặc version không còn khớp| H["401; cần xác thực lại"]
+```
+
 1. `POST /api/auth/login`, lưu cặp token.
 2. Gửi `Authorization: Bearer <accessToken>`. Khi nhận `401`, gọi `POST /api/auth/refresh` một lần rồi gửi lại request.
 3. Chưa có `/me`: đọc claim `NameIdentifier` trong JWT rồi gọi `GET /api/users/{userId}/profile`.
 4. Dùng `role` để chọn giao diện; backend luôn kiểm tra quyền lần cuối.
 
 ## Chú thích “Lưu trữ” trong tài liệu endpoint
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart LR
+    S["Application service"] --> D["EF Core → PostgreSQL"]
+    S --> R["ICache → Redis; chỉ auth"]
+    S --> F["IFileStorage → Local / S3"]
+    S --> M["IMailSender → SMTP"]
+    C["Controller / hub sau lưu message"] --> H["SignalR group"]
+    D --> Q["file_cleanup_tasks → worker → storage"]
+```
 
 Các tài liệu module có mục **Dữ liệu đi qua**; [endpoint-index.md](endpoint-index.md) liệt kê toàn bộ action, [contracts.md](contracts.md) tra trường DTO, và [../tools-and-integrations.md](../tools-and-integrations.md) ánh xạ công cụ với tình huống/API:
 

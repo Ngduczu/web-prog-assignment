@@ -6,6 +6,25 @@
 
 ## Deployment shape
 
+Topology theo Compose/nginx hiện có; đây là cấu hình, chưa phải xác nhận deployment chạy thành công:
+
+```mermaid
+flowchart TD
+    B["Browser HTTPS"] --> N["nginx: public 80 / 443; TLS certificates"]
+    N -->|Frontend domain| F["Next.js:3000 / BFF"]
+    F -->|HTTP nội bộ /api| A["ASP.NET API:8080"]
+    N -->|API domain; REST hoặc WebSocket /hubs/chat| A
+    A --> P["PostgreSQL:5432 → postgres_data"]
+    A --> R["Redis:6379 → redis_data AOF"]
+    A --> L["Local /app/storage → uploads volume"]
+    A -->|Nếu bật S3| S["S3 bucket ngoài stack"]
+    A --> M["SMTP và Google HTTPS ngoài stack"]
+    H["Host loopback 15432 / 16379"] --> P
+    H --> R
+    N -->|Default HTTP host qua network tino_tino-network| T["tino-web-prod:80"]
+    C["letsencrypt và certbot-www chuẩn bị ngoài Compose"] -.-> N
+```
+
 - GitHub Actions runs checks on pull requests and pushes to `main`.
 - A successful push to `main` builds an immutable image tagged with its commit SHA and pushes it to GHCR.
 - The backend workflow uploads `docker-compose.prod.yml`, `nginx.conf.template`, and `deploy.sh` to the VPS, then deploys the API.
@@ -16,6 +35,17 @@
 > Publish the backend once before the frontend the first time. Confirm the domain, secrets, GHCR pull login, and `/opt/lms/.env` are ready first.
 
 ## 1. Check the VPS
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["VPS linux/amd64 và Docker Compose"]
+    N1["SSH + public 80/443; /opt/lms thuộc deploy user"]
+    N2["Chuẩn bị network, volumes, TLS; DB backup trước đổi schema"]
+    N0 --> N1
+    N1 --> N2
+```
 
 These instructions assume an Ubuntu/Debian x86-64 VPS with a public static IP and a clean port 80/443. Check architecture using `uname -m`; the supplied workflows build `linux/amd64` images, so an `aarch64` VPS needs multi-platform build configuration before deployment.
 
@@ -29,6 +59,17 @@ The API currently applies database migrations at startup. Keep one API replica f
 
 ## 2. Configure DNS and HTTPS domains
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["DNS frontend domain và API domain → VPS IP"]
+    N1["Cấp certificate ngoài Compose"]
+    N2["nginx TLS → frontend hoặc API; OAuth dùng đúng domain"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Create DNS `A` records pointing to the VPS IP for both names, for example:
 
 - Frontend: `sfit-study.ducvu.site`
@@ -38,6 +79,19 @@ If using IPv6, only add `AAAA` records when the VPS IPv6 route and firewall are 
 
 ## 3. Prepare an SSH deployment key
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Máy quản trị tạo SSH key riêng cho deploy"]
+    N1["Public key → authorized_keys trên VPS"]
+    N2["Xác minh host fingerprint → DEPLOY_KNOWN_HOSTS"]
+    N3["Actions dùng private key để SSH với strict host checking"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 On a trusted administrator computer, generate a dedicated key pair for GitHub Actions. Do not send the private key in chat or commit it. Add only the public key to the deployment user's `~/.ssh/authorized_keys` on the VPS; protect that file and the private key.
 
 Obtain the VPS SSH host key and verify its fingerprint against the VPS through a trusted channel before saving the verified `known_hosts` line. The workflows require strict host-key checking and will not accept unknown hosts automatically.
@@ -45,6 +99,19 @@ Obtain the VPS SSH host key and verify its fingerprint against the VPS through a
 For stronger isolation, use a dedicated deploy user/key and restrict its SSH access as appropriate for your operations. The user needs Docker access to deploy containers.
 
 ## 4. Create the production environment file on the VPS
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["/opt/lms/.env giữ cấu hình production"]
+    N1["Compose nội suy env → biến từng container"]
+    N2["API options → DB, Redis, JWT, Mail, OAuth và storage"]
+    N3["Credential và volume hiện có cần đồng bộ khi thay cấu hình"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 Create `/opt/lms/.env` directly on the VPS, owned by the deployment user with mode `600`. Never commit or upload this file. The example below uses placeholders: replace them locally on the VPS, do not paste actual secrets into GitHub workflow YAML or this document.
 
@@ -104,6 +171,17 @@ The application seeds/promotes an account to the System role when both `SYSTEMAC
 
 ## 5. Allow VPS image pulls from GHCR
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Actions GITHUB_TOKEN → publish image GHCR"]
+    N1["VPS dùng credential chỉ đọc package → docker login"]
+    N2["Deploy user → pull đúng image và SHA"]
+    N0 --> N1
+    N1 --> N2
+```
+
 The images are published to these packages:
 
 - `ghcr.io/ngduczu/web-prog-assignment`
@@ -114,6 +192,17 @@ Make the packages private unless public distribution is intended. On the VPS, si
 In each GitHub repository, confirm Actions is enabled and the workflow token is allowed to publish packages. If GHCR reports that the package is not linked/authorized for the repository, grant that repository access to the package in the package's GitHub settings.
 
 ## 6. Add GitHub Actions secrets to both repositories
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Hai repository có bộ DEPLOY secrets riêng"]
+    N1["Actions checks → điều kiện branch/event"]
+    N2["SSH đúng host/user/path; backend cung cấp deploy.sh"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Add the same repository Actions secrets in **both** GitHub repositories:
 
@@ -130,6 +219,20 @@ Protect `main` with pull requests and required checks. Restrict who can modify w
 
 ## 7. First deployment (backend, then frontend)
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    B["Backend repository"] --> BC["Actions: restore, build Release, test, Docker build"]
+    F["Frontend repository"] --> FC["Actions: npm ci, lint, typecheck, build, Docker build"]
+    BC -->|Main push / manual main; checks pass| G["GHCR: image theo full commit SHA"]
+    FC -->|Main push / manual main; checks pass| G
+    G --> S["SSH VPS: deploy.sh; flock tối đa 300 giây"]
+    S --> E["Đổi tag trong .env → pull → compose up → ps"]
+    E --> A["API: migration / seed; frontend và nginx"]
+    A --> V["Kiểm chức năng thủ công; chưa có health gate / rollback tự động"]
+```
+
 The committed stack requires the external Docker network `tino_tino-network`, and nginx also has a default HTTP virtual host forwarding to `tino-web-prod:80`. This is a deployment-specific dependency, not a generic LMS service. Prepare that network or review a separate deployment configuration before using a clean VPS. The stack mounts `./letsencrypt` and `./certbot-www`; it does not provision certificates or contain a certbot renewal service. Valid certificate files for both domains must exist before nginx can start TLS. Arrange issuance/renewal separately; the workflow does not do it for you.
 
 1. Ensure `/opt/lms/.env` exists and is mode `600`, all mandatory values are filled, both DNS records resolve to the VPS, and the VPS can pull private GHCR packages.
@@ -144,6 +247,19 @@ Manual `workflow_dispatch` on main also publishes/deploys after checks. `deploy.
 
 ## 8. OAuth and public-service settings
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Browser authorize qua frontend host"]
+    N1["Google redirect về callback BFF cùng host"]
+    N2["Cookie binding → backend OAuthFlowService"]
+    N3["Public hub domain + AllowedOrigins + nginx Upgrade → SignalR"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 With the example domains above, set these environment values on the VPS. The Google callback must go through the frontend proxy so the browser returns the host-only OAuth binding cookie to the same hostname that issued it:
 
 - `OAUTH_GOOGLE_REDIRECT_URI=https://sfit-study.ducvu.site/api/backend/auth/oauth/Google/callback`
@@ -155,6 +271,19 @@ Do not enable OAuth until the domain, TLS, Google client credentials, and both c
 
 ## 9. Verify, operate, and recover
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Compose config --quiet / ps / logs"]
+    N1["Kiểm login, upload/download, chat trên môi trường bàn giao"]
+    N2["Nếu lỗi: đối chiếu image tag, migration và cấu hình"]
+    N3["Phục hồi có kế hoạch: image, schema và DB/files phù hợp"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 - Check container status and logs without dumping `.env` or secrets. Confirm the API completed database migration and the frontend is healthy through real user journeys.
 - Verify HTTPS redirects/certificates and the SignalR WebSocket connection from a real browser.
 - Set up off-VPS encrypted PostgreSQL backups and test restoring one. Docker volumes are persistence, not backups. Back up uploads too, or move them to S3/object storage before depending on them.
@@ -163,6 +292,19 @@ Do not enable OAuth until the domain, TLS, Google client credentials, and both c
 - For a rollback, update only the relevant `*_IMAGE_TAG` in `/opt/lms/.env` to a previously published 40-character commit SHA, then run `docker compose --env-file /opt/lms/.env -f /opt/lms/docker-compose.prod.yml pull api` (or `frontend`) followed by `docker compose --env-file /opt/lms/.env -f /opt/lms/docker-compose.prod.yml up -d api` (or `frontend nginx`). Be aware an older API image may not be compatible with a newer database schema; restore/rollback planning must account for migrations.
 
 ## Files introduced for deployment
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Dockerfile → image"]
+    N1["ci-deploy.yml → checks, GHCR, SSH"]
+    N2["deploy.sh + docker-compose.prod.yml → rollout"]
+    N3["nginx.conf.template → TLS routing và WebSocket"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
 
 - Backend: `Dockerfile`, `.dockerignore`, `docker-compose.prod.yml`, `nginx.conf.template`, `deploy.sh`, `.github/workflows/ci-deploy.yml`.
 - Frontend: `Dockerfile`, `.dockerignore`, `.github/workflows/ci-deploy.yml`.

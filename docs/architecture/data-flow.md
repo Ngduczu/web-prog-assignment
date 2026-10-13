@@ -6,6 +6,26 @@ Tài liệu này mô tả dữ liệu đi qua những thành phần nào cho t�
 
 ## 1. Pipeline chung của mọi request
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    C["HTTP request"] --> E["UseExceptionHandler bao quanh pipeline"]
+    E --> R["Rate limiter trong memory: IP và nhóm path"]
+    R -->|Vượt quota| Q["429"]
+    R -->|Được phép| O["CORS nếu cấu hình; HTTPS redirect ngoài Testing"]
+    O --> J["JwtBearer: kiểm token nếu được gửi"]
+    J -->|"Token qua chữ ký, issuer, audience, hạn, token_use"| U["PostgreSQL users: Active, role, auth_version"]
+    J -->|"Không có token: chỉ action Public được đi tiếp"| A
+    U --> A["Authorization và model binding"]
+    A --> S["Controller hoặc ChatHub → Application service"]
+    S --> G["Quyền tài nguyên, validation, domain rules"]
+    G --> I["Repository / adapter cần cho chức năng"]
+    I --> D["DTO JSON hoặc file stream trả client"]
+    U -->|Token không hợp lệ| X["401"]
+    G -->|Exception| H["GlobalExceptionHandler → ProblemDetails"]
+```
+
 Thứ tự middleware trong `Program.cs`:
 
 ```text
@@ -70,6 +90,40 @@ sequenceDiagram
 
 ## 3. Đăng ký và xác thực email
 
+Bổ sung bản hiển thị tương thích Mermaid: dấu chấm phẩy trong nhãn của bản cũ bị parser hiểu là dấu kết thúc câu lệnh. Bản gốc được giữ nguyên trong khối mã tham chiếu ngay sau sơ đồ này.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as RegistrationService
+    participant DB as PostgreSQL
+    participant R as Redis
+    participant M as SMTP
+    C->>S: POST /api/auth/register
+    S->>DB: GetByEmail (đã có Active → 409, Inactive + cùng mật khẩu → gửi lại mã)
+    S->>DB: INSERT user (Student, Inactive, hash mật khẩu)
+    S->>R: SET NX auth:email-verification-cooldown TTL 1m (đã tồn tại → 409)
+    S->>R: SET auth:email-verification = {userId, email, hash(code)} TTL 15m
+    S->>M: gửi mã 6 ký tự
+    alt SMTP lỗi
+        S->>R: DEL code, attempts, cooldown
+        S-->>C: lỗi (500), user vẫn nằm trong DB ở trạng thái Inactive
+    end
+    S-->>C: 201 {userId, email, status, verificationCodeExpiresAt}
+    C->>S: POST /api/auth/verify-email {email, verificationCode}
+    S->>R: GET entry, INCR attempts (>5 → xóa mã, 409)
+    S->>S: verify hash(code) bằng PasswordHasher
+    S->>R: GET+DEL entry (atomic)
+    S->>DB: user.Status = Active, SaveChanges
+    alt DB lỗi
+        S->>R: SET lại entry, hoàn tác Status trong bộ nhớ
+    end
+    S->>R: DEL attempts, cooldown
+```
+
+Mã sơ đồ gốc (giữ nguyên để đối chiếu):
+
+````text
 ```mermaid
 sequenceDiagram
     participant C as Client
@@ -98,10 +152,28 @@ sequenceDiagram
     end
     S->>R: DEL attempts, cooldown
 ```
+````
 
 Mã xác thực **không** lưu dạng thô trong Redis mà lưu hash (cùng `PasswordHasher` với mật khẩu). Bảng chữ cái mã: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (bỏ `I`, `O`, `0`, `1`).
 
 ## 4. Quên và đặt lại mật khẩu
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Forgot: Controller → PasswordResetService → users PostgreSQL"] --> B{"Local, Active và lấy được cooldown?"}
+    B -->|Không| C["200 accepted; không gửi mail"]
+    B -->|Có| D["Redis: cooldown 1 phút; hash mã 15 phút"]
+    D --> M["SMTP gửi mã"]
+    M -->|Lỗi| E["Dọn code và cooldown; trả lỗi"]
+    M -->|Thành công| C
+    R["Reset: email, code, mật khẩu mới"] --> I["Redis: đọc entry, tăng attempts; verify hash"]
+    I --> N["Consume mã atomic; hash mật khẩu mới"]
+    N --> P["PostgreSQL: password_hash và auth_version cùng commit"]
+    P -->|Lỗi| F["Hoàn tác trong memory; SET lại entry 15 phút"]
+    P -->|Thành công| V["Dọn cache best-effort; token cũ bị từ chối ở lần kiểm tra tiếp"]
+```
 
 ```text
 POST /api/auth/forgot-password
@@ -122,6 +194,37 @@ POST /api/auth/reset-password
 
 ## 5. Google OAuth (Authorization Code + PKCE)
 
+Bổ sung bản hiển thị tương thích Mermaid: dấu chấm phẩy trong nhãn của bản cũ bị parser hiểu là dấu kết thúc câu lệnh. Bản gốc được giữ nguyên trong khối mã tham chiếu ngay sau sơ đồ này.
+
+```mermaid
+sequenceDiagram
+    participant B as Trình duyệt
+    participant A as API
+    participant R as Redis
+    participant G as Google
+    participant DB as PostgreSQL
+    B->>A: GET /api/auth/oauth/Google/authorize
+    A->>A: codeVerifier, state, browserBinding ngẫu nhiên
+    A->>R: SET NX auth:oauth-state:{state} {verifier, hash(binding), purpose, userId?} TTL 10m
+    A-->>B: {authorizationUrl} + cookie __Host-LMS.OAuth.{state}
+    B->>G: đăng nhập, đồng ý
+    G-->>B: redirect callback?code&state
+    B->>A: GET /callback (kèm cookie binding)
+    A->>R: GET state, so khớp provider + hash(cookie) (FixedTimeEquals)
+    A->>R: GET+DEL state (atomic)
+    A->>G: đổi code lấy token, lấy userinfo
+    A->>R: SET auth:oauth-identity:{hash} (userinfo, TTL 10m, để retry)
+    A->>DB: tìm user theo (provider, providerUserId) hoặc theo email
+    A->>R: SET NX auth:oauth-login-code:{sha256} {userId} TTL 2m
+    A-->>B: 302 {ClientCallbackUri}?loginCode=...
+    B->>A: POST /api/auth/login-code {loginCode}
+    A->>R: GET+DEL (atomic)
+    A-->>B: cặp token
+```
+
+Mã sơ đồ gốc (giữ nguyên để đối chiếu):
+
+````text
 ```mermaid
 sequenceDiagram
     participant B as Trình duyệt
@@ -147,6 +250,7 @@ sequenceDiagram
     A->>R: GET+DEL (atomic)
     A-->>B: cặp token
 ```
+````
 
 Quy tắc xử lý user ở callback đăng nhập (`AuthenticationService.LoginWithOAuthAsync`):
 
@@ -191,6 +295,20 @@ sequenceDiagram
 
 ## 7. Enrollment (đăng ký học)
 
+Trạng thái enrollment trong PostgreSQL; accept/thêm bằng email kiểm sĩ số trong transaction Serializable:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Waiting: Student đăng ký course Open
+    [*] --> Accepted: Teacher hoặc Admin thêm bằng email
+    Waiting --> Accepted: Duyệt, Open và còn chỗ
+    Waiting --> Rejected: Từ chối
+    Waiting --> Cancelled: Student hủy
+    Accepted --> Cancelled: Student rời hoặc quản lý revoke
+    Rejected --> Waiting: Đăng ký lại, dùng cùng row
+    Cancelled --> Waiting: Đăng ký lại, dùng cùng row
+```
+
 ```text
 POST /courses/{id}/enrollments (Student)
   course tồn tại (không xóa mềm) và Status == Open, nếu không → 404 / 409
@@ -207,6 +325,21 @@ POST /enrollments/{id}/accept | reject      ── transaction SERIALIZABLE
 ```
 
 ## 8. Vòng đời course và chat room
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["CourseService kiểm chủ course hoặc Admin/System"] --> B{"Thao tác"}
+    B -->|Đóng course| C["courses.Status = Closed; chat room archive"]
+    B -->|Xóa mềm| D["courses.DeletedAt; chat room archive"]
+    B -->|Mở hoặc restore| E["Bỏ archive nếu course Open"]
+    C --> F["PostgreSQL SaveChanges"]
+    D --> F
+    E --> F
+    F --> G["Closed: Accepted vẫn đọc nội dung; ngừng tuyển"]
+    F --> H["DeletedAt: EF query filter ẩn course và dữ liệu con"]
+```
 
 `CourseService.UpdateAsync/DeleteAsync/RestoreAsync` luôn gọi `ChatRoom.SynchronizeWithCourse(course)` trước `SaveChanges`:
 
@@ -296,6 +429,21 @@ Worker chấm với `reason` từ `AttemptDeadline.GetExpiredReason`, rồi `Sav
 
 ## 10. Tạo kỳ thi và snapshot câu hỏi
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    A["Teacher chủ course hoặc Admin/System → ExaminationService"] --> B["Serializable; validate cấu hình và quyền"]
+    B --> C{"Chọn câu"}
+    C -->|Random| R["Bank của teacher course → lọc difficulty → đủ số lượng → shuffle"]
+    C -->|Manual| M["Question IDs theo thứ tự; kiểm bank của teacher course"]
+    R --> S["Tạo examination_questions và snapshot đáp án"]
+    M --> S
+    S --> P["PostgreSQL: lưu exam, rules, snapshot và options"]
+    P --> K["Ghi correct_option_id sau khi lưu options; commit"]
+    K --> Q["Attempt dùng snapshot độc lập với câu hỏi nguồn"]
+```
+
 `ExaminationService.CreateAsync` (transaction Serializable):
 
 ```text
@@ -318,6 +466,22 @@ Câu hỏi nguồn bị sửa/xóa sau đó **không** ảnh hưởng kỳ thi (
 
 ## 11. Nộp bài tập và chấm điểm
 
+Vòng đời bài nộp; service lưu PostgreSQL trong transaction Serializable và kiểm row-version:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft: Upload file
+    Draft --> Draft: Thay file, enqueue file cũ
+    Draft --> Submitted: Có file, Published, chưa quá hạn
+    Submitted --> Draft: Unsubmit, Published, chưa quá hạn
+    Submitted --> Graded: Teacher chủ hoặc Admin chấm 0 đến 10
+    Graded --> Graded: Chấm lại
+    note right of Graded
+        Không unsubmit hoặc thay file.
+        PostgreSQL lưu điểm và feedback.
+    end note
+```
+
 ```text
 POST /exercises/{id}/submissions (Student, multipart)
   validate file → student có enrollment Accepted → exercise phải Published (409)
@@ -339,6 +503,27 @@ PUT  /submissions/{id}/grade     : Teacher sở hữu/Admin; Submitted hoặc Gr
 
 ## 12. Chat
 
+Bổ sung bản hiển thị tương thích Mermaid: dấu chấm phẩy trong nhãn của bản cũ bị parser hiểu là dấu kết thúc câu lệnh. Bản gốc được giữ nguyên trong khối mã tham chiếu ngay sau sơ đồ này.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as ChatsController / ChatHub
+    participant S as ChatService
+    participant DB as PostgreSQL
+    participant H as SignalR Group chat-room:{roomId}
+    C->>API: POST /api/chat/rooms/{id}/messages (hoặc hub SendMessage)
+    API->>S: SendMessageAsync
+    S->>DB: load room + kiểm tra quyền hiện tại (course/enrollment/participant)
+    S->>S: room archived → 409, content ≤ 4000, reply phải cùng room và chưa xóa
+    S->>DB: INSERT message
+    API->>H: MessageReceived(message)
+    API-->>C: 201 message
+```
+
+Mã sơ đồ gốc (giữ nguyên để đối chiếu):
+
+````text
 ```mermaid
 sequenceDiagram
     participant C as Client
@@ -354,6 +539,7 @@ sequenceDiagram
     API->>H: MessageReceived(message)
     API-->>C: 201 message
 ```
+````
 
 - Course room: quyền được tính lại mỗi lần từ course + enrollment (`EnsureCourseAuthorizationAsync`): Teacher của course, Admin, hoặc student `Accepted`. Người có quyền được tự thêm vào `ChatParticipant` khi truy cập (`EnsureCourseParticipantAsync`).
 - Direct room: phải là participant. Tạo room dùng `DirectMessageKey` duy nhất (unique index) nên hai user chỉ có một room.
@@ -365,8 +551,43 @@ sequenceDiagram
 
 ## 13. Chia sẻ ngân hàng câu hỏi và quyền quản trị
 
+Luồng xử lý và dữ liệu:
+
+```mermaid
+sequenceDiagram
+    participant T as Teacher chủ bank
+    participant S as QuestionService
+    participant DB as PostgreSQL
+    participant M as SMTP
+    T->>S: Share bank theo recipientEmail
+    S->>DB: Kiểm bank và Teacher nhận Active
+    S->>DB: Transaction: copy bank, questions và đáp án
+    S->>DB: Lưu correct option sau options, commit
+    S->>M: SendQuestionBankSharedAsync
+    Note over DB,M: Mail lỗi thường bị bỏ qua, bản sao vẫn tồn tại
+    S-->>T: DTO bản sao
+    Note over T,DB: Admin/System chỉ đọc ngân hàng, không được share
+```
+
 `POST /api/question-banks/{id}/share`: Teacher chủ bank → tìm Teacher Active theo email → transaction sao chép bank, câu hỏi, options/answer keys → lưu correct option sau khi lưu options → commit → SMTP `SendQuestionBankSharedAsync`. Mail lỗi thông thường được bỏ qua sau commit; không có queue gửi lại. Hủy request có thể vẫn làm response lỗi sau khi bản sao đã tồn tại, nên kiểm tra trước khi gửi lại.
 
 Admin/System chỉ đọc bank/câu hỏi, dù được quản lý kỳ thi và dùng bank của teacher sở hữu course. `GET question-banks` không có teacherId trả toàn bộ bank cho Admin/System; `ownerSearch` lọc tên/email chủ trong bộ nhớ.
 
 `SystemAccountSeeder` chạy sau migration, bỏ qua khi thiếu email/password hoặc độ dài password không hợp lệ. Tạo mới System Active nếu chưa có email; nếu đã có user không phải System thì nâng role và tăng AuthVersion, giữ nguyên password/status. Nếu đã là System thì không cập nhật gì. Unique filtered index chặn System thứ hai.
+
+## Bổ sung đối chiếu transaction của thao tác lưu đáp án
+
+`SaveMultipleChoiceAnswerAsync` và `SaveFillInBlankAnswerAsync` gọi `SaveChangesAsync` trực tiếp, không bọc `ExecuteSerializableAsync`. Chúng yêu cầu attempt `InProgress`, kiểm enrollment và deadline; hết hạn trả `409`. Cập nhật activity làm row-version `xmin` của attempt tham gia phát hiện xung đột. Các thao tác start/disconnect/reconnect/violation/submit/auto-submit/reset mới dùng transaction Serializable tường minh. Nguồn: [ExaminationAttemptService](../../LMS.Api/application/features/examinationattempts/ExaminationAttemptService.cs).
+
+Luồng xử lý và dữ liệu:
+
+```mermaid
+flowchart TD
+    N0["Student gửi đáp án → GetAnswerContextAsync"]
+    N1["Kiểm chủ, InProgress, Accepted và còn thời gian"]
+    N2["Cập nhật answer + TouchActivity"]
+    N3["SaveChangesAsync → PostgreSQL kiểm xmin; xung đột → 409"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```

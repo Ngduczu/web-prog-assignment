@@ -4,6 +4,19 @@
 
 ## Cách diễn giải trong báo cáo
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Source Fact/Theory → danh mục tình huống"]
+    N1["Chạy với SDK/commit và fixture cụ thể"]
+    N2["Ghi pass/fail/skip và provider thật/fake"]
+    N3["TRX / artifact là bằng chứng; danh mục không phải kết quả"]
+    N0 --> N1
+    N1 --> N2
+    N2 --> N3
+```
+
 - Domain: kiểm tra invariant/state transitions trong bộ nhớ.
 - Application: đa số dependency được mock/fake; chứng minh các nhánh service, không chứng minh provider thật.
 - Integration WebApplicationFactory: HTTP/binding/auth/hub trong test host; cache/auth/repository có thể bị thay thế.
@@ -15,6 +28,17 @@
 Khi viết kết quả kiểm thử, ghi commit, SDK/runtime, lệnh, môi trường/fake/provider thật, số pass/fail/skip và artifact TRX/coverage thực tế. Chưa đo hiệu năng/load/accessibility hoặc tỷ lệ coverage thì ghi “chưa đo”, không tự điền con số.
 
 ## AuthenticationApplicationTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["AuthenticationService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [AuthenticationApplicationTests.cs](<../LMS.Domain.Tests/Application/AuthenticationApplicationTests.cs>).
 
@@ -40,6 +64,17 @@ Nguồn: [AuthenticationApplicationTests.cs](<../LMS.Domain.Tests/Application/Au
 | Fact | `AccessTokenContainsOnlySelectedAccountClaims` |
 
 ## ChatApplicationTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["ChatService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [ChatApplicationTests.cs](<../LMS.Domain.Tests/Application/ChatApplicationTests.cs>).
 
@@ -73,6 +108,17 @@ Nguồn: [ChatApplicationTests.cs](<../LMS.Domain.Tests/Application/ChatApplicat
 
 ## CourseApplicationTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["CourseService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [CourseApplicationTests.cs](<../LMS.Domain.Tests/Application/CourseApplicationTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -102,6 +148,17 @@ Nguồn: [CourseApplicationTests.cs](<../LMS.Domain.Tests/Application/CourseAppl
 
 ## CourseContentApplicationTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["LessonService / ExerciseService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [CourseContentApplicationTests.cs](<../LMS.Domain.Tests/Application/CourseContentApplicationTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -124,6 +181,17 @@ Nguồn: [CourseContentApplicationTests.cs](<../LMS.Domain.Tests/Application/Cou
 | Fact | `ReorderingRequiresCompleteLessonList` |
 
 ## ExaminationAttemptApplicationTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["ExaminationAttemptService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [ExaminationAttemptApplicationTests.cs](<../LMS.Domain.Tests/Application/ExaminationAttemptApplicationTests.cs>).
 
@@ -153,6 +221,17 @@ Nguồn: [ExaminationAttemptApplicationTests.cs](<../LMS.Domain.Tests/Applicatio
 
 ## ExaminationAuthoringTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["ExaminationService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [ExaminationAuthoringTests.cs](<../LMS.Domain.Tests/Application/ExaminationAuthoringTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -169,6 +248,17 @@ Nguồn: [ExaminationAuthoringTests.cs](<../LMS.Domain.Tests/Application/Examina
 
 ## PasswordResetApplicationTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["PasswordResetService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [PasswordResetApplicationTests.cs](<../LMS.Domain.Tests/Application/PasswordResetApplicationTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -180,6 +270,17 @@ Nguồn: [PasswordResetApplicationTests.cs](<../LMS.Domain.Tests/Application/Pas
 | Fact | `ForgotPasswordCanBeRetriedImmediatelyAfterMailFailure` |
 
 ## QuestionApplicationTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["QuestionService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [QuestionApplicationTests.cs](<../LMS.Domain.Tests/Application/QuestionApplicationTests.cs>).
 
@@ -202,6 +303,17 @@ Nguồn: [QuestionApplicationTests.cs](<../LMS.Domain.Tests/Application/Question
 
 ## RegistrationApplicationTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["RegistrationService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [RegistrationApplicationTests.cs](<../LMS.Domain.Tests/Application/RegistrationApplicationTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -223,6 +335,17 @@ Nguồn: [RegistrationApplicationTests.cs](<../LMS.Domain.Tests/Application/Regi
 
 ## SubmissionApplicationTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["SubmissionService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [SubmissionApplicationTests.cs](<../LMS.Domain.Tests/Application/SubmissionApplicationTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -236,6 +359,17 @@ Nguồn: [SubmissionApplicationTests.cs](<../LMS.Domain.Tests/Application/Submis
 | Fact | `GradeRechecksStatusInsideSerializableTransaction` |
 
 ## UserApplicationTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Fixture và mock/fake dependency"]
+    N1["UserService: use case, quyền, validation và nhánh lỗi"]
+    N2["Assert DTO/trạng thái và tương tác dependency theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [UserApplicationTests.cs](<../LMS.Domain.Tests/Application/UserApplicationTests.cs>).
 
@@ -268,6 +402,17 @@ Nguồn: [UserApplicationTests.cs](<../LMS.Domain.Tests/Application/UserApplicat
 
 ## ChatMessageTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["ChatMessage: entity với dữ liệu trong memory"]
+    N1["Gọi hành vi / chuyển trạng thái"]
+    N2["Assert invariant và exception theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [ChatMessageTests.cs](<../LMS.Domain.Tests/Chats/ChatMessageTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -280,6 +425,17 @@ Nguồn: [ChatMessageTests.cs](<../LMS.Domain.Tests/Chats/ChatMessageTests.cs>).
 | Fact | `ContentLongerThanDatabaseColumnIsRejectedForCreateAndEdit` |
 
 ## ChatRoomTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["ChatRoom: entity với dữ liệu trong memory"]
+    N1["Gọi hành vi / chuyển trạng thái"]
+    N2["Assert invariant và exception theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [ChatRoomTests.cs](<../LMS.Domain.Tests/Chats/ChatRoomTests.cs>).
 
@@ -294,6 +450,17 @@ Nguồn: [ChatRoomTests.cs](<../LMS.Domain.Tests/Chats/ChatRoomTests.cs>).
 
 ## CourseTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Course: entity với dữ liệu trong memory"]
+    N1["Gọi hành vi / chuyển trạng thái"]
+    N2["Assert invariant và exception theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [CourseTests.cs](<../LMS.Domain.Tests/Courses/CourseTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -302,6 +469,17 @@ Nguồn: [CourseTests.cs](<../LMS.Domain.Tests/Courses/CourseTests.cs>).
 | Fact | `DeleteAlreadyDeletedCourseThrows` |
 
 ## EnrollmentTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Enrollment: entity với dữ liệu trong memory"]
+    N1["Gọi hành vi / chuyển trạng thái"]
+    N2["Assert invariant và exception theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [EnrollmentTests.cs](<../LMS.Domain.Tests/Courses/EnrollmentTests.cs>).
 
@@ -312,6 +490,17 @@ Nguồn: [EnrollmentTests.cs](<../LMS.Domain.Tests/Courses/EnrollmentTests.cs>).
 
 ## SubmissionTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Submission: entity với dữ liệu trong memory"]
+    N1["Gọi hành vi / chuyển trạng thái"]
+    N2["Assert invariant và exception theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [SubmissionTests.cs](<../LMS.Domain.Tests/Courses/SubmissionTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -319,6 +508,17 @@ Nguồn: [SubmissionTests.cs](<../LMS.Domain.Tests/Courses/SubmissionTests.cs>).
 | Fact | `UnsubmitReturnsSubmissionToCleanDraftState` |
 
 ## ExaminationAttemptTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["ExaminationAttempt: entity với dữ liệu trong memory"]
+    N1["Gọi hành vi / chuyển trạng thái"]
+    N2["Assert invariant và exception theo từng case"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [ExaminationAttemptTests.cs](<../LMS.Domain.Tests/Examinations/ExaminationAttemptTests.cs>).
 
@@ -328,6 +528,17 @@ Nguồn: [ExaminationAttemptTests.cs](<../LMS.Domain.Tests/Examinations/Examinat
 | Fact | `SubmittedAttemptCannotBeSubmittedAgain` |
 
 ## AuthenticationApiTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["WebApplicationFactory + dependency test"]
+    N1["HTTP auth / OAuth / binding"]
+    N2["Assert status, cookie, token và consume"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [AuthenticationApiTests.cs](<../LMS.Domain.Tests/Integration/AuthenticationApiTests.cs>).
 
@@ -353,6 +564,16 @@ Nguồn: [AuthenticationApiTests.cs](<../LMS.Domain.Tests/Integration/Authentica
 
 ## FileCleanupQueueIntegrationTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    E{"Có CONNECTIONSTRINGS__DEFAULTCONNECTION?"} -->|Không| R["Return sớm; chưa kiểm chứng DB"]
+    E -->|Có DB test được phép| D["PostgreSQL thật: enqueue trùng đồng thời"]
+    D --> A["Assert chỉ có một task, cả hai save không lỗi"]
+    A --> C["Dọn dữ liệu test"]
+```
+
 Nguồn: [FileCleanupQueueIntegrationTests.cs](<../LMS.Domain.Tests/Integration/FileCleanupQueueIntegrationTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -361,6 +582,17 @@ Nguồn: [FileCleanupQueueIntegrationTests.cs](<../LMS.Domain.Tests/Integration/
 
 ## JsonContractTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["JSON serializer options"]
+    N1["Serialize/deserialize enum"]
+    N2["Assert tên enum trong request/response"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [JsonContractTests.cs](<../LMS.Domain.Tests/Integration/JsonContractTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -368,6 +600,17 @@ Nguồn: [JsonContractTests.cs](<../LMS.Domain.Tests/Integration/JsonContractTes
 | Fact | `EnumsUseNamesInRequestsAndResponses` |
 
 ## SignalRAuthenticationTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Test host + JWT + SignalR client"]
+    N1["Negotiate/connect/reconnect/protected hub method"]
+    N2["Assert token scope, expiry và AuthVersion"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [SignalRAuthenticationTests.cs](<../LMS.Domain.Tests/Integration/SignalRAuthenticationTests.cs>).
 
@@ -384,6 +627,17 @@ Nguồn: [SignalRAuthenticationTests.cs](<../LMS.Domain.Tests/Integration/Signal
 
 ## AppDbContextModelTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["AppDbContext relational model"]
+    N1["Index, entity, create script, concurrency và policy"]
+    N2["Assert metadata; không suy ra DB production đã migrate"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [AppDbContextModelTests.cs](<../LMS.Domain.Tests/Persistence/AppDbContextModelTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -398,6 +652,17 @@ Nguồn: [AppDbContextModelTests.cs](<../LMS.Domain.Tests/Persistence/AppDbConte
 
 ## ChatsControllerTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Mock ChatService và hub context"]
+    N1["Controller lưu qua service rồi broadcast"]
+    N2["Assert response và event/payload"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [ChatsControllerTests.cs](<../LMS.Domain.Tests/Presentation/ChatsControllerTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -409,6 +674,17 @@ Nguồn: [ChatsControllerTests.cs](<../LMS.Domain.Tests/Presentation/ChatsContro
 
 ## FileCleanupTaskTests
 
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["FileCleanupTask trong memory"]
+    N1["RecordFailure và next attempt"]
+    N2["Assert lỗi và lịch retry được giữ"]
+    N0 --> N1
+    N1 --> N2
+```
+
 Nguồn: [FileCleanupTaskTests.cs](<../LMS.Domain.Tests/Storage/FileCleanupTaskTests.cs>).
 
 | Loại | Tình huống (tên test trong mã nguồn) |
@@ -416,6 +692,17 @@ Nguồn: [FileCleanupTaskTests.cs](<../LMS.Domain.Tests/Storage/FileCleanupTaskT
 | Fact | `FailureIsRetainedForADeferredRetry` |
 
 ## LocalFileStorageTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Temporary filesystem + upload streams"]
+    N1["LocalFileStorage validate / write / read / delete"]
+    N2["Assert bytes, size và path traversal"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [LocalFileStorageTests.cs](<../LMS.Domain.Tests/Storage/LocalFileStorageTests.cs>).
 
@@ -430,6 +717,17 @@ Nguồn: [LocalFileStorageTests.cs](<../LMS.Domain.Tests/Storage/LocalFileStorag
 | Fact | `UploadRejectsContentThatExceedsDeclaredLength` |
 
 ## S3FileStorageTests
+
+Phạm vi kiểm chứng của nhóm test; sơ đồ không biểu thị test đã được chạy:
+
+```mermaid
+flowchart TD
+    N0["Mock IAmazonS3 + storage options"]
+    N1["S3FileStorage tạo request upload/read/delete"]
+    N2["Assert SDK request; không gọi bucket thật"]
+    N0 --> N1
+    N1 --> N2
+```
 
 Nguồn: [S3FileStorageTests.cs](<../LMS.Domain.Tests/Storage/S3FileStorageTests.cs>).
 
